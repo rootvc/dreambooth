@@ -1,5 +1,6 @@
 from diffusers import StableDiffusionPipeline
-from params import HyperParams
+
+from dreambooth.params import HyperParams
 
 
 def download_model():

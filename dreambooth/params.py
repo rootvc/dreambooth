@@ -38,3 +38,6 @@ class HyperParams(BaseModel):
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 25
+
+    class Config:
+        arbitrary_types_allowed = True

@@ -26,13 +26,14 @@ from diffusers import (
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
-from params import HyperParams, Model
 from PIL import Image
 from pydantic import BaseModel
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel, PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
+
+from dreambooth.params import HyperParams, Model
 
 T = TypeVar("T")
 

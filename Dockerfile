@@ -14,7 +14,7 @@ RUN pip3 install -U --pre -r requirements.txt
 ADD dreambooth/params.py dreambooth/params.py
 ADD dreambooth/download.py dreambooth/download.py
 
-RUN python3 dreambooth/download.py
+RUN python3 -m dreambooth.download
 
 ADD . .
 
