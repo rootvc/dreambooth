@@ -1,6 +1,5 @@
 from diffusers import StableDiffusionPipeline
-
-from dreambooth.utils import Trainer, get_params
+from utils import Trainer, get_params
 
 
 def download_model():
