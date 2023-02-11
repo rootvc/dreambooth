@@ -12,6 +12,7 @@ class Model(BaseModel):
 
 class HyperParams(BaseModel):
     dtype: torch.dtype = torch.float16
+    gradient_accumulation_steps: int = 2
 
     # Model
     model: Model = Model()

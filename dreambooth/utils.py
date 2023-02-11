@@ -212,7 +212,11 @@ class Trainer:
         self.priors_dir = Path(tempfile.mkdtemp())
         self.output_dir = Path(tempfile.mkdtemp())
 
-        self.accelerator = Accelerator(mixed_precision="fp16", log_with="wandb")
+        self.accelerator = Accelerator(
+            mixed_precision="fp16",
+            log_with="wandb",
+            gradient_accumulation_steps=self.params.gradient_accumulation_steps,
+        )
         self.logger = get_logger(__name__)
         self.logger.info(self.accelerator.state)
 
@@ -267,10 +271,7 @@ class Trainer:
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
         ).to(self.accelerator.device, dtype=self.params.dtype)
-        try:
-            unet.enable_xformers_memory_efficient_attention()
-        except ValueError:
-            pass
+        unet.enable_xformers_memory_efficient_attention()
         return unet
 
     def generate_priors(self) -> Class:
@@ -450,7 +451,7 @@ class Trainer:
                     )
                 optimizer.step()
                 models["lr_scheduler"].step()
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
@@ -502,23 +503,32 @@ class Trainer:
             dataset,
             batch_size=self.params.batch_size,
             shuffle=True,
+            pin_memory=True,
+            pin_memory_device=self.accelerator.device,
             collate_fn=dataset.loader_collate_fn,
             num_workers=self.params.loading_workers,
         )
 
-        max_train_steps = self.params.train_epochs * len(loader)
+        steps_per_epoch = math.ceil(
+            len(loader) / self.params.gradient_accumulation_steps
+        )
+        max_train_steps = self.params.train_epochs * steps_per_epoch
         lr_scheduler = get_scheduler(
             self.params.lr_scheduler,
             optimizer=optimizer,
-            num_warmup_steps=self.params.lr_warmup_steps,
-            num_training_steps=max_train_steps,
+            num_warmup_steps=self.params.lr_warmup_steps
+            * self.params.gradient_accumulation_steps,
+            num_training_steps=max_train_steps
+            * self.params.gradient_accumulation_steps,
         )
 
         lora_layers, optimizer, loader, lr_scheduler = self.accelerator.prepare(
             lora_layers, optimizer, loader, lr_scheduler
         )
 
-        steps_per_epoch = len(loader)  # may have changed post-accelerate
+        steps_per_epoch = math.ceil(
+            len(loader) / self.params.gradient_accumulation_steps
+        )  # may have changed post-accelerate
         epochs = math.ceil(max_train_steps / steps_per_epoch)
 
         if self.accelerator.is_main_process:
@@ -548,10 +558,11 @@ def get_params() -> HyperParams:
     return HyperParams(
         model=Model(name="runwayml/stable-diffusion-v1-5", resolution=512),
         prior_prompt="a photo of a person",
+        batch_size=1,
     )
 
 
-def get_model(*, instance_images: list[bytes], local_rank: int = 1):
+def get_model(*, instance_images: list[bytes]):
     with tempfile.TemporaryDirectory() as tmpdir:
         for data in instance_images:
             with open(os.path.join(tmpdir, hash_bytes(data)), "wb") as f:
