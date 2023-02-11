@@ -578,6 +578,13 @@ class Trainer:
         return images
 
 
+def get_params() -> HyperParams:
+    return HyperParams(
+        model=Model(name="runwayml/stable-diffusion-v1-5", resolution=512),
+        prior_prompt="a photo of a person",
+    )
+
+
 def get_model(*, instance_images: list[bytes], local_rank: int = 1):
     with tempfile.TemporaryDirectory() as tmpdir:
         for data in instance_images:
@@ -585,8 +592,5 @@ def get_model(*, instance_images: list[bytes], local_rank: int = 1):
                 f.write(data)
         return Trainer(
             instance_class=Class(prompt="a photo of sks person", data=Path(tmpdir)),
-            params=HyperParams(
-                model=Model(name="runwayml/stable-diffusion-v1-5", resolution=512),
-                prior_prompt="a photo of a person",
-            ),
+            params=get_params(),
         )

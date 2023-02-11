@@ -1,9 +1,11 @@
 import os
+
+os.environ["ACCELERATE_LOG_LEVEL"] = "DEBUG"
+
+
 from pathlib import Path
 
 from dreambooth.utils import get_model
-
-os.environ["ACCELERATE_LOG_LEVEL"] = "DEBUG"
 
 
 def test_model():

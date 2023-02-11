@@ -1,13 +1,16 @@
-# In this file, we define download_model
-# It runs during container build time to get model weights built into the container
+from diffusers import StableDiffusionPipeline
 
-# In this example: A Huggingface BERT model
+from dreambooth.utils import Trainer, get_params
 
-from transformers import pipeline
 
 def download_model():
-    # do a dry run of loading the huggingface model, which will download weights
-    pipeline('fill-mask', model='bert-base-uncased')
+    params = get_params()
+    StableDiffusionPipeline.from_pretrained(
+        params.model.name,
+        revision=params.model.revision,
+        torch_dtype=Trainer.DTYPE,
+    )
+
 
 if __name__ == "__main__":
     download_model()
