@@ -558,7 +558,8 @@ def get_params() -> HyperParams:
     return HyperParams(
         model=Model(name="runwayml/stable-diffusion-v1-5", resolution=512),
         prior_prompt="a photo of a person",
-        batch_size=1,
+        batch_size=4,
+        gradient_accumulation_steps=1,
     )
 
 
