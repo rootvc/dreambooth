@@ -26,6 +26,7 @@ from diffusers import (
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
+from params import HyperParams, Model
 from PIL import Image
 from pydantic import BaseModel
 from torch.utils.data import DataLoader, Dataset, IterableDataset
@@ -42,12 +43,6 @@ class Class(BaseModel):
 
     def check(self):
         return self.data.exists()
-
-
-class Model(BaseModel):
-    name: str
-    resolution: int
-    revision: Optional[str] = None
 
 
 class PromptDataset(Dataset):
@@ -190,34 +185,6 @@ class DreamBoothDataset(IterableDataset):
         return {**self._instance_image(index), **self._prior_image(index)}
 
 
-class HyperParams(BaseModel):
-    # Model
-    model: Model
-    prior_prompt: str
-    prior_samples: int = 100
-    batch_size: int = 8
-
-    # Optimizer
-    learning_rate: float = 1e-4
-    betas: tuple[float, float] = (0.9, 0.999)
-    weight_decay: float = 1e-2
-    epsilon: float = 1e-8
-
-    # Training
-    loading_workers: int = 4
-    train_epochs: int = 1
-    lr_scheduler: str = "constant"
-    lr_warmup_steps: int = 500
-    prior_loss_weight: float = 1.0
-    max_grad_norm: float = 1.0
-
-    # Validation
-    validate_every: int = 50  # epochs
-    validation_prompt_suffix: str = "in a cowboy costume"
-    validation_samples: int = 4
-    validation_steps: int = 25
-
-
 def hash_bytes(b: bytes) -> str:
     return hashlib.sha1(b).hexdigest()
 
@@ -237,8 +204,6 @@ def _main_process_only(f):
 
 
 class Trainer:
-    DTYPE = torch.bfloat16
-
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
         self.params = params
@@ -246,7 +211,7 @@ class Trainer:
         self.priors_dir = Path(tempfile.mkdtemp())
         self.output_dir = Path(tempfile.mkdtemp())
 
-        self.accelerator = Accelerator(mixed_precision="bf16", log_with="wandb")
+        self.accelerator = Accelerator(mixed_precision="f16", log_with="wandb")
         self.logger = get_logger(__name__)
         self.logger.info(self.accelerator.state)
 
@@ -266,7 +231,7 @@ class Trainer:
     def _pipeline(self, **kwargs):
         return self._spawn(
             DiffusionPipeline,
-            torch_dtype=self.DTYPE,
+            torch_dtype=self.params.dtype,
             safety_checker=None,
             **kwargs,
         ).to(self.accelerator.device)
@@ -276,7 +241,7 @@ class Trainer:
             CLIPTextModel,
             subfolder="text_encoder",
             tap=lambda x: x.requires_grad_(False),
-        ).to(self.accelerator.device, dtype=self.DTYPE)
+        ).to(self.accelerator.device, dtype=self.params.dtype)
 
     def _noise_scheduler(self):
         return self._spawn(DDPMScheduler, subfolder="schedule")
@@ -286,7 +251,7 @@ class Trainer:
             AutoencoderKL,
             subfolder="vae",
             tap=lambda x: x.requires_grad_(False),
-        ).to(self.accelerator.device, dtype=self.DTYPE)
+        ).to(self.accelerator.device, dtype=self.params.dtype)
 
     def _tokenizer(self):
         return self._spawn(
@@ -300,7 +265,7 @@ class Trainer:
             UNet2DConditionModel,
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
-        ).to(self.accelerator.device, dtype=self.DTYPE)
+        ).to(self.accelerator.device, dtype=self.params.dtype)
         try:
             unet.enable_xformers_memory_efficient_attention()
         except ValueError:
@@ -417,7 +382,7 @@ class Trainer:
                 # Convert images to latent space
                 latents = (
                     models["vae"]
-                    .encode(batch["pixel_values"].to(dtype=self.DTYPE))
+                    .encode(batch["pixel_values"].to(dtype=self.params.dtype))
                     .latent_dist.sample()
                 )
                 latents = latents * models["vae"].config.scaling_factor

@@ -1,13 +1,13 @@
 from diffusers import StableDiffusionPipeline
-from utils import Trainer, get_params
+from params import HyperParams
 
 
 def download_model():
-    params = get_params()
+    params = HyperParams()
     StableDiffusionPipeline.from_pretrained(
         params.model.name,
         revision=params.model.revision,
-        torch_dtype=Trainer.DTYPE,
+        torch_dtype=params.dtype,
     )
 
 
