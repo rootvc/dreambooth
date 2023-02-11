@@ -212,7 +212,7 @@ class Trainer:
         self.priors_dir = Path(tempfile.mkdtemp())
         self.output_dir = Path(tempfile.mkdtemp())
 
-        self.accelerator = Accelerator(mixed_precision="f16", log_with="wandb")
+        self.accelerator = Accelerator(mixed_precision="fp16", log_with="wandb")
         self.logger = get_logger(__name__)
         self.logger.info(self.accelerator.state)
 
