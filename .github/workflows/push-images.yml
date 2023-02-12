@@ -6,6 +6,8 @@ on:
 jobs:
   docker:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
