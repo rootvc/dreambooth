@@ -1,7 +1,12 @@
 FROM rootventures/train-dreambooth:latest
 
+ENV ACCELERATE_MIXED_PRECISION bf16
+
 RUN apt-get install -y gcc
 RUN pip3 install sagemaker-training
+
+ARG INSTANCE_TYPE p4d.24xlarge
+ADD data/config/accelerate/{INSTANCE_TYPE}.yml /root/.cache/huggingface/accelerate/default_config.yamltrain-dreambooth
 
 ADD . /opt/ml/code
 ENV SAGEMAKER_PROGRAM scripts/train_model.sh

@@ -213,7 +213,7 @@ class Trainer:
         self.output_dir = Path(tempfile.mkdtemp())
 
         self.accelerator = Accelerator(
-            mixed_precision="fp16",
+            mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
             log_with="wandb",
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
         )
