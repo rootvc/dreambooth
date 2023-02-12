@@ -469,7 +469,7 @@ class Trainer:
         self.accelerator.init_trackers("dreambooth", config=self.params.dict())
 
     @_main_process_only
-    def _persist(self, unet: UNet2DConditionModel, models: dict):
+    def _persist(self, unet: UNet2DConditionModel):
         unet = unet.to(torch.float32)
         unet.save_attn_procs(self.output_dir)
 
@@ -548,7 +548,7 @@ class Trainer:
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()
-        self._persist(unet, models)
+        self._persist(unet)
         images = self._do_final_validation()
         self.accelerator.end_training()
         return images

@@ -1,0 +1,6 @@
+FROM rootventures/train-dreambooth:latest
+
+RUN pip3 install sagemaker-training
+
+ADD . /opt/ml/code
+ENV SAGEMAKER_PROGRAM scripts/train_model.sh
