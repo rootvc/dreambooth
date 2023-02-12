@@ -1,5 +1,6 @@
 import asyncio
 
+from sagemaker.estimator import Estimator
 from trainml.trainml import TrainML
 
 
@@ -9,6 +10,13 @@ class TrainJob:
         self.id = id
 
     async def run(self):
+        estimator = Estimator(
+            image_uri="rootventures/train-dreambooth-sagemaker",
+            role="SageMakerRole",
+            train_instance_count=1,
+            train_instance_type="local",
+        )
+
         dataset = await self.trainml.datasets.create(
             name=self.id,
             source_type="aws",
