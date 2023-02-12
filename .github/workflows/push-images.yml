@@ -16,7 +16,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v1
         with:
           role-to-assume: arn:aws:iam::630351220487:role/Github_Dreambooth
-          aws-region: us-east-1
+          aws-region: us-west-2
 
       - name: Login to Amazon ECR
         id: login-ecr
