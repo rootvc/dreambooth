@@ -1,5 +1,6 @@
 FROM rootventures/train-dreambooth:latest
 
+RUN apt-get install -y gcc
 RUN pip3 install sagemaker-training
 
 ADD . /opt/ml/code
