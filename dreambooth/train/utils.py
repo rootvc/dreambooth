@@ -564,11 +564,11 @@ def get_params() -> HyperParams:
 
 
 def get_model(*, instance_images: list[bytes]):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for data in instance_images:
-            with open(os.path.join(tmpdir, hash_bytes(data)), "wb") as f:
-                f.write(data)
-        return Trainer(
-            instance_class=Class(prompt="a photo of sks person", data=Path(tmpdir)),
-            params=get_params(),
-        )
+    tmpdir = tempfile.mkdtemp()
+    for data in instance_images:
+        with open(os.path.join(tmpdir, hash_bytes(data)), "wb") as f:
+            f.write(data)
+    return Trainer(
+        instance_class=Class(prompt="a photo of sks person", data=Path(tmpdir)),
+        params=get_params(),
+    )

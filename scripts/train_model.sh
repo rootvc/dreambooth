@@ -2,4 +2,4 @@
 
 export PYTHONPATH=$PYTHONPATH:.
 
-accelerate launch train/tests/test_model.py
+accelerate launch train/train.py

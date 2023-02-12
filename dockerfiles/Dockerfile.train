@@ -22,10 +22,5 @@ ADD dreambooth/download.py dreambooth/download.py
 
 RUN python3 -m dreambooth.download
 
-ADD . .
-
 RUN mkdir -p ~/.cache/huggingface/accelerate && \
   mv data/accelerate_config.yml ~/.cache/huggingface/accelerate/default_config.yaml
-
-EXPOSE 8000
-CMD python3 -u server.py

@@ -9,3 +9,4 @@ triton
 xformers
 bitsandbytes
 git+https://github.com/huggingface/diffusers@main#egg=diffusers
+trainml>=0.4.10
