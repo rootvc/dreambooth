@@ -1,4 +1,4 @@
-FROM rootvc/train-dreambooth:latest
+FROM rootventures/train-dreambooth:latest
 
 WORKDIR /dreambooth
 

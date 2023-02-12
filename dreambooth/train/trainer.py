@@ -30,7 +30,7 @@ class TrainJob:
             model={"git_uri": "git@github.com:rootvc/dreambooth.git"},
             environment={
                 "type": "CUSTOM",
-                "custom_image": "rootvc/train-dreambooth:latest",
+                "custom_image": "rootventures/train-dreambooth:latest",
             },
         )
 
