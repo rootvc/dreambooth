@@ -11,12 +11,12 @@ class TrainJob:
 
     async def run(self):
         estimator = Estimator(
-            image_uri="rootventures/train-dreambooth-sagemaker:latest",
+            image_uri="630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest",
             role="SageMakerRole",
             use_spot_instances=True,
             max_run=60 * 60 * 1,
             train_instance_count=1,
-            train_instance_type="p4d.24xlarge",
+            train_instance_type="ml.p4d.24xlarge",
         )
         estimator.fit({"train": f"s3://dreambooth-datasets/{self.id}"})
 

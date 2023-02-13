@@ -2,4 +2,4 @@
 
 export PYTHONPATH=$PYTHONPATH:.
 
-accelerate launch train/train.py
+accelerate launch dreambooth/train/train.py
