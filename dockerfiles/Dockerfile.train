@@ -22,4 +22,4 @@ ADD dreambooth/download.py dreambooth/download.py
 
 RUN python3 -m dreambooth.download
 
-ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yamltrain-dreambooth
+ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
