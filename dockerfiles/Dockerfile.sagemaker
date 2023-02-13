@@ -1,10 +1,9 @@
 FROM rootventures/train-dreambooth:latest
 
+RUN pip3 install sagemaker-training
+
 ENV ACCELERATE_MIXED_PRECISION bf16
 ENV INSTANCE_TYPE ml.p4d.24xlarge
-
-RUN apt-get install -y gcc
-RUN pip3 install sagemaker-training
 
 ADD . /opt/ml/code
 ENV SAGEMAKER_PROGRAM scripts/train_model.sh

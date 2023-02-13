@@ -30,7 +30,7 @@ from PIL import Image
 from pydantic import BaseModel
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision import transforms
-from transformers import AutoTokenizer, CLIPTextModel, PretrainedConfig
+from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
 
 from dreambooth.params import HyperParams, Model
@@ -563,12 +563,22 @@ def get_params() -> HyperParams:
     )
 
 
-def get_model(*, instance_images: list[bytes]):
-    tmpdir = tempfile.mkdtemp()
-    for data in instance_images:
-        with open(os.path.join(tmpdir, hash_bytes(data)), "wb") as f:
-            f.write(data)
+def get_model(
+    *,
+    instance_images: Optional[list[bytes]] = None,
+    instance_path: Optional[Path] = None,
+    params: Optional[HyperParams] = None,
+):
+    if instance_images:
+        instance_path = Path(tempfile.mkdtemp())
+        for data in instance_images:
+            with open(os.path.join(instance_path, hash_bytes(data)), "wb") as f:
+                f.write(data)
+
+    if not instance_path:
+        raise RuntimeError("No input data!")
+
     return Trainer(
-        instance_class=Class(prompt="a photo of sks person", data=Path(tmpdir)),
-        params=get_params(),
+        instance_class=Class(prompt="a photo of sks person", data=instance_path),
+        params=params or get_params(),
     )

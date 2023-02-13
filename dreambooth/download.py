@@ -5,7 +5,7 @@ from dreambooth.params import HyperParams
 
 def download_model():
     params = HyperParams()
-    StableDiffusionPipeline.from_pretrained(
+    return StableDiffusionPipeline.from_pretrained(
         params.model.name,
         revision=params.model.revision,
         torch_dtype=params.dtype,

@@ -1,11 +1,12 @@
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 import torch
 from pydantic import BaseModel
 
 
 class Model(BaseModel):
-    name: str = "runwayml/stable-diffusion-v1-5"
+    name: Union[str, Path] = "runwayml/stable-diffusion-v1-5"
     resolution: int = 512
     revision: Optional[str] = None
 
