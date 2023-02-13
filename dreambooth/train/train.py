@@ -12,7 +12,7 @@ def main():
     model_data = Path(env.channel_input_dirs["model"])
 
     params = get_params()
-    params.model.name = model_data / params.model.name
+    params.model.name = model_data
 
     model = get_model(instance_path=train_data, params=params)
     model.train()
