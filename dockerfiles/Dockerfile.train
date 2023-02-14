@@ -1,20 +1,19 @@
-FROM pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime
+FROM anibali/pytorch:1.13.0-cuda11.8
 
 WORKDIR /
 
-ARG WANDB_API_KEY
-
 ENV ACCELERATE_MIXED_PRECISION fp16
-ENV WANDB_API_KEY $WANDB_API_KEY
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/conda/lib"
 
-RUN apt-get update && apt-get install -y git gcc
+RUN [[ ! -z "$WANDB_API_KEY" ]] && echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> /etc/profile
 
-RUN pip3 install --upgrade pip
+RUN apt-get update && apt-get install -y git gcc && sudo rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --upgrade pip
 
 WORKDIR /dreambooth
 
 ADD requirements.txt requirements.txt
-RUN pip3 install -U --pre -r requirements.txt
+RUN pip install --no-cache-dir --pre --upgrade -r requirements.txt
 
-ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
+ADD data/config/accelerate/default.yml /home/user/.cache/huggingface/accelerate/default_config.yaml

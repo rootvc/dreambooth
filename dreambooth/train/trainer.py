@@ -1,4 +1,5 @@
 import asyncio
+import os
 import tempfile
 
 from cloudpathlib import CloudPath
@@ -47,11 +48,17 @@ class TrainJob:
             instance_count=1,
             instance_type=instance,
             environment={
+                "WANDB_API_KEY": os.environ["WANDB_API_KEY"],
                 "INSTANCE_TYPE": instance,
                 "ACCELERATE_MIXED_PRECISION": dtype,
             },
             subnets=["subnet-0425d46d0751e9df0"],
             security_group_ids=["sg-0edc333b71f1d600d"],
+            git_config={
+                "repo": "https://github.com/rootvc/dreambooth.git",
+                "branch": "main",
+            },
+            entry_point="scripts/train_model.sh",
         )
         estimator.fit(
             {
@@ -62,7 +69,7 @@ class TrainJob:
                 "model": FileSystemInput(
                     file_system_id="fs-0cbeda3084aca5585",
                     file_system_type="FSxLustre",
-                    directory_path=f"/{self.model_name}",
+                    directory_path=f"/teld3bev/models/{self.model_name}",
                     file_system_access_mode="ro",
                 ),
             }
