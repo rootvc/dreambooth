@@ -1,3 +1,5 @@
+# syntax = docker/dockerfile:experimental
+
 FROM anibali/pytorch:1.13.0-cuda11.8
 
 WORKDIR /
@@ -5,9 +7,15 @@ WORKDIR /
 ENV ACCELERATE_MIXED_PRECISION fp16
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/conda/lib"
 
-RUN [[ ! -z "$WANDB_API_KEY" ]] && echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> /etc/profile
+RUN /bin/bash -c '[[ ! -z "$WANDB_API_KEY" ]] && echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> /etc/profile'
 
-RUN apt-get update && apt-get install -y git gcc && sudo rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt \
+  apt-get update && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git gcc && \
+  sudo rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 \
+  && update-alternatives --install /usr/local/bin/pip pip /usr/local/bin/pip3.10 1
 
 RUN pip3 install --no-cache-dir --upgrade pip
 
