@@ -2,9 +2,9 @@ FROM rootventures/train-dreambooth:latest
 
 RUN --mount=type=cache,target=/var/cache/apt \
   sudo apt-get update && \
-  DEBIAN_FRONTEND=noninteractive sudo apt-get install -y gcc glibc && \
+  DEBIAN_FRONTEND=noninteractive sudo apt-get install -y gcc glibc-source && \
   pip3 install --no-cache-dir --upgrade sagemaker-training && \
-  sudo apt-get remove -y gcc glibc && \
+  sudo apt-get remove -y gcc glibc-source && \
   sudo rm -rf /var/lib/apt/lists/*
 
 ENV ACCELERATE_MIXED_PRECISION bf16
