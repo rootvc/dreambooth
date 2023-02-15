@@ -7,15 +7,12 @@ WORKDIR /
 ENV ACCELERATE_MIXED_PRECISION fp16
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/conda/lib"
 
-RUN [ ! -z "$WANDB_API_KEY" ] && echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> /etc/profile
+RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
 RUN --mount=type=cache,target=/var/cache/apt \
-  apt-get update && \
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git gcc && \
+  sudo apt-get update && \
+  DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends git gcc && \
   sudo rm -rf /var/lib/apt/lists/*
-
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 \
-  && update-alternatives --install /usr/local/bin/pip pip /usr/local/bin/pip3.10 1
 
 RUN pip3 install --no-cache-dir --upgrade pip
 
