@@ -7,7 +7,7 @@ WORKDIR /
 ENV ACCELERATE_MIXED_PRECISION fp16
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/conda/lib"
 
-RUN /bin/bash -c '[[ ! -z "$WANDB_API_KEY" ]] && echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> /etc/profile'
+RUN [[ ! -z "$WANDB_API_KEY" ]] && echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> /etc/profile
 
 RUN --mount=type=cache,target=/var/cache/apt \
   apt-get update && \
