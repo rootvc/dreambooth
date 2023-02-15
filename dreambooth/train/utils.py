@@ -471,7 +471,7 @@ class Trainer:
     @_main_process_only
     def _persist(self, unet: UNet2DConditionModel):
         unet = unet.to(torch.float32)
-        unet.save_attn_procs(self.output_dir)
+        unet.save_attn_procs(self.output_dir, save_function=self.accelerator.save)
 
     def train(self):
         unet = self._unet()
