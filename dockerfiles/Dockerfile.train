@@ -11,7 +11,7 @@ RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
 RUN --mount=type=cache,target=/var/cache/apt \
   sudo apt-get update && \
-  DEBIAN_FRONTEND=noninteractive sudo apt-get install -y git gcc && \
+  DEBIAN_FRONTEND=noninteractive sudo apt-get install -y git && \
   sudo rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir --upgrade pip
