@@ -7,5 +7,9 @@ RUN --mount=type=cache,target=/var/cache/apt \
   sudo apt-get remove -y gcc glibc-source && \
   sudo rm -rf /var/lib/apt/lists/*
 
+ENV SAGEMAKER_BASE_DIR /opt/ml
+RUN sudo mkdir -p ${SAGEMAKER_BASE_DIR} && \
+  sudo chown -R user:user ${SAGEMAKER_BASE_DIR}
+
 ENV ACCELERATE_MIXED_PRECISION bf16
 ENV INSTANCE_TYPE ml.p4d.24xlarge

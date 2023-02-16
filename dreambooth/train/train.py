@@ -1,4 +1,5 @@
 import shutil
+import tempfile
 from pathlib import Path
 
 from sagemaker_training import environment
@@ -11,8 +12,11 @@ def main():
     train_data = Path(env.channel_input_dirs["train"])
     model_data = Path(env.channel_input_dirs["model"])
 
+    model_dir = tempfile.mkdtemp()
+    shutil.unpack_archive(model_data, model_dir)
+
     params = get_params()
-    params.model.name = model_data
+    params.model.name = model_dir
 
     model = get_model(instance_path=train_data, params=params)
     model.train()
