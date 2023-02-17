@@ -70,6 +70,7 @@ class TrainJob:
                 "WANDB_API_KEY": os.environ["WANDB_API_KEY"],
                 "INSTANCE_TYPE": config.instance,
                 "ACCELERATE_MIXED_PRECISION": config.dtype,
+                "NVIDIA_DISABLE_REQUIRE": "true",
             },
             subnets=["subnet-0425d46d0751e9df0"],
             security_group_ids=["sg-0edc333b71f1d600d"],

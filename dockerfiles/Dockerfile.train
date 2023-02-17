@@ -23,5 +23,5 @@ RUN pip install --no-cache-dir --pre --upgrade -r requirements.txt
 
 ADD data/config/accelerate/default.yml /home/user/.cache/huggingface/accelerate/default_config.yaml
 
-ADD dockerfiles/entrypoint.sh entrypoint.sh
+ADD dockerfiles/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
