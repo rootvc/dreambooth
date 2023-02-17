@@ -5,8 +5,9 @@ FROM anibali/pytorch:1.13.0-cuda11.8
 WORKDIR /
 
 ENV ACCELERATE_MIXED_PRECISION fp16
-ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/opt/conda/lib"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/compat:/opt/conda/lib:${LD_LIBRARY_PATH}"
 
+RUN sudo chown -R user:user $HOME && sudo chmod -R 777 $HOME
 RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
 RUN --mount=type=cache,target=/var/cache/apt \
@@ -22,6 +23,3 @@ ADD requirements.txt requirements.txt
 RUN pip install --no-cache-dir --pre --upgrade -r requirements.txt
 
 ADD data/config/accelerate/default.yml /home/user/.cache/huggingface/accelerate/default_config.yaml
-
-ADD dockerfiles/entrypoint.sh /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
