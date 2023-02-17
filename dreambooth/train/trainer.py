@@ -39,7 +39,7 @@ class TrainJob:
 
     def check_model(self):
         bucket = CloudPath(self.BUCKET)
-        model_path = bucket / "models" / f"{self.model_name}.xz"
+        model_path = bucket / "models" / f"{self.model_name}.tar.xz"
 
         if model_path.is_file():
             print("Model already uploaded!")

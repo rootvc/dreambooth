@@ -5,7 +5,7 @@ export PYTHONPATH=$PYTHONPATH:.
 echo "Training model from $PWD"
 ls -la
 
-CONFIG_ROOT="dreambooth/config/accelerate/"
+CONFIG_ROOT="config/accelerate"
 DEFAULT_CONFIG="${CONFIG_ROOT}/default.yaml"
 CONFIG="${CONFIG_ROOT}/${INSTANCE_TYPE}.yml"
 
