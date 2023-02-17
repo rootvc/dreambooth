@@ -78,6 +78,7 @@ class TrainJob:
                 "repo": "https://github.com/rootvc/dreambooth.git",
                 "branch": "main",
             },
+            dependencies=["dreambooth", "data/config"],
             entry_point="scripts/train_model.sh",
         )
         estimator.fit(
