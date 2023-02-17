@@ -85,12 +85,12 @@ class TrainJob:
                     s3_data=f"{self.BUCKET_ALIAS}/dataset/{self.id}",
                     input_mode="FastFile",
                 ),
-                "model": FileSystemInput(
-                    file_system_id="fs-0cbeda3084aca5585",
-                    file_system_type="FSxLustre",
-                    directory_path=(Path(f"/teld3bev/models") / self.model_name).parent,
-                    file_system_access_mode="ro",
-                ),
+                # "model": FileSystemInput(
+                #     file_system_id="fs-0cbeda3084aca5585",
+                #     file_system_type="FSxLustre",
+                #     directory_path=str((Path(f"/teld3bev/models") / self.model_name).parent),
+                #     file_system_access_mode="ro",
+                # ),
             },
             wait=False,
         )
