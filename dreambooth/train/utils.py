@@ -9,7 +9,6 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Any, Callable, Optional, Type, TypeVar
 
-import bitsandbytes as bnb
 import torch
 import torch.nn.functional as F
 import wandb
@@ -485,7 +484,16 @@ class Trainer:
         lora_layers = AttnProcsLayers(unet.attn_processors)
         self.accelerator.register_for_checkpointing(lora_layers)
 
-        optimizer = bnb.optim.AdamW8bit(
+        try:
+            import bitsandbytes as bnb
+        except Exception as e:
+            print(e)
+            print("Could not import bitsandbytes, using torch.optim.AdamW")
+            optimizer_class = torch.optim.AdamW
+        else:
+            optimizer_class = bnb.optim.AdamW8bit
+
+        optimizer = optimizer_class(
             lora_layers.parameters(),
             lr=self.params.learning_rate,
             betas=self.params.betas,

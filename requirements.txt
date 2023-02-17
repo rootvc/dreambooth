@@ -7,5 +7,5 @@ accelerate>=0.16.0
 wandb>=0.13.10
 triton
 xformers
-bitsandbytes>=0.36.0,!=0.37.0
+bitsandbytes>=0.36.0,!=0.37.*
 git+https://github.com/huggingface/diffusers@main#egg=diffusers
