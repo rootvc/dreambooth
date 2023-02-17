@@ -3,8 +3,9 @@ FROM rootventures/train-dreambooth:latest
 RUN --mount=type=cache,target=/var/cache/apt \
   apt-get update && \
   apt-get install -y gcc glibc-source && \
-  pip3 install --no-cache-dir --upgrade sagemaker-training && \
+  pip3 install --no-cache-dir sagemaker-training && \
   apt-get remove -y gcc glibc-source && \
+  apt-get autoremove -y && \
   rm -rf /var/lib/apt/lists/*
 
 ENV SAGEMAKER_BASE_DIR /opt/ml

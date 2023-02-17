@@ -13,7 +13,7 @@ def main():
     model_data = Path(env.channel_input_dirs["model"])
 
     params = get_params()
-    model_file = model_data / params.model.name.with_suffix(".tar.xz").name
+    model_file = model_data / Path(params.model.name).with_suffix(".tar.xz").name
 
     model_dir = tempfile.mkdtemp()
     shutil.unpack_archive(model_file, model_dir)
