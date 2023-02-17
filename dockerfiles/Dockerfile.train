@@ -7,7 +7,7 @@ WORKDIR /
 ENV ACCELERATE_MIXED_PRECISION fp16
 ENV LD_LIBRARY_PATH="/usr/local/cuda/compat:/opt/conda/lib:${LD_LIBRARY_PATH}"
 
-RUN rm $HOME/.cache && mkdir -p $HOME/.cache && sudo chmod -R 777 $HOME/.cache
+RUN rm -r $HOME/.cache && mkdir -p $HOME/.cache/huggingface && sudo chmod -R 777 $HOME/.cache
 RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
 RUN --mount=type=cache,target=/var/cache/apt \
