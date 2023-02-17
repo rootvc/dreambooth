@@ -20,6 +20,6 @@ RUN pip3 install --no-cache-dir --upgrade pip
 WORKDIR /dreambooth
 
 ADD requirements.txt requirements.txt
-RUN pip install --no-cache-dir --pre --upgrade -r requirements.txt
+RUN pip install --no-cache-dir --pre -r requirements.txt
 
 ADD data/config/accelerate/default.yml /home/user/.cache/huggingface/accelerate/default_config.yaml
