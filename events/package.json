@@ -1,0 +1,27 @@
+{
+  "name": "root-photobooth",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "predev": "npx inngest-cli@latest types ts --output @types/inngest-events.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rootvc/dreambooth.git"
+  },
+  "author": "Yasyf Mohamedali <yasyfm@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/rootvc/dreambooth/issues"
+  },
+  "homepage": "https://github.com/rootvc/dreambooth#readme",
+  "dependencies": {
+    "@types/lodash": "^4.14.191",
+    "@types/object-hash": "^3.0.2",
+    "inngest": "^1.1.0",
+    "lodash": "^4.17.21",
+    "object-hash": "^3.0.0",
+    "pyodide": "^0.22.1"
+  }
+}
