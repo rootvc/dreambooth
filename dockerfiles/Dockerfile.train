@@ -22,7 +22,7 @@ RUN pip3 install --no-cache-dir --upgrade pip
 WORKDIR /dreambooth
 
 ADD requirements.txt requirements.txt
-RUN pip uninstall pillow && \
+RUN pip uninstall -y pillow && \
   pip install --no-cache-dir --upgrade --pre -r requirements.txt
 
 ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
