@@ -4,9 +4,10 @@ export PYTHONPATH=$PYTHONPATH:.
 
 echo "Training model from $PWD"
 ls -la
+ls -la opt/ml/input/data/model
 
 CONFIG_ROOT="config/accelerate"
-DEFAULT_CONFIG="${CONFIG_ROOT}/default.yaml"
+DEFAULT_CONFIG="${CONFIG_ROOT}/default.yml"
 CONFIG="${CONFIG_ROOT}/${INSTANCE_TYPE}.yml"
 
 if [ -f "${CONFIG}" ]; then

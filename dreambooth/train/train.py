@@ -19,6 +19,11 @@ def main():
     shutil.unpack_archive(model_file, model_dir)
     params.model.name = model_dir
 
+    import os
+
+    print(model_dir)
+    os.system(f"ls -l {model_dir}")
+
     model = get_model(instance_path=train_data, params=params)
     model.train()
 
