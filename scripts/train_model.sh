@@ -4,7 +4,7 @@ export PYTHONPATH=$PYTHONPATH:.
 
 echo "Training model from $PWD"
 ls -la
-ls -la opt/ml/input/data/model
+ls -la /opt/ml/input/data/model
 
 CONFIG_ROOT="config/accelerate"
 DEFAULT_CONFIG="${CONFIG_ROOT}/default.yml"

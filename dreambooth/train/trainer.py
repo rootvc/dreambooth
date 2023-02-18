@@ -1,6 +1,6 @@
 import asyncio
 import os
-import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Literal
@@ -39,7 +39,7 @@ class TrainJob:
 
     def check_model(self):
         bucket = CloudPath(self.BUCKET)
-        model_path = bucket / "models" / f"{self.model_name}.tar.xz"
+        model_path = bucket / "models" / f"{self.model_name}.tpxz"
 
         if model_path.is_file():
             print("Model already uploaded!")
@@ -51,11 +51,22 @@ class TrainJob:
         with tempfile.TemporaryDirectory() as dir:
             print("Saving model to", dir)
             model.save_pretrained(dir)
-            print("Compressing model...")
-            os.environ["XZ_DEFAULTS"] = "-T 0"
-            file = shutil.make_archive(str(self.model_name), "xztar", dir, dir)
-            print(f"Uploading model from {file}...")
-            model_path.upload_from(file)
+            with tempfile.NamedTemporaryFile() as f:
+                print(f"Compressing model to {f.name}...")
+                subprocess.check_call(
+                    [
+                        "tar",
+                        "--use-compress-program",
+                        "pixz",
+                        "-C",
+                        dir,
+                        "-cvf",
+                        f.name,
+                        ".",
+                    ]
+                )
+                print(f"Uploading model to {model_path}...")
+                model_path.upload_from(f.name)
 
     async def _run(self, config: IntanceConfig):
         estimator = self.estimator = Estimator(

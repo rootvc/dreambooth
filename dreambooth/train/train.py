@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -13,16 +14,21 @@ def main():
     model_data = Path(env.channel_input_dirs["model"])
 
     params = get_params()
-    model_file = model_data / Path(params.model.name).with_suffix(".tar.xz").name
+    model_file = model_data / Path(params.model.name).with_suffix(".tpxz").name
 
     model_dir = tempfile.mkdtemp()
-    shutil.unpack_archive(model_file, model_dir)
+    with tempfile.NamedTemporaryFile() as f:
+        subprocess.check_call(
+            [
+                "pixz",
+                "-d",
+                model_file,
+                f.name,
+            ]
+        )
+        shutil.unpack_archive(f.name, model_dir, format="tar")
     params.model.name = model_dir
-
-    import os
-
-    print(model_dir)
-    os.system(f"ls -l {model_dir}")
+    subprocess.run(["ls", "-l", model_dir])
 
     model = get_model(instance_path=train_data, params=params)
     model.train()
