@@ -27,7 +27,7 @@ from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
 from PIL import Image
 from pydantic import BaseModel
-from torch.utils.data import DataLoader, Dataset, IterableDataset
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
@@ -57,7 +57,7 @@ class PromptDataset(Dataset):
         return {"prompt": self.prompt, "index": i}
 
 
-class DreamBoothDataset(IterableDataset):
+class DreamBoothDataset(Dataset):
     def __init__(
         self,
         *,
