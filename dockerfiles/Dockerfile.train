@@ -14,15 +14,22 @@ RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
 RUN --mount=type=cache,target=/var/cache/apt \
   apt-get update && \
-  apt-get install -y git pixz && \
+  apt-get install -y --no-install-recommends git pixz && \
   rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir --upgrade pip
 
-WORKDIR /dreambooth
+RUN --mount=type=cache,target=/var/cache/apt \
+  apt-get update && \
+  apt-get install -y gcc glibc-source && \
+  pip3 uninstall -y pillow && \
+  pip3 install --no-cache-dir --upgrade pillow-simd>=9.0.0 && \
+  apt-get remove -y gcc glibc-source && \
+  apt-get autoremove -y && \
+  rm -rf /var/lib/apt/lists/*
 
+WORKDIR /dreambooth
 ADD requirements.txt requirements.txt
-RUN pip uninstall -y pillow && \
-  pip install --no-cache-dir --upgrade --pre -r requirements.txt
+RUN pip3 install --no-cache-dir --upgrade --pre -r requirements.txt
 
 ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
