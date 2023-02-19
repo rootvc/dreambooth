@@ -1,6 +1,6 @@
 import torch
 from accelerate.logging import get_logger
-from diffusers.utils import check_min_version, is_wandb_available
+from diffusers.utils import check_min_version
 from transformers import pipeline
 
 check_min_version("0.13.0.dev0")

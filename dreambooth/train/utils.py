@@ -248,6 +248,9 @@ class Trainer:
         ).to(self.accelerator.device, dtype=self.params.dtype)
 
     def _noise_scheduler(self):
+        import subprocess
+
+        subprocess.run(["ls", "-l", f"{self.params.model.name}/schedule"])
         return self._spawn(DDPMScheduler, subfolder="schedule")
 
     def _vae(self):

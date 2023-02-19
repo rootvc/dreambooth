@@ -28,6 +28,7 @@ def main():
         )
         shutil.unpack_archive(f.name, model_dir, format="tar")
     params.model.name = model_dir
+    print("Model directory:", model_dir)
     subprocess.run(["ls", "-l", model_dir])
 
     model = get_model(instance_path=train_data, params=params)
