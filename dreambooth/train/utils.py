@@ -213,7 +213,7 @@ class Trainer:
 
         self.accelerator = Accelerator(
             mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
-            log_with="wandb",
+            log_with=["wandb"],
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
         )
         self.logger = get_logger(__name__)
