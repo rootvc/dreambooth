@@ -5,6 +5,11 @@ FROM ghcr.io/pytorch/pytorch-nightly:2.0.0.dev20230220-devel AS nightly
 ENV TORCH_CUDA_ARCH_LIST "7.0 7.2 7.5 8.0 8.6 8.7"
 ENV CUDA_HOME /usr/local/cuda
 
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  apt-get update && \
+  apt-get install -y git build-essential && \
+  rm -rf /var/lib/apt/lists/*
+
 RUN --mount=type=cache,target=/opt/ccache \
   pip install ninja && \
   pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
@@ -16,11 +21,6 @@ RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge --fre
   deepspeed \
   pydantic \
   wandb
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-  apt-get update && \
-  apt-get install -y git build-essential && \
-  rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/pip \
   DS_BUILD_OPS=1 pip install deepspeed --global-option="build_ext" --global-option="-j8"
