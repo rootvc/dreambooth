@@ -12,8 +12,7 @@ RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge --fre
   pydantic \
   wandb
 
-RUN --mount=type=cache,target=/var/cache/apt \
-  rm -f /etc/apt/sources.list.d/*.list && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   apt-get update && \
   apt-get install -y git build-essential && \
   rm -rf /var/lib/apt/lists/*
@@ -44,8 +43,7 @@ WORKDIR /
 
 RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
-RUN --mount=type=cache,target=/var/cache/apt \
-  rm -f /etc/apt/sources.list.d/*.list && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   apt-get update && \
   apt-get install -y pixz && \
   rm -rf /var/lib/apt/lists/*
