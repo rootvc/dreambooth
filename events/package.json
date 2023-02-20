@@ -1,31 +1,32 @@
 {
-  "name": "root-photobooth",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "dreambooth-events",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
-    "predev": "npx inngest-cli@latest types ts --output @types/inngest-events.ts"
+    "predev": "npx inngest-cli@latest types ts --output @types/inngest-events.ts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/rootvc/dreambooth.git"
-  },
-  "author": "Yasyf Mohamedali <yasyfm@gmail.com>",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/rootvc/dreambooth/issues"
-  },
-  "homepage": "https://github.com/rootvc/dreambooth#readme",
   "dependencies": {
-    "@types/lodash": "^4.14.191",
-    "@types/object-hash": "^3.0.2",
-    "got": "^12.5.3",
-    "inngest": "^1.1.0",
+    "@next/font": "13.1.6",
+    "@types/node": "18.14.0",
+    "@types/react": "18.0.28",
+    "@types/react-dom": "18.0.11",
+    "eslint": "8.34.0",
+    "eslint-config-next": "13.1.6",
+    "inngest": "^1.2.0",
     "lodash": "^4.17.21",
+    "next": "13.1.6",
     "object-hash": "^3.0.0",
-    "pyodide": "^0.22.1"
+    "pyodide": "^0.22.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "typescript": "4.9.5"
   },
   "devDependencies": {
-    "@types/node": "^18.14.0"
+    "@types/lodash": "^4.14.191",
+    "@types/object-hash": "^3.0.2"
   }
 }

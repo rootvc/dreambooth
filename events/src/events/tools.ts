@@ -3,6 +3,7 @@ import { Events as GenEvents } from "inngest-events";
 import { createStepTools } from "inngest/components/InngestStepTools";
 import _ from "lodash";
 import hash from "object-hash";
+import { inngest } from "./client";
 
 type ParametersExceptFirst<F> = F extends (arg0: any, ...rest: infer R) => any
   ? R
@@ -90,9 +91,9 @@ const getTools = <E extends Event>(
   inngest: Inngest<Events>,
   tools: Tools<E>
 ) => {
-  const run = <T>(...args: ParametersExceptFirst<typeof _run<E, T>>) =>
+  const run = async <T>(...args: ParametersExceptFirst<typeof _run<E, T>>) =>
     _run<E, T>(tools, ...args);
-  const get = <T, A extends string>(
+  const get = async <T, A extends string>(
     ...args: ParametersExceptFirst<typeof _get<E, T, A>>
   ) => _get<E, T, A>(tools, ...args);
   return {
@@ -113,7 +114,6 @@ export const defineFunction = <E extends Event>(
   }) => any,
   opts: Omit<FunctionOptions, "name"> = {}
 ) => {
-  const inngest = new Inngest<Events>({ name: event });
   return inngest.createFunction<
     { event: E },
     { name: typeof name } & typeof opts

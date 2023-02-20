@@ -115,7 +115,6 @@ class DreamBoothDataset(Dataset):
         if self.augment and augment:
             t += [
                 transforms.RandomErasing(p=0.5),
-                transforms.ToPILImage(),
                 transforms.RandomOrder(
                     [
                         transforms.ColorJitter(
