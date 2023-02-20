@@ -5,7 +5,7 @@ FROM pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime
 WORKDIR /
 
 ENV ACCELERATE_MIXED_PRECISION fp16
-ENV LD_LIBRARY_PATH="/usr/local/cuda/compat:/opt/conda/lib:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/opt/conda/lib:${LD_LIBRARY_PATH}"
 ENV CUDA_HOME /opt/conda
 ENV FORCE_CUDA 1
 ENV DEBIAN_FRONTEND noninteractive
