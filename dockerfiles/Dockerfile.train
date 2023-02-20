@@ -18,12 +18,11 @@ RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge --fre
   transformers \
   accelerate \
   diffusers \
-  deepspeed \
   pydantic \
   wandb
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-  DS_BUILD_OPS=1 pip install deepspeed --global-option="build_ext" --global-option="-j8"
+  DS_BUILD_OPS=1 pip install git+https://github.com/yasyf/deepspeed.git@main#egg=deepspeed --global-option="build_ext" --global-option="-j8"
 RUN ds_report
 
 ADD requirements.txt requirements.txt
