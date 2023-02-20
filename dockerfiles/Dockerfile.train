@@ -2,8 +2,9 @@
 
 FROM ghcr.io/pytorch/pytorch-nightly:2.0.0.dev20230220-devel AS nightly
 
-ENV TORCH_CUDA_ARCH_LIST "7.0 7.2 7.5 8.0 8.6 8.7"
+ENV TORCH_CUDA_ARCH_LIST "7.0;7.2;7.5;8.0;8.6;8.7"
 ENV CUDA_HOME /usr/local/cuda
+ENV FORCE_CUDA 1
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   apt-get update && \
@@ -12,7 +13,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 RUN --mount=type=cache,target=/opt/ccache \
   pip install ninja && \
-  pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
+  XFORMERS_DISABLE_FLASH_ATTN=1 pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
 
 RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge --freeze-installed -qy \
   transformers \
@@ -22,7 +23,7 @@ RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge --fre
   wandb
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-  DS_BUILD_OPS=1 pip install git+https://github.com/yasyf/deepspeed.git@master#egg=deepspeed --global-option="build_ext" --global-option="-j8"
+  DS_BUILD_CPU_ADAM=1 pip install git+https://github.com/yasyf/deepspeed.git@master#egg=deepspeed --global-option="build_ext" --global-option="-j8"
 RUN ds_report
 
 ADD requirements.txt requirements.txt
