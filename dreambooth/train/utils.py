@@ -86,7 +86,7 @@ class DreamBoothDataset(Dataset):
         pixel_values = list(
             itertools.chain(
                 map(itemgetter("instance_image"), examples),
-                map(itemgetter("priot_image"), examples),
+                map(itemgetter("prior_image"), examples),
             )
         )
         return {

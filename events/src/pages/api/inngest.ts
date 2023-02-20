@@ -1,5 +1,5 @@
 import { inngest } from "@/events/client";
-import pythonExecute from "@/events/python/execute";
+import trainStart from "@/events/train/start";
 import { serve } from "inngest/next";
 
-export default serve(inngest, [pythonExecute]);
+export default serve(inngest, [trainStart]);
