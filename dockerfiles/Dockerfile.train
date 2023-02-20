@@ -15,16 +15,13 @@ RUN --mount=type=cache,target=/opt/ccache \
   pip install ninja && \
   XFORMERS_DISABLE_FLASH_ATTN=1 pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
 
-RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge --freeze-installed -qy \
-  transformers \
-  accelerate \
-  diffusers \
-  pydantic \
-  wandb
-
 RUN --mount=type=cache,target=/root/.cache/pip \
   DS_BUILD_CPU_ADAM=1 pip install git+https://github.com/yasyf/deepspeed.git@master#egg=deepspeed --global-option="build_ext" --global-option="-j8"
 RUN ds_report
+
+ADD environment.txt environment.txt
+RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy \
+  --file environment.txt
 
 ADD requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
