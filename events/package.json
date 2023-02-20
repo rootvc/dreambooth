@@ -19,9 +19,13 @@
   "dependencies": {
     "@types/lodash": "^4.14.191",
     "@types/object-hash": "^3.0.2",
+    "got": "^12.5.3",
     "inngest": "^1.1.0",
     "lodash": "^4.17.21",
     "object-hash": "^3.0.0",
     "pyodide": "^0.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.14.0"
   }
 }
