@@ -106,6 +106,7 @@ class DreamBoothDataset(Dataset):
 
     def image_transforms(self, augment: bool = True):
         t = [
+            transforms.ToTensor(),
             transforms.Resize(
                 self.size, interpolation=transforms.InterpolationMode.BILINEAR
             ),
@@ -132,7 +133,6 @@ class DreamBoothDataset(Dataset):
                 ),
             ]
         t += [
-            transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
         ]
         return transforms.Compose(t)
