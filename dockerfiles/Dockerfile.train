@@ -1,8 +1,31 @@
 # syntax = docker/dockerfile:experimental
 
-FROM pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime
+FROM ghcr.io/pytorch/pytorch-nightly:2.0.0.dev20230220-devel AS nightly
 
-WORKDIR /
+RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge \
+  transformers \
+  accelerate \
+  diffusers \
+  deepspeed \
+  pydantic \
+  wandb
+
+RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c xformers xformers
+
+ADD requirements.txt requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip3 install --upgrade --pre -r requirements.txt
+
+RUN --mount=type=cache,target=/var/cache/apt \
+  apt-get update && \
+  apt-get install -y build-essential && \
+  rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+  DS_BUILD_OPS=1 pip3 install deepspeed --global-option="build_ext" --global-option="-j8"
+RUN ds_report
+
+FROM ubuntu:18.04
 
 ENV ACCELERATE_MIXED_PRECISION fp16
 ENV LD_LIBRARY_PATH="/opt/conda/lib:${LD_LIBRARY_PATH}"
@@ -10,26 +33,16 @@ ENV CUDA_HOME /opt/conda
 ENV FORCE_CUDA 1
 ENV DEBIAN_FRONTEND noninteractive
 
+WORKDIR /
+
 RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
 RUN --mount=type=cache,target=/var/cache/apt \
   apt-get update && \
-  apt-get install -y --no-install-recommends git pixz && \
+  apt-get install -y pixz && \
   rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir --upgrade pip
-
-RUN --mount=type=cache,target=/var/cache/apt \
-  apt-get update && \
-  apt-get install -y gcc glibc-source && \
-  pip3 uninstall -y pillow && \
-  pip3 install --no-cache-dir --upgrade pillow-simd>=9.0.0 && \
-  apt-get remove -y gcc glibc-source && \
-  apt-get autoremove -y && \
-  rm -rf /var/lib/apt/lists/*
+COPY --from=nightly /opt/conda /opt/conda
 
 WORKDIR /dreambooth
-ADD requirements.txt requirements.txt
-RUN pip3 install --no-cache-dir --upgrade --pre -r requirements.txt
-
 ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
