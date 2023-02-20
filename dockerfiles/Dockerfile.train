@@ -3,6 +3,7 @@
 FROM ghcr.io/pytorch/pytorch-nightly:2.0.0.dev20230220-devel AS nightly
 
 ENV TORCH_CUDA_ARCH_LIST "7.0 7.2 7.5 8.0 8.6 8.7"
+ENV CUDA_HOME /opt/conda
 
 RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge --freeze-installed -qy \
   transformers \
