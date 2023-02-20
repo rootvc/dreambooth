@@ -248,10 +248,7 @@ class Trainer:
         ).to(self.accelerator.device, dtype=self.params.dtype)
 
     def _noise_scheduler(self):
-        import subprocess
-
-        subprocess.run(["ls", "-l", f"{self.params.model.name}/schedule"])
-        return self._spawn(DDPMScheduler, subfolder="schedule")
+        return self._spawn(DDPMScheduler, subfolder="scheduler")
 
     def _vae(self):
         return self._spawn(
@@ -273,7 +270,11 @@ class Trainer:
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
         ).to(self.accelerator.device, dtype=self.params.dtype)
-        unet.enable_xformers_memory_efficient_attention()
+        try:
+            unet.enable_xformers_memory_efficient_attention()
+        except Exception as e:
+            print("Cannot enable xformers memory efficient attention")
+            print(e)
         return unet
 
     def generate_priors(self) -> Class:

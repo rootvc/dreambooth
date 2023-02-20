@@ -3,7 +3,6 @@ transformers>=4.26.1
 accelerate>=0.16.0
 pillow-simd>=9.0.0
 pydantic>=1.10.4
-accelerate>=0.16.0
 wandb>=0.13.10
 triton
 xformers
