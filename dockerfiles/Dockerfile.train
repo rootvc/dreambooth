@@ -6,7 +6,7 @@ WORKDIR /
 
 ENV ACCELERATE_MIXED_PRECISION fp16
 ENV LD_LIBRARY_PATH="/usr/local/cuda/compat:/opt/conda/lib:${LD_LIBRARY_PATH}"
-ENV CUDA_HOME /usr/local/cuda
+ENV CUDA_HOME /opt/conda
 ENV FORCE_CUDA 1
 ENV DEBIAN_FRONTEND noninteractive
 

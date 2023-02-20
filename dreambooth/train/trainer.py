@@ -141,9 +141,9 @@ class TrainJob:
                 return
 
 
-if __name__ == "__main__":
+def run(id: str):
     asyncio.run(
-        TrainJob("test").run(
+        TrainJob(id).run(
             [
                 IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
                 IntanceConfig(instance="ml.g5.xlarge", dtype="fp16"),
@@ -154,3 +154,7 @@ if __name__ == "__main__":
             ]
         )
     )
+
+
+if __name__ == "__main__":
+    run("test")
