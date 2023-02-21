@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/opt/ccache \
   XFORMERS_DISABLE_FLASH_ATTN=1 pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-  DS_BUILD_CPU_ADAM=1 pip install git+https://github.com/yasyf/deepspeed.git@master#egg=deepspeed --global-option="build_ext" --global-option="-j8"
+  DS_BUILD_CPU_ADAM=1 DS_BUILD_UTILS=1 pip install git+https://github.com/yasyf/deepspeed.git@master#egg=deepspeed --global-option="build_ext" --global-option="-j8"
 RUN ds_report
 
 ADD environment.txt environment.txt
