@@ -1,1 +1,2 @@
-bitsandbytes>=0.36.0,!=0.37.*
+# bitsandbytes>=0.36.0,!=0.37.*
+git+https://github.com/TimDettmers/bitsandbytes.git@1238d1842bdebf9c89925bdd5712c9f5ffe4c206
