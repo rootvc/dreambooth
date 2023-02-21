@@ -17,7 +17,7 @@ from dreambooth.params import HyperParams
 
 class IntanceConfig(BaseModel):
     instance: str
-    dtype: Literal["bf16", "fp16", "fp32"]
+    dtype: Literal["bf16", "fp16"]
 
 
 class TrainJob:
