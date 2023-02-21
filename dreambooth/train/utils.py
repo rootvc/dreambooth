@@ -493,7 +493,7 @@ class Trainer:
         except Exception as e:
             print(e)
             print("Could not import bitsandbytes, using DeepSpeedCPUAdam")
-            optimizer_class = deepspeed.ops.adam.DeepSpeedCPUAdam
+            optimizer_class = torch.optim.AdamW
         else:
             optimizer_class = bnb.optim.AdamW8bit
 
