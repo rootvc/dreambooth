@@ -19,6 +19,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
   DS_BUILD_CPU_ADAM=1 DS_BUILD_UTILS=1 pip install git+https://github.com/yasyf/deepspeed.git@master#egg=deepspeed --global-option="build_ext" --global-option="-j8"
 RUN ds_report
 
+RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy --force-reinstall \
+  ncurses
+
 ADD environment.txt environment.txt
 RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy \
   --file environment.txt
