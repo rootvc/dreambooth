@@ -27,6 +27,15 @@ class TrainJob:
     MAX_RUN = 60 * 60 * 1
     MAX_WAIT = 60 * 10
 
+    DEFAULT_INSTANCES = [
+        IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.2xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.4xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.16xlarge", dtype="fp16"),
+    ]
+
     estimator: Estimator
 
     def __init__(self, id: str):
@@ -109,6 +118,9 @@ class TrainJob:
             },
             wait=False,
         )
+        return estimator
+
+    async def _wait(self, estimator: Estimator):
         while (
             estimator.latest_training_job.describe()["TrainingJobStatus"]
             == "InProgress"
@@ -124,36 +136,35 @@ class TrainJob:
                 and "Insufficient capacity" in transitions[-1]["StatusMessage"]
             ):
                 estimator.latest_training_job.stop()
-                return False
-        return True
+                return None
+        return estimator
 
-    async def run(
-        self,
-        configs: list[IntanceConfig] = [
-            IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16")
-        ],
-    ):
+    async def run(self, configs: list[IntanceConfig]):
         for config in configs:
             print(f"Running {config.instance} {config.dtype}...")
-            success = await self._run(config)
-            if success:
+            estimator = await self._run(config)
+            if estimator:
                 print("Success!")
-                return
+                return estimator
+
+    async def run_and_wait(
+        self,
+        configs: list[IntanceConfig] = DEFAULT_INSTANCES,
+    ):
+        if estimator := await self.run(configs):
+            return await self._wait(estimator)
+
+    async def run_and_report(
+        self,
+        configs: list[IntanceConfig] = DEFAULT_INSTANCES,
+    ):
+        if estimator := await self.run(configs):
+            return {"name": estimator.latest_training_job.job_name}
+        return {"name": None}
 
 
 def run(id: str):
-    asyncio.run(
-        TrainJob(id).run(
-            [
-                IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
-                IntanceConfig(instance="ml.g5.xlarge", dtype="fp16"),
-                IntanceConfig(instance="ml.g4dn.2xlarge", dtype="fp16"),
-                IntanceConfig(instance="ml.g4dn.xlarge", dtype="fp16"),
-                IntanceConfig(instance="ml.g4dn.4xlarge", dtype="fp16"),
-                IntanceConfig(instance="ml.g4dn.16xlarge", dtype="fp16"),
-            ]
-        )
-    )
+    asyncio.run(TrainJob(id).run_and_wait())
 
 
 if __name__ == "__main__":
