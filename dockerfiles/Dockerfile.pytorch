@@ -30,4 +30,4 @@ RUN --mount=type=cache,target=/opt/ccache \
   make cuda11x && \
   python setup.py install
 
-RUN cp /usr/local/cuda/compat/* /opt/conda/lib
+RUN ln -s /opt/conda/lib/libcudart.so.11.0 /opt/conda/lib/libcudart.so
