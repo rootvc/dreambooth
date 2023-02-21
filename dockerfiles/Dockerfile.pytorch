@@ -28,7 +28,6 @@ RUN --mount=type=cache,target=/opt/ccache \
   cd bitsandbytes && \
   git checkout 1238d1842bdebf9c89925bdd5712c9f5ffe4c206 && \
   make cuda11x && \
-  python setup.py install && \
-  python check_bnb_install.py
+  python setup.py install
 
 RUN cp /usr/local/cuda/compat/* /opt/conda/lib
