@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/opt/ccache \
   git clone https://github.com/telpirion/bitsandbytes.git && \
   cd bitsandbytes && \
   git checkout 1238d1842bdebf9c89925bdd5712c9f5ffe4c206 && \
-  make cuda11x && \
+  make cuda11x cuda11x_nomatmul && \
   python setup.py install
 
 RUN ln -s /opt/conda/lib/libcudart.so.11.0 /opt/conda/lib/libcudart.so
