@@ -500,7 +500,7 @@ class Trainer:
         print("Initializing Optimizer...")
 
         optimizer = optimizer_class(
-            lora_layers.parameters(),
+            [x.to("cpu") for x in lora_layers.parameters()],
             lr=self.params.learning_rate,
             betas=self.params.betas,
             weight_decay=self.params.weight_decay,
