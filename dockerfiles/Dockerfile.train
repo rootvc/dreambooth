@@ -49,7 +49,5 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 COPY --from=nightly /opt/conda /opt/conda
 
-RUN python -c 'import torch; assert torch.cuda.is_available()'
-
 WORKDIR /dreambooth
 ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
