@@ -9,7 +9,6 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Any, Callable, Optional, Type, TypeVar
 
-import deepspeed
 import torch
 import torch.nn.functional as F
 import wandb
@@ -492,7 +491,7 @@ class Trainer:
             import bitsandbytes as bnb
         except Exception as e:
             print(e)
-            print("Could not import bitsandbytes, using DeepSpeedCPUAdam")
+            print("Could not import bitsandbytes, using AdamW")
             optimizer_class = torch.optim.AdamW
         else:
             optimizer_class = bnb.optim.AdamW8bit
