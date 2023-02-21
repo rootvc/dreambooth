@@ -36,7 +36,6 @@ def sagemaker_params(env: environment.Environment) -> Params:
     subprocess.run(["ls", "-l", model_dir])
 
     params.model.name = model_dir
-    params.loading_workers = 1
 
     return {"instance_path": train_data, "params": params}
 
