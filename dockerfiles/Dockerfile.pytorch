@@ -21,3 +21,10 @@ RUN ds_report
 
 RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy --force-reinstall \
   ncurses
+
+RUN git clone https://github.com/TimDettmers/bitsandbytes.git && \
+  cd bitsandbytes && \
+  git checkout 1238d1842bdebf9c89925bdd5712c9f5ffe4c206 && \
+  make cuda11x && \
+  pip install . && \
+  python check_bnb_install.py
