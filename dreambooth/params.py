@@ -5,6 +5,14 @@ import torch
 from pydantic import BaseModel
 
 
+class Class(BaseModel):
+    prompt: str
+    data: Path
+
+    def check(self):
+        return self.data.exists()
+
+
 class Model(BaseModel):
     name: Union[str, Path] = "runwayml/stable-diffusion-v1-5"
     resolution: int = 512
@@ -19,6 +27,7 @@ class HyperParams(BaseModel):
     model: Model = Model()
     prior_prompt: str = "a photo of a person"
     prior_samples: int = 100
+    prior_class: Optional[Class] = None
     batch_size: int = 8
 
     # Optimizer

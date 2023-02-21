@@ -32,17 +32,9 @@ from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
 
-from dreambooth.params import HyperParams, Model
+from dreambooth.params import Class, HyperParams, Model
 
 T = TypeVar("T")
-
-
-class Class(BaseModel):
-    prompt: str
-    data: Path
-
-    def check(self):
-        return self.data.exists()
 
 
 class PromptDataset(Dataset):
@@ -276,13 +268,15 @@ class Trainer:
             print(e)
         return unet
 
-    @torch.no_grad()
-    def generate_priors(self) -> Class:
+    @torch.inference_mode()
+    def generate_priors(self, progress_bar: bool = False) -> Class:
+        print("Generating priors...")
+
         pipeline = self._pipeline(
             unet=self._unet(),
             text_encoder=self._text_encoder(),
         )
-        pipeline.set_progress_bar_config(disable=True)
+        pipeline.set_progress_bar_config(disable=not progress_bar)
 
         prompts = PromptDataset(self.params.prior_prompt, self.params.prior_samples)
         loader: DataLoader = self.accelerator.prepare(
@@ -294,7 +288,9 @@ class Trainer:
         )
 
         images = (
-            image for example in loader for image in pipeline(example["prompt"]).images
+            image
+            for example in pipeline.progress_bar(loader)
+            for image in pipeline(example["prompt"]).images
         )
         for image in images:
             hash = hash_image(image)
@@ -327,7 +323,7 @@ class Trainer:
             hidden_size=hidden_size, cross_attention_dim=cross_attention_dim
         )
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def _validation(self, pipeline: DiffusionPipeline) -> list:
         prompt = self.instance_class.prompt + " " + self.params.validation_prompt_suffix
         generator = torch.Generator(device=self.accelerator.device)

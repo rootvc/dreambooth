@@ -37,7 +37,7 @@ class TrainJob:
         IntanceConfig(instance="ml.g5.48xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p3.16xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p3dn.24xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.p4d.24xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.p4d.24xlarge", dtype="bf16"),
     ]
 
     DEFAULT_INSTANCES = [
