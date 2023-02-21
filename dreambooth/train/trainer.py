@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import subprocess
 import tempfile
@@ -100,6 +101,7 @@ class TrainJob:
             },
             dependencies=["dreambooth", "data/config"],
             entry_point="scripts/train_model.sh",
+            container_log_level=logging.DEBUG,
         )
         estimator.fit(
             {

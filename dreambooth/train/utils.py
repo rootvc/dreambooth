@@ -217,7 +217,7 @@ class Trainer:
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
         )
         self.logger = get_logger(__name__)
-        self.logger.info(self.accelerator.state)
+        self.logger.warning(self.accelerator.state)
 
         self._total_steps = 0
 
@@ -505,6 +505,8 @@ class Trainer:
             eps=self.params.epsilon,
         )
 
+        print("Loading dataset...")
+
         dataset = DreamBoothDataset(
             instance=self.instance_class,
             prior=self.generate_priors(),
@@ -534,6 +536,8 @@ class Trainer:
             * self.params.gradient_accumulation_steps,
         )
 
+        print("Preparing for training...")
+
         lora_layers, optimizer, loader, lr_scheduler = self.accelerator.prepare(
             lora_layers, optimizer, loader, lr_scheduler
         )
@@ -546,6 +550,8 @@ class Trainer:
         if self.accelerator.is_main_process:
             self.accelerator.init_trackers("dreambooth", config=self.params.dict())
 
+        print("Starting training...")
+
         models = {
             "unet": unet,
             "vae": self._vae(),
@@ -554,7 +560,7 @@ class Trainer:
             "lora_layers": lora_layers,
         }
         for epoch in range(epochs):
-            self.logger.info(f"Epoch {epoch + 1}/{epochs}")
+            self.logger.warning(f"Epoch {epoch + 1}/{epochs}")
             self._do_epoch(unet, loader, optimizer, models)
             if epoch % self.params.validate_every == 0:
                 self._do_validation(unet, models)
