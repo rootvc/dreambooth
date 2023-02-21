@@ -2,14 +2,19 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import TypedDict, Union
 
 from sagemaker_training import environment
 
-from dreambooth.train.utils import get_model, get_params
+from dreambooth.train.utils import HyperParams, get_model, get_params
 
 
-def main():
-    env = environment.Environment()
+class Params(TypedDict):
+    instance_path: Path
+    params: HyperParams
+
+
+def sagemaker_params(env: environment.Environment) -> Params:
     train_data = Path(env.channel_input_dirs["train"])
     model_data = Path(env.channel_input_dirs["model"])
 
@@ -33,7 +38,23 @@ def main():
     params.model.name = model_dir
     params.loading_workers = 1
 
-    model = get_model(instance_path=train_data, params=params)
+    return {"instance_path": train_data, "params": params}
+
+
+def standalone_params(env: environment.Environment):
+    params = get_params()
+    example_data = Path(__file__).parent.parent / "data" / "example"
+    return {"instance_path": example_data, "params": params}
+
+
+def main():
+    env = environment.Environment()
+    if env.channel_input_dirs:
+        params = sagemaker_params(env)
+    else:
+        params = standalone_params(env)
+
+    model = get_model(**params)
     model.train()
 
     shutil.copytree(model.output_dir, env.model_dir)

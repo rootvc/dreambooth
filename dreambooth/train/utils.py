@@ -497,6 +497,8 @@ class Trainer:
         else:
             optimizer_class = bnb.optim.AdamW8bit
 
+        print("Initializing Optimizer...")
+
         optimizer = optimizer_class(
             lora_layers.parameters(),
             lr=self.params.learning_rate,

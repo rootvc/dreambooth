@@ -30,11 +30,10 @@ class TrainJob:
 
     DEFAULT_INSTANCES = [
         IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.2xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.4xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.16xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g4dn.16xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.8xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.8xlarge", dtype="fp16"),
     ]
 
     estimator: Estimator
