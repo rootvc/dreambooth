@@ -6,6 +6,7 @@ from typing import TypedDict, Union
 
 from sagemaker_training import environment
 
+from dreambooth.params import Class
 from dreambooth.train.utils import HyperParams, get_model, get_params
 
 
@@ -17,11 +18,13 @@ class Params(TypedDict):
 def sagemaker_params(env: environment.Environment) -> Params:
     train_data = Path(env.channel_input_dirs["train"])
     model_data = Path(env.channel_input_dirs["model"])
+    prior_data = Path(env.channel_input_dirs["prior"])
 
     params = get_params()
-    model_file = model_data / Path(params.model.name).with_suffix(".tpxz").name
+    params.model.name = model_dir = tempfile.mkdtemp()
+    params.prior_class = Class(prompt=params.prior_prompt, data=prior_data)
 
-    model_dir = tempfile.mkdtemp()
+    model_file = model_data / Path(params.model.name).with_suffix(".tpxz").name
     with tempfile.NamedTemporaryFile() as f:
         subprocess.check_call(
             [
@@ -34,8 +37,6 @@ def sagemaker_params(env: environment.Environment) -> Params:
         shutil.unpack_archive(f.name, model_dir, format="tar")
     print("Model directory:", model_dir)
     subprocess.run(["ls", "-l", model_dir])
-
-    params.model.name = model_dir
 
     return {"instance_path": train_data, "params": params}
 

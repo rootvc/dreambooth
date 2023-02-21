@@ -13,6 +13,7 @@ from sagemaker.inputs import FileSystemInput, TrainingInput
 
 from dreambooth.download import download_model
 from dreambooth.params import HyperParams
+from dreambooth.train.utils import hash_bytes
 
 
 class IntanceConfig(BaseModel):
@@ -41,9 +42,10 @@ class TrainJob:
     ]
 
     DEFAULT_INSTANCES = [
-        IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g5.8xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g5.4xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.2xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.xlarge", dtype="fp16"),
     ]
 
     estimator: Estimator
@@ -51,10 +53,25 @@ class TrainJob:
     def __init__(self, id: str):
         self.id = id
         self.check_model()
+        self.check_priors()
 
     @property
     def model_name(self):
         return HyperParams().model.name
+
+    @property
+    def priors_hash(self):
+        return hash_bytes(HyperParams().prior_prompt.encode())
+
+    def check_priors(self):
+        bucket = CloudPath(self.BUCKET)
+        priors_path = bucket / "priors" / self.priors_hash
+
+        if priors_path.is_dir():
+            print("Priors already uploaded!")
+            return
+
+        raise RuntimeError("Priors not found!")
 
     def check_model(self):
         bucket = CloudPath(self.BUCKET)
@@ -118,6 +135,10 @@ class TrainJob:
                     s3_data=f"{self.BUCKET_ALIAS}/dataset/{self.id}",
                     input_mode="FastFile",
                 ),
+                "prior": TrainingInput(
+                    s3_data=f"{self.BUCKET_ALIAS}/priors/{self.priors_hash}",
+                    input_mode="FastFile",
+                ),
                 "model": FileSystemInput(
                     file_system_id="fs-0cbeda3084aca5585",
                     file_system_type="FSxLustre",
@@ -163,7 +184,8 @@ class TrainJob:
         configs: list[IntanceConfig] = DEFAULT_INSTANCES,
     ):
         if estimator := await self.run(configs):
-            return await self._wait(estimator)
+            if estimator := await self._wait(estimator):
+                return estimator
 
     async def run_and_report(
         self,
