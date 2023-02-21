@@ -4,7 +4,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Literal
+from typing import Iterable, Literal
 
 from cloudpathlib import CloudPath
 from pydantic import BaseModel
@@ -50,10 +50,16 @@ class TrainJob:
 
     estimator: Estimator
 
-    def __init__(self, id: str):
+    def __init__(self, id: str, optimize_for_cost: bool = True):
         self.id = id
+        self.optimize_for_cost = optimize_for_cost
         self.check_model()
         self.check_priors()
+
+    @property
+    def instance_options(self) -> Iterable[IntanceConfig]:
+        instances = self.DEFAULT_INSTANCES + self.DEFAULT_MULTI_INSTANCES
+        return instances if self.optimize_for_cost else reversed(instances)
 
     @property
     def model_name(self):
@@ -152,46 +158,56 @@ class TrainJob:
         )
         return estimator
 
-    async def _wait(self, estimator: Estimator):
+    def _check(self, estimator: Estimator):
+        status = estimator.latest_training_job.describe()
+        transitions = status["SecondaryStatusTransitions"]
+        if not transitions:
+            return None
+        print(transitions[-1])
+        if "Insufficient capacity" in transitions[-1]["StatusMessage"]:
+            estimator.latest_training_job.stop()
+            return False
+        return True
+
+    async def _wait_for_start(self, estimator: Estimator):
         while (
             estimator.latest_training_job.describe()["TrainingJobStatus"]
             == "InProgress"
         ):
-            await asyncio.sleep(10)
-            status = estimator.latest_training_job.describe()
-            transitions = status["SecondaryStatusTransitions"]
-            if not transitions:
-                continue
-            print(transitions[-1])
-            if (
-                transitions
-                and "Insufficient capacity" in transitions[-1]["StatusMessage"]
-            ):
-                estimator.latest_training_job.stop()
-                return None
+            match self._check(estimator):
+                case bool(x):
+                    return x
+                case None:
+                    await asyncio.sleep(5)
+
         return estimator
 
-    async def run(self, configs: list[IntanceConfig]):
-        for config in configs:
+    async def _wait_for_finish(self, estimator: Estimator):
+        while (
+            estimator.latest_training_job.describe()["TrainingJobStatus"]
+            == "InProgress"
+        ):
+            if not self._check(estimator):
+                return
+            await asyncio.sleep(5)
+
+        return estimator
+
+    async def run(self):
+        for config in self.instance_options:
             print(f"Running {config.instance} {config.dtype}...")
             estimator = await self._run(config)
-            if estimator:
+            if await self._wait_for_start(estimator):
                 print("Success!")
+                yield estimator
+
+    async def run_and_wait(self):
+        async for estimator in self.run():
+            if await self._wait_for_finish(estimator):
                 return estimator
 
-    async def run_and_wait(
-        self,
-        configs: list[IntanceConfig] = DEFAULT_INSTANCES,
-    ):
-        if estimator := await self.run(configs):
-            if estimator := await self._wait(estimator):
-                return estimator
-
-    async def run_and_report(
-        self,
-        configs: list[IntanceConfig] = DEFAULT_INSTANCES,
-    ):
-        if estimator := await self.run(configs):
+    async def run_and_report(self):
+        async for estimator in self.run():
             return {"name": estimator.latest_training_job.job_name}
         return {"name": None}
 

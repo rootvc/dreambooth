@@ -21,9 +21,8 @@ def sagemaker_params(env: environment.Environment) -> Params:
     prior_data = Path(env.channel_input_dirs["prior"])
 
     params = get_params()
-    params.model.name = model_dir = tempfile.mkdtemp()
-    params.prior_class = Class(prompt=params.prior_prompt, data=prior_data)
 
+    model_dir = tempfile.mkdtemp()
     model_file = model_data / Path(params.model.name).with_suffix(".tpxz").name
     with tempfile.NamedTemporaryFile() as f:
         subprocess.check_call(
@@ -37,6 +36,9 @@ def sagemaker_params(env: environment.Environment) -> Params:
         shutil.unpack_archive(f.name, model_dir, format="tar")
     print("Model directory:", model_dir)
     subprocess.run(["ls", "-l", model_dir])
+
+    params.model.name = model_dir
+    params.prior_class = Class(prompt=params.prior_prompt, data=prior_data)
 
     return {"instance_path": train_data, "params": params}
 
