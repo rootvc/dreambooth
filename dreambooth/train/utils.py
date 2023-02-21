@@ -276,13 +276,21 @@ class Trainer:
             print(e)
         return unet
 
+    @torch.no_grad()
     def generate_priors(self) -> Class:
-        pipeline = self._pipeline()
+        pipeline = self._pipeline(
+            unet=self._unet(),
+            text_encoder=self._text_encoder(),
+        )
         pipeline.set_progress_bar_config(disable=True)
 
         prompts = PromptDataset(self.params.prior_prompt, self.params.prior_samples)
         loader: DataLoader = self.accelerator.prepare(
-            DataLoader(prompts, batch_size=self.params.batch_size)
+            DataLoader(
+                prompts,
+                batch_size=self.params.batch_size,
+                num_workers=self.params.loading_workers,
+            )
         )
 
         images = (
@@ -319,6 +327,7 @@ class Trainer:
             hidden_size=hidden_size, cross_attention_dim=cross_attention_dim
         )
 
+    @torch.no_grad()
     def _validation(self, pipeline: DiffusionPipeline) -> list:
         prompt = self.instance_class.prompt + " " + self.params.validation_prompt_suffix
         generator = torch.Generator(device=self.accelerator.device)
@@ -488,6 +497,9 @@ class Trainer:
         self.accelerator.register_for_checkpointing(lora_layers)
 
         try:
+            if self.accelerator.state.deepspeed_plugin:
+                raise RuntimeError("DeepSpeed is not compatible with bitsandbytes.")
+
             import bitsandbytes as bnb
         except Exception as e:
             print(e)
