@@ -1,6 +1,16 @@
 # syntax = docker/dockerfile:experimental
 
-FROM ubuntu:22.04
+FROM rootventures/pytorch:latest AS build
+
+ADD environment.txt environment.txt
+RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy \
+  --file environment.txt
+
+ADD requirements.txt requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --upgrade --pre -r requirements.txt
+
+FROM ubuntu:22.04 AS train
 
 ENV NVIDIA_VISIBLE_DEVICES all
 ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
@@ -20,7 +30,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   apt-get install -y pixz && \
   rm -rf /var/lib/apt/lists/*
 
-COPY --from=rootventures/pytorch:latest /opt/conda /opt/conda
+ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
+COPY --from=build /opt/conda /opt/conda
 
 WORKDIR /dreambooth
-ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
