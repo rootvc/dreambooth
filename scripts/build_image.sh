@@ -8,7 +8,8 @@ init() {
   docker buildx create --use --name builder \
     --buildkitd-flags '--oci-worker-snapshotter=stargz' \
     --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=-1 \
-    --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=-1
+    --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=-1 ||
+    true
   docker buildx inspect --bootstrap builder
 }
 
@@ -24,6 +25,7 @@ pull_build_push() {
     -f "$DOCKERFILE" . \
     -t "$IMAGE_NAME"
   docker pull "$IMAGE_NAME"
+  docker system prune -f
 }
 
 init
@@ -31,7 +33,6 @@ init
 pull_build_push Dockerfile.pytorch pytorch
 pull_build_push Dockerfile.train train-dreambooth
 pull_build_push Dockerfile.sagemaker train-dreambooth-sagemaker
-pull_build_push Dockerfile dreambooth
 
 docker build \
   -o type=registry,oci-mediatypes=true,compression=estargz,force-compression=true \
@@ -40,4 +41,4 @@ docker build \
   -f Dockerfile.sagemaker . \
   -t 630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest
 
-docker system prune -f
+pull_build_push Dockerfile dreambooth
