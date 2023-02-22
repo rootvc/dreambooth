@@ -602,6 +602,10 @@ def get_params() -> HyperParams:
             params.batch_size = n
             params.gradient_accumulation_steps = 1
 
+    match os.cpu_count():
+        case int(n) if n > 0:
+            params.loading_workers = n
+
     return params
 
 

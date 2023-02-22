@@ -1,8 +1,12 @@
 import asyncio
+import itertools
 import logging
 import os
 import subprocess
 import tempfile
+from enum import Enum, auto
+from functools import partial
+from operator import attrgetter
 from pathlib import Path
 from typing import Iterable, Literal
 
@@ -21,6 +25,12 @@ class IntanceConfig(BaseModel):
     dtype: Literal["bf16", "fp16"]
 
 
+class InstanceOptimizer(Enum):
+    COST = auto()
+    TIME = auto()
+    BALANCE = auto()
+
+
 class TrainJob:
     BUCKET = "s3://rootvc-photobooth"
     BUCKET_ALIAS = (
@@ -30,10 +40,10 @@ class TrainJob:
     MAX_WAIT = 60 * 10
 
     DEFAULT_MULTI_INSTANCES = [
-        IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.metal", dtype="fp16"),
         IntanceConfig(instance="ml.g5.12xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.metal", dtype="fp16"),
         IntanceConfig(instance="ml.p3.8xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g5.48xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.p3.16xlarge", dtype="fp16"),
@@ -41,10 +51,7 @@ class TrainJob:
         IntanceConfig(instance="ml.p4d.24xlarge", dtype="bf16"),
     ]
 
-    DEFAULT_INSTANCES = [
-        IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.8xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.16xlarge", dtype="fp16"),
+    DEFAULT_MODERN_SINGLE_INSTANCES = [
         IntanceConfig(instance="ml.g5.8xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.g5.4xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.g5.2xlarge", dtype="bf16"),
@@ -52,18 +59,42 @@ class TrainJob:
         IntanceConfig(instance="ml.g5.xlarge", dtype="bf16"),
     ]
 
+    DEFAULT_BUDGET_INSTANCES = [
+        IntanceConfig(instance="ml.g4dn.8xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.16xlarge", dtype="fp16"),
+    ]
+
     estimator: Estimator
 
-    def __init__(self, id: str, optimize_for_cost: bool = True):
+    def __init__(
+        self, id: str, optimizer: InstanceOptimizer = InstanceOptimizer.BALANCE
+    ):
         self.id = id
-        self.optimize_for_cost = optimize_for_cost
+        self.instance_optimizer = optimizer
         self.check_model()
         self.check_priors()
 
     @property
     def instance_options(self) -> Iterable[IntanceConfig]:
-        instances = self.DEFAULT_INSTANCES + self.DEFAULT_MULTI_INSTANCES
-        return instances if self.optimize_for_cost else reversed(instances)
+        instances = [
+            self.DEFAULT_BUDGET_INSTANCES,
+            self.DEFAULT_MODERN_SINGLE_INSTANCES,
+            self.DEFAULT_MULTI_INSTANCES,
+        ]
+        match self.instance_optimizer:
+            case InstanceOptimizer.COST:
+                return map(
+                    partial(sorted, key=attrgetter("instance")),
+                    instances,
+                )
+            case InstanceOptimizer.TIME:
+                return map(
+                    partial(sorted, reverse=True, key=attrgetter("instance")),
+                    reversed(instances[1:]),
+                )
+            case InstanceOptimizer.BALANCE:
+                return sum(reversed(instances[1:]), [])
 
     @property
     def model_name(self):
@@ -137,7 +168,8 @@ class TrainJob:
             },
             dependencies=["dreambooth", "data/config"],
             entry_point="scripts/train_model.sh",
-            container_log_level=logging.DEBUG,
+            container_log_level=logging.INFO,
+            keep_alive_period_in_seconds=60 * 5,
         )
         estimator.fit(
             {
