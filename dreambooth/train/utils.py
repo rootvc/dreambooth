@@ -568,6 +568,7 @@ class Trainer:
             "noise_scheduler": self._noise_scheduler(),
             "text_encoder": self._text_encoder(),
             "lora_layers": lora_layers,
+            "lr_scheduler": lr_scheduler,
         }
         for epoch in range(epochs):
             self.logger.warning(f"Epoch {epoch + 1}/{epochs}")
