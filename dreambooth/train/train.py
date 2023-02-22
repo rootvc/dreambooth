@@ -15,15 +15,11 @@ class Params(TypedDict):
     params: HyperParams
 
 
-def sagemaker_params(env: environment.Environment) -> Params:
-    train_data = Path(env.channel_input_dirs["train"])
+def _unpack_model(env: environment.Environment, name: str):
     model_data = Path(env.channel_input_dirs["model"])
-    prior_data = Path(env.channel_input_dirs["prior"])
-
-    params = get_params()
-
     model_dir = tempfile.mkdtemp()
-    model_file = model_data / Path(params.model.name).with_suffix(".tpxz").name
+
+    model_file = model_data / Path(name).with_suffix(".tpxz").name
     with tempfile.NamedTemporaryFile() as f:
         subprocess.check_call(
             [
@@ -34,8 +30,19 @@ def sagemaker_params(env: environment.Environment) -> Params:
             ]
         )
         shutil.unpack_archive(f.name, model_dir, format="tar")
+    return model_dir
 
-    params.model.name = model_dir
+
+def sagemaker_params(env: environment.Environment) -> Params:
+    train_data = Path(env.channel_input_dirs["train"])
+
+    prior_data = Path(env.channel_input_dirs["prior"])
+
+    params = get_params()
+
+    params.model.name = _unpack_model(env, params.model.name)
+    if params.model.vae:
+        params.model.vae = _unpack_model(env, params.model.vae)
     params.prior_class = Class(prompt=params.prior_prompt, data=prior_data)
 
     return {"instance_path": train_data, "params": params}

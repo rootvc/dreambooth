@@ -7,7 +7,7 @@ import tempfile
 from functools import cached_property
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Callable, Optional, Type, TypeVar
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar
 
 import torch
 import torch.nn.functional as F
@@ -15,13 +15,8 @@ import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    UNet2DConditionModel,
-)
+from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
+                       DPMSolverMultistepScheduler, UNet2DConditionModel)
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
@@ -103,26 +98,16 @@ class DreamBoothDataset(Dataset):
                 interpolation=transforms.InterpolationMode.BILINEAR,
                 antialias=True,
             ),
-            transforms.RandomCrop(self.size),
         ]
         if self.augment and augment:
             t += [
+                transforms.RandomCrop(self.size),
+                transforms.ColorJitter(0.1, 0.1),
                 transforms.RandomErasing(p=0.5),
-                transforms.RandomOrder(
-                    [
-                        transforms.ColorJitter(
-                            brightness=0.2,
-                            contrast=0.2,
-                            saturation=0.2,
-                            hue=0.2,
-                        ),
-                        transforms.RandomHorizontalFlip(0.5),
-                        transforms.RandomVerticalFlip(0.5),
-                        transforms.RandomInvert(0.5),
-                        transforms.RandomAdjustSharpness(2, p=0.5),
-                        transforms.RandomAutocontrast(p=0.5),
-                    ]
-                ),
+            ]
+        else:
+            t += [
+                transforms.CenterCrop(self.size),
             ]
         t += [
             transforms.Normalize([0.5], [0.5]),
@@ -248,11 +233,18 @@ class Trainer:
         return self._spawn(DDPMScheduler, subfolder="scheduler")
 
     def _vae(self):
-        return self._spawn(
-            AutoencoderKL,
-            subfolder="vae",
-            tap=lambda x: x.requires_grad_(False),
-        ).to(self.accelerator.device, dtype=self.params.dtype)
+        if self.params.model.vae:
+            vae = AutoencoderKL.from_pretrained(
+                self.params.model.vae,
+            )
+        else:
+            vae = self._spawn(
+                AutoencoderKL,
+                subfolder="vae",
+            )
+
+        vae.requires_grad_(False)
+        return vae.to(self.accelerator.device, dtype=self.params.dtype)
 
     def _tokenizer(self):
         return self._spawn(
@@ -329,6 +321,20 @@ class Trainer:
             hidden_size=hidden_size, cross_attention_dim=cross_attention_dim
         )
 
+    @_main_process_only
+    def _log_images(self, prompt: str, images: Iterable, title: str = "validation"):
+        for tracker in self.accelerator.trackers:
+            if not isinstance(tracker, WandBTracker):
+                continue
+            tracker.log(
+                {
+                    title: [
+                        wandb.Image(image, caption=f"{i}: {prompt}")
+                        for i, image in enumerate(images)
+                    ]
+                }
+            )
+
     @torch.inference_mode()
     def _validation(self, pipeline: DiffusionPipeline) -> list:
         prompt = self.instance_class.prompt + " " + self.params.validation_prompt_suffix
@@ -342,17 +348,7 @@ class Trainer:
             for _ in range(self.params.validation_samples)
         ]
 
-        for tracker in self.accelerator.trackers:
-            if not isinstance(tracker, WandBTracker):
-                continue
-            tracker.log(
-                {
-                    "validation": [
-                        wandb.Image(image, caption=f"{i}: {prompt}")
-                        for i, image in enumerate(images)
-                    ]
-                }
-            )
+        self._log_images(prompt, images, title="validation")
         return images
 
     @_main_process_only
@@ -567,6 +563,12 @@ class Trainer:
         if self.accelerator.is_main_process:
             self.accelerator.init_trackers("dreambooth", config=self.params.dict())
 
+        self._log_images(
+            self.instance_class.prompt,
+            self.instance_class.data.iterdir(),
+            title="data",
+        )
+
         self._print("Starting training...")
 
         models = {
@@ -596,10 +598,13 @@ def get_params() -> HyperParams:
     match os.getenv("ACCELERATE_MIXED_PRECISION"):
         case "bf16":
             params.dtype = torch.bfloat16
+            params.model.revision = "bf16"
         case "fp16":
             params.dtype = torch.float16
+            params.model.revision = "fp16"
         case "fp32":
             params.dtype = torch.float32
+            params.model.revision = None
 
     mem = torch.cuda.mem_get_info()[1] / 1e9
     print(f"Available GPU memory: {mem:.2f} GB")

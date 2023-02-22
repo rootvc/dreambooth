@@ -8,7 +8,7 @@ from enum import Enum, auto
 from functools import lru_cache, partial
 from operator import attrgetter
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Iterable, Literal, Optional
 
 import boto3
 from cloudpathlib import CloudPath
@@ -80,8 +80,10 @@ class TrainJob:
     ):
         self.id = id
         self.instance_optimizer = optimizer
-        self.check_model()
         self.check_priors()
+        self.check_model(self.model_name)
+        if self.vae_name:
+            self.check_model(self.vae_name)
 
     @property
     def instance_options(self) -> Iterable[IntanceConfig]:
@@ -105,8 +107,12 @@ class TrainJob:
                 return sum(reversed(instances[1:]), [])
 
     @property
-    def model_name(self):
+    def model_name(self) -> str:
         return HyperParams().model.name
+
+    @property
+    def vae_name(self) -> Optional[str]:
+        return HyperParams().model.vae
 
     @property
     def priors_hash(self):
@@ -154,12 +160,12 @@ class TrainJob:
 
         raise RuntimeError("Priors not found!")
 
-    def check_model(self):
+    def check_model(self, model_name: str):
         bucket = CloudPath(self.BUCKET)
-        model_path = bucket / "models" / f"{self.model_name}.tpxz"
+        model_path = bucket / "models" / f"{model_name}.tpxz"
 
         if model_path.is_file():
-            print("Model already uploaded!")
+            print(f"Model {model_name} already uploaded!")
             return
         else:
             print("Downloading model...")
@@ -226,9 +232,7 @@ class TrainJob:
                 "model": FileSystemInput(
                     file_system_id="fs-0cbeda3084aca5585",
                     file_system_type="FSxLustre",
-                    directory_path=str(
-                        (Path(f"/teld3bev/models") / self.model_name).parent
-                    ),
+                    directory_path="/teld3bev/models",
                     file_system_access_mode="ro",
                 ),
             },
