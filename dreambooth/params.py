@@ -38,14 +38,14 @@ class HyperParams(BaseModel):
 
     # Training
     loading_workers: int = 4
-    train_epochs: int = 50
+    train_epochs: int = 100
     lr_scheduler: str = "constant"
     lr_warmup_steps: int = 500
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
 
     # Validation
-    validate_every: int = 5  # epochs
+    validate_every: int = 10  # epochs
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 50

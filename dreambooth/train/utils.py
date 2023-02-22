@@ -210,7 +210,7 @@ class Trainer:
         )
         self.logger = get_logger(__name__)
         self.logger.warning(self.accelerator.state, main_process_only=True)
-        self.logger.warning(self.params, main_process_only=True)
+        self.logger.warning(self.params.dict(), main_process_only=True)
 
         self._total_steps = 0
 
@@ -601,23 +601,25 @@ def get_params() -> HyperParams:
         case "fp32":
             params.dtype = torch.float32
 
-    match torch.cuda.mem_get_info()[1] / 1e9:
+    mem = torch.cuda.mem_get_info()[1] / 1e9
+    print(f"Available GPU memory: {mem:.2f} GB")
+    match mem:
         case float(n) if n < 16:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
         case float(n) if n < 32:
-            params.batch_size = 2
+            params.batch_size = 4
             params.gradient_accumulation_steps = 1
         case float(n):
             params.batch_size = 8 * torch.cuda.device_count()
             params.gradient_accumulation_steps = 1
 
     match torch.cuda.device_count():
-        case int(n):
+        case int(n) if n > 1:
             params.train_epochs //= n
 
     match os.cpu_count():
-        case int(n) if n > 0:
+        case int(n) if n > 1:
             params.loading_workers = min([n, 32])
 
     return params
