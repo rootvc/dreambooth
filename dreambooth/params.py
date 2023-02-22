@@ -38,7 +38,7 @@ class HyperParams(BaseModel):
 
     # Training
     loading_workers: int = 4
-    train_epochs: int = 1
+    train_epochs: int = 500
     lr_scheduler: str = "constant"
     lr_warmup_steps: int = 500
     prior_loss_weight: float = 1.0
@@ -48,7 +48,7 @@ class HyperParams(BaseModel):
     validate_every: int = 50  # epochs
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
-    validation_steps: int = 25
+    validation_steps: int = 50
 
     class Config:
         arbitrary_types_allowed = True

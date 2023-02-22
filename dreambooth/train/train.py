@@ -2,7 +2,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TypedDict, Union
+from typing import TypedDict
 
 from sagemaker_training import environment
 
@@ -57,7 +57,7 @@ def main():
     model = get_model(**params)
     model.train()
 
-    shutil.copytree(model.output_dir, env.model_dir)
+    shutil.copytree(model.output_dir, env.model_dir, dirs_exist_ok=True)
 
 
 if __name__ == "__main__":

@@ -584,7 +584,25 @@ class Trainer:
 
 
 def get_params() -> HyperParams:
-    return HyperParams()
+    params = HyperParams()
+
+    match os.getenv("ACCELERATE_MIXED_PRECISION"):
+        case "bf16":
+            params.dtype = torch.bfloat16
+        case "fp16":
+            params.dtype = torch.float16
+        case "fp32":
+            params.dtype = torch.float32
+
+    match torch.cuda.device_count():
+        case 0 | 1:
+            params.batch_size = 1
+            params.gradient_accumulation_steps = 2
+        case int(n):
+            params.batch_size = n
+            params.gradient_accumulation_steps = 1
+
+    return params
 
 
 def get_model(
