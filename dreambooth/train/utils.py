@@ -26,7 +26,6 @@ from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
 from PIL import Image
-from pydantic import BaseModel
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
@@ -607,9 +606,9 @@ def get_params() -> HyperParams:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
         case int(n):
-            params.batch_size = n
+            params.batch_size = n // 2
             params.train_epochs //= n
-            params.gradient_accumulation_steps = 64 // n
+            params.gradient_accumulation_steps = 32 // n
 
     match os.cpu_count():
         case int(n) if n > 0:

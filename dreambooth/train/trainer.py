@@ -130,7 +130,7 @@ class TrainJob:
     @lru_cache
     def get_quota(self, instance: str) -> int:
         client = boto3.client("service-quotas")
-        quotas = client.list_service_quotas(ServiceCode="sagemaker", MaxResults=1000)[
+        quotas = client.list_service_quotas(ServiceCode="sagemaker", MaxResults=100)[
             "Quotas"
         ]
         return next(
