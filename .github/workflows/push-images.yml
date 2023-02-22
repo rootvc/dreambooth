@@ -63,9 +63,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Set up containerd
-        uses: crazy-max/ghaction-setup-containerd@v2
-
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
@@ -77,13 +74,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           outputs: "type=registry,oci-mediatypes=true,compression=estargz,force-compression=true"
-
-      - name: Build soci-snapshotter
-        run: |
-          git clone https://github.com/awslabs/soci-snapshotter.git
-          cd soci-snapshotter
-          make
-          ./out/soci create ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
-          ./out/soci push ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
-        env:
-          DOCKER_BUILDKIT: 1
