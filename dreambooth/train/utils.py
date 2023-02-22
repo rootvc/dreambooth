@@ -1,6 +1,7 @@
 import functools
 import hashlib
 import itertools
+import json
 import math
 import os
 import tempfile
@@ -15,11 +16,17 @@ import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
-                       DPMSolverMultistepScheduler, UNet2DConditionModel)
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+    DiffusionPipeline,
+    DPMSolverMultistepScheduler,
+    UNet2DConditionModel,
+)
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
+from peft import LoraConfig, LoraModel, get_peft_model_state_dict
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
@@ -181,6 +188,9 @@ def _main_process_only(f):
 
 
 class Trainer:
+    UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
+    TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
+
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
         self.params = params
@@ -299,28 +309,6 @@ class Trainer:
 
         return Class(prompt=self.params.prior_prompt, data=self.priors_dir)
 
-    def _lora_cross_attention(
-        self, unet: UNet2DConditionModel, name: str
-    ) -> LoRACrossAttnProcessor:
-        cross_attention_dim = (
-            None
-            if name.endswith("attn1.processor")
-            else unet.config.cross_attention_dim
-        )
-        if name.startswith("mid_block"):
-            hidden_size = unet.config.block_out_channels[-1]
-        elif name.startswith("up_blocks"):
-            block_id = int(name[len("up_blocks.")])
-            hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
-        elif name.startswith("down_blocks"):
-            block_id = int(name[len("down_blocks.")])
-            hidden_size = unet.config.block_out_channels[block_id]
-        else:
-            raise ValueError(f"Unknown attention processor {name}")
-        return LoRACrossAttnProcessor(
-            hidden_size=hidden_size, cross_attention_dim=cross_attention_dim
-        )
-
     @_main_process_only
     def _log_images(self, prompt: str, images: Iterable, title: str = "validation"):
         for tracker in self.accelerator.trackers:
@@ -358,8 +346,10 @@ class Trainer:
         models: dict,
     ):
         pipeline = self._pipeline(
-            unet=self.accelerator.unwrap_model(unet),
-            text_encoder=self.accelerator.unwrap_model(models["text_encoder"]),
+            unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True),
+            text_encoder=self.accelerator.unwrap_model(
+                models["text_encoder"], keep_fp32_wrapper=True
+            ),
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
@@ -388,6 +378,9 @@ class Trainer:
         models: dict,
     ):
         unet.train()
+        if self.params.train_text_encoder:
+            models["text_encoder"].train()
+
         for batch in loader:
             with self.accelerator.accumulate(unet):
                 # Convert images to latent space
@@ -454,7 +447,13 @@ class Trainer:
 
                 self.accelerator.backward(loss)
                 if self.accelerator.sync_gradients:
-                    params_to_clip = models["lora_layers"].parameters()
+                    params_to_clip = (
+                        itertools.chain(
+                            unet.parameters(), models["text_encoder"].parameters()
+                        )
+                        if self.params.train_text_encoder
+                        else unet.parameters()
+                    )
                     self.accelerator.clip_grad_norm_(
                         params_to_clip, self.params.max_grad_norm
                     )
@@ -478,21 +477,52 @@ class Trainer:
         self.accelerator.init_trackers("dreambooth", config=self.params.dict())
 
     @_main_process_only
-    def _persist(self, unet: UNet2DConditionModel):
-        unet = unet.to(torch.float32)
-        unet.save_attn_procs(self.output_dir, save_function=self.accelerator.save)
+    def _persist(self, unet: UNet2DConditionModel, text_encoder: CLIPTextModel):
+        config = {}
+        state = {}
+
+        unet_state = get_peft_model_state_dict(
+            unet, state_dict=self.accelerator.get_state_dict(unet)
+        )
+        state.update(unet_state)
+        config["unet_peft"] = unet.get_peft_config_as_dict(inference=True)
+
+        if self.params.train_text_encoder:
+            text_state = {
+                f"text_encoder_{k}": v
+                for k, v in get_peft_model_state_dict(
+                    text_encoder,
+                    state_dict=self.accelerator.get_state_dict(text_encoder),
+                ).items()
+            }
+            state.update(text_state)
+            config["text_peft"] = text_encoder.get_peft_config_as_dict(inference=True)
+
+            self.accelerator.print(state)
+            self.accelerator.save(
+                state, os.path.join(self.output_dir, f"lora_weights.pt")
+            )
+            (self.output_dir / "lora_config.json").write_text(json.dumps(config))
 
     def train(self):
-        unet = self._unet()
+        lora_config = LoraConfig(
+            r=self.params.lora_rank,
+            lora_alpha=self.params.lora_alpha,
+            target_modules=self.UNET_TARGET_MODULES,
+            lora_dropout=self.params.lora_dropout,
+        )
+        unet = LoraModel(lora_config, self._unet())
 
-        lora_attn_procs = {
-            name: self._lora_cross_attention(unet, name)
-            for name in unet.attn_processors.keys()
-        }
-        unet.set_attn_processor(lora_attn_procs)
-
-        lora_layers = AttnProcsLayers(unet.attn_processors)
-        self.accelerator.register_for_checkpointing(lora_layers)
+        if self.params.train_text_encoder:
+            lora_text_config = LoraConfig(
+                r=self.params.lora_text_rank,
+                lora_alpha=self.params.lora_text_alpha,
+                target_modules=self.TEXT_ENCODER_TARGET_MODULES,
+                lora_dropout=self.params.lora_text_dropout,
+            )
+            text_encoder = LoraModel(lora_text_config, self._text_encoder())
+        else:
+            text_encoder = self._text_encoder()
 
         try:
             if self.accelerator.state.deepspeed_plugin:
@@ -508,8 +538,14 @@ class Trainer:
 
         self._print("Initializing Optimizer...")
 
+        lora_params = (
+            itertools.chain(unet.parameters(), text_encoder.parameters())
+            if self.params.train_text_encoder
+            else unet.parameters()
+        )
+
         optimizer = optimizer_class(
-            lora_layers.parameters(),
+            lora_params,
             lr=self.params.learning_rate,
             betas=self.params.betas,
             weight_decay=self.params.weight_decay,
@@ -549,9 +585,20 @@ class Trainer:
 
         self._print("Preparing for training...")
 
-        lora_layers, optimizer, loader, lr_scheduler = self.accelerator.prepare(
-            lora_layers, optimizer, loader, lr_scheduler
-        )
+        if self.params.train_text_encoder:
+            (
+                unet,
+                text_encoder,
+                optimizer,
+                loader,
+                lr_scheduler,
+            ) = self.accelerator.prepare(
+                unet, text_encoder, optimizer, loader, lr_scheduler
+            )
+        else:
+            unet, optimizer, loader, lr_scheduler = self.accelerator.prepare(
+                unet, optimizer, loader, lr_scheduler
+            )
 
         steps_per_epoch = math.ceil(
             len(loader) / self.params.gradient_accumulation_steps
@@ -573,10 +620,9 @@ class Trainer:
 
         models = {
             "unet": unet,
+            "text_encoder": text_encoder,
             "vae": self._vae(),
             "noise_scheduler": self._noise_scheduler(),
-            "text_encoder": self._text_encoder(),
-            "lora_layers": lora_layers,
             "lr_scheduler": lr_scheduler,
         }
         for epoch in range(epochs):
@@ -586,7 +632,7 @@ class Trainer:
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()
-        self._persist(unet)
+        self._persist(unet, text_encoder)
         images = self._do_final_validation()
         self.accelerator.end_training()
         return images
@@ -598,7 +644,7 @@ def get_params() -> HyperParams:
     match os.getenv("ACCELERATE_MIXED_PRECISION"):
         case "bf16":
             params.dtype = torch.bfloat16
-            params.model.revision = "bf16"
+            params.model.revision = None
         case "fp16":
             params.dtype = torch.float16
             params.model.revision = "fp16"
@@ -612,15 +658,19 @@ def get_params() -> HyperParams:
         case float(n) if n < 16:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
+            params.train_text_encoder = False
         case float(n) if n < 24:
             params.batch_size = 2
             params.gradient_accumulation_steps = 1
+            params.train_text_encoder = True
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1
+            params.train_text_encoder = True
         case float(n):
             params.batch_size = 8 * torch.cuda.device_count()
             params.gradient_accumulation_steps = 1
+            params.train_text_encoder = True
 
     match torch.cuda.device_count():
         case int(n) if n > 1:

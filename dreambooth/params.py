@@ -16,7 +16,7 @@ class Class(BaseModel):
 class Model(BaseModel):
     name: Union[str, Path] = "stabilityai/stable-diffusion-2-1"
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-mse"
-    resolution: int = 512
+    resolution: int = 768
     revision: Optional[str] = "fp16"
 
 
@@ -44,6 +44,17 @@ class HyperParams(BaseModel):
     lr_warmup_steps: int = 500
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
+
+    # LoRA
+    lora_rank: int = 8
+    lora_alpha: int = 32
+    lora_dropout: float = 0.0
+
+    # Text Encoder
+    train_text_encoder: bool = True
+    lora_text_rank: int = 8
+    lora_text_alpha: int = 32
+    lora_text_dropout: float = 0.0
 
     # Validation
     validate_every: int = 10  # epochs
