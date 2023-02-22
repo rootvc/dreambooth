@@ -25,6 +25,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: "1.18.10"
+          cache: true
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -83,8 +84,8 @@ jobs:
           docker buildx build . -t soci --target containerd-snapshotter-base --cache-from type=gha --cache-to type=gha,mode=max --load
           docker run -i soci bash <<EOF
           #!/bin/bash
-          sudo soci create ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
-          sudo soci push ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
+          soci create ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
+          soci push ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
           EOF
         env:
           DOCKER_BUILDKIT: 1
