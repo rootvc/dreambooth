@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import logging
 import os
 import subprocess
@@ -130,9 +131,10 @@ class TrainJob:
     @lru_cache
     def get_quota(self, instance: str) -> int:
         client = boto3.client("service-quotas")
-        quotas = client.list_service_quotas(ServiceCode="sagemaker", MaxResults=100)[
-            "Quotas"
-        ]
+        pages = client.get_paginator("list_service_quotas").paginate(
+            ServiceCode="sagemaker", PaginationConfig={"PageSize": 100}
+        )
+        quotas = itertools.chain.from_iterable(page["Quotas"] for page in pages)
         return next(
             (
                 q["Value"]

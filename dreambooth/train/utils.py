@@ -601,18 +601,24 @@ def get_params() -> HyperParams:
         case "fp32":
             params.dtype = torch.float32
 
-    match torch.cuda.device_count():
-        case 0 | 1:
+    match torch.cuda.mem_get_info()[1] / 1e9:
+        case float(n) if n < 16:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
+        case float(n) if n < 32:
+            params.batch_size = 2
+            params.gradient_accumulation_steps = 1
+        case float(n):
+            params.batch_size = 8 * torch.cuda.device_count()
+            params.gradient_accumulation_steps = 1
+
+    match torch.cuda.device_count():
         case int(n):
-            params.batch_size = n // 2
             params.train_epochs //= n
-            params.gradient_accumulation_steps = 32 // n
 
     match os.cpu_count():
         case int(n) if n > 0:
-            params.loading_workers = min([n, 16])
+            params.loading_workers = min([n, 32])
 
     return params
 
