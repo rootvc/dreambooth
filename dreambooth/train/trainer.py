@@ -1,5 +1,4 @@
 import asyncio
-import itertools
 import logging
 import os
 import subprocess
@@ -18,6 +17,11 @@ from sagemaker.inputs import FileSystemInput, TrainingInput
 from dreambooth.download import download_model
 from dreambooth.params import HyperParams
 from dreambooth.train.utils import hash_bytes
+
+try:
+    from rich import print
+except ImportError:
+    pass
 
 
 class IntanceConfig(BaseModel):
@@ -41,9 +45,8 @@ class TrainJob:
 
     DEFAULT_MULTI_INSTANCES = [
         IntanceConfig(instance="ml.g5.12xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.metal", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.p3.8xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g5.48xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.p3.16xlarge", dtype="fp16"),
@@ -104,6 +107,20 @@ class TrainJob:
     def priors_hash(self):
         return hash_bytes(HyperParams().prior_prompt.encode())
 
+    @property
+    def keep_alive(self):
+        match self.instance_optimizer:
+            case InstanceOptimizer.COST:
+                return None
+            case InstanceOptimizer.TIME:
+                return 60 * 60
+            case InstanceOptimizer.BALANCE:
+                return 60 * 5
+
+    @property
+    def use_spot(self):
+        return self.instance_optimizer == InstanceOptimizer.COST
+
     def check_priors(self):
         bucket = CloudPath(self.BUCKET)
         priors_path = bucket / "priors" / self.priors_hash
@@ -149,9 +166,9 @@ class TrainJob:
         estimator = self.estimator = Estimator(
             image_uri="630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest",
             role="SageMakerRole",
-            use_spot_instances=True,
+            use_spot_instances=self.use_spot,
             max_run=self.MAX_RUN,
-            max_wait=self.MAX_RUN + self.MAX_WAIT,
+            max_wait=self.MAX_RUN + self.MAX_WAIT if self.use_spot else None,
             instance_count=1,
             instance_type=config.instance,
             environment={
@@ -169,7 +186,7 @@ class TrainJob:
             dependencies=["dreambooth", "data/config"],
             entry_point="scripts/train_model.sh",
             container_log_level=logging.INFO,
-            keep_alive_period_in_seconds=60 * 5,
+            keep_alive_period_in_seconds=self.keep_alive,
         )
         estimator.fit(
             {
@@ -231,7 +248,7 @@ class TrainJob:
 
     async def run(self):
         for config in self.instance_options:
-            print(f"Running {config.instance} {config.dtype}...")
+            print(f"[bold red]Running {config.instance} {config.dtype}...[/bold red]")
             try:
                 estimator = await self._run(config)
             except Exception as e:

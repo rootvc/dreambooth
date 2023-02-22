@@ -15,13 +15,8 @@ import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    UNet2DConditionModel,
-)
+from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
+                       DPMSolverMultistepScheduler, UNet2DConditionModel)
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
@@ -100,7 +95,9 @@ class DreamBoothDataset(Dataset):
         t = [
             transforms.ToTensor(),
             transforms.Resize(
-                self.size, interpolation=transforms.InterpolationMode.BILINEAR
+                self.size,
+                interpolation=transforms.InterpolationMode.BILINEAR,
+                antialias=True,
             ),
             transforms.RandomCrop(self.size),
         ]
@@ -208,10 +205,14 @@ class Trainer:
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
         )
         self.logger = get_logger(__name__)
-        self.logger.warning(self.accelerator.state)
-        self.logger.warning(self.params)
+        self.logger.warning(self.accelerator.state, main_process_only=True)
+        self.logger.warning(self.params, main_process_only=True)
 
         self._total_steps = 0
+
+    @_main_process_only
+    def _print(self, *args, **kwargs):
+        print(*args, **kwargs)
 
     def _spawn(
         self, klass: Type[T], tap: Callable[[T], Any] = lambda x: x, **kwargs
@@ -265,13 +266,13 @@ class Trainer:
         try:
             unet.enable_xformers_memory_efficient_attention()
         except Exception as e:
-            print("Cannot enable xformers memory efficient attention")
-            print(e)
+            self._print("Cannot enable xformers memory efficient attention")
+            self._print(e)
         return unet
 
     @torch.inference_mode()
     def generate_priors(self, progress_bar: bool = False) -> Class:
-        print("Generating priors...")
+        self._print("Generating priors...")
 
         pipeline = self._pipeline(
             unet=self._unet(),
@@ -499,13 +500,13 @@ class Trainer:
 
             import bitsandbytes as bnb
         except Exception as e:
-            print(e)
-            print("Could not import bitsandbytes, using AdamW")
+            self._print(e)
+            self._print("Could not import bitsandbytes, using AdamW")
             optimizer_class = torch.optim.AdamW
         else:
             optimizer_class = bnb.optim.AdamW8bit
 
-        print("Initializing Optimizer...")
+        self._print("Initializing Optimizer...")
 
         optimizer = optimizer_class(
             lora_layers.parameters(),
@@ -515,7 +516,7 @@ class Trainer:
             eps=self.params.epsilon,
         )
 
-        print("Loading dataset...")
+        self._print("Loading dataset...")
 
         dataset = DreamBoothDataset(
             instance=self.instance_class,
@@ -546,7 +547,7 @@ class Trainer:
             * self.params.gradient_accumulation_steps,
         )
 
-        print("Preparing for training...")
+        self._print("Preparing for training...")
 
         lora_layers, optimizer, loader, lr_scheduler = self.accelerator.prepare(
             lora_layers, optimizer, loader, lr_scheduler
@@ -560,7 +561,7 @@ class Trainer:
         if self.accelerator.is_main_process:
             self.accelerator.init_trackers("dreambooth", config=self.params.dict())
 
-        print("Starting training...")
+        self._print("Starting training...")
 
         models = {
             "unet": unet,
@@ -571,7 +572,7 @@ class Trainer:
             "lr_scheduler": lr_scheduler,
         }
         for epoch in range(epochs):
-            self.logger.warning(f"Epoch {epoch + 1}/{epochs}")
+            self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
             self._do_epoch(unet, loader, optimizer, models)
             if epoch % self.params.validate_every == 0:
                 self._do_validation(unet, models)
@@ -599,12 +600,12 @@ def get_params() -> HyperParams:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
         case int(n):
-            params.batch_size = n
+            params.batch_size = n // 2
             params.gradient_accumulation_steps = 1
 
     match os.cpu_count():
         case int(n) if n > 0:
-            params.loading_workers = n
+            params.loading_workers = min([n, 16])
 
     return params
 
