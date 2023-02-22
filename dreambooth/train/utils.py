@@ -15,8 +15,13 @@ import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
-                       DPMSolverMultistepScheduler, UNet2DConditionModel)
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+    DiffusionPipeline,
+    DPMSolverMultistepScheduler,
+    UNet2DConditionModel,
+)
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
@@ -558,6 +563,8 @@ class Trainer:
         )  # may have changed post-accelerate
         epochs = math.ceil(max_train_steps / steps_per_epoch)
 
+        self._print(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
+
         if self.accelerator.is_main_process:
             self.accelerator.init_trackers("dreambooth", config=self.params.dict())
 
@@ -600,8 +607,9 @@ def get_params() -> HyperParams:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
         case int(n):
-            params.batch_size = n // 2
-            params.gradient_accumulation_steps = 1
+            params.batch_size = n
+            params.train_epochs //= n
+            params.gradient_accumulation_steps = 64 // n
 
     match os.cpu_count():
         case int(n) if n > 0:

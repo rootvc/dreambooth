@@ -4,11 +4,12 @@ import os
 import subprocess
 import tempfile
 from enum import Enum, auto
-from functools import partial
+from functools import lru_cache, partial
 from operator import attrgetter
 from pathlib import Path
 from typing import Iterable, Literal
 
+import boto3
 from cloudpathlib import CloudPath
 from pydantic import BaseModel
 from sagemaker.estimator import Estimator
@@ -28,6 +29,9 @@ class IntanceConfig(BaseModel):
     instance: str
     dtype: Literal["bf16", "fp16"]
 
+    class Config:
+        frozen = True
+
 
 class InstanceOptimizer(Enum):
     COST = auto()
@@ -44,11 +48,11 @@ class TrainJob:
     MAX_WAIT = 60 * 10
 
     DEFAULT_MULTI_INSTANCES = [
-        IntanceConfig(instance="ml.g5.12xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.p3.8xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g5.48xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.12xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.p3.8xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p3.16xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p3dn.24xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p4d.24xlarge", dtype="bf16"),
@@ -117,9 +121,26 @@ class TrainJob:
             case InstanceOptimizer.BALANCE:
                 return 60 * 5
 
-    @property
-    def use_spot(self):
-        return self.instance_optimizer == InstanceOptimizer.COST
+    def use_spot(self, config: IntanceConfig):
+        return (
+            self.instance_optimizer == InstanceOptimizer.COST
+            or self.get_quota(config.instance) == 0
+        )
+
+    @lru_cache
+    def get_quota(self, instance: str) -> int:
+        client = boto3.client("service-quotas")
+        quotas = client.list_service_quotas(ServiceCode="sagemaker", MaxResults=1000)[
+            "Quotas"
+        ]
+        return next(
+            (
+                q["Value"]
+                for q in quotas
+                if q["QuotaName"] == f"{instance} for training warm pool usage"
+            ),
+            0,
+        )
 
     def check_priors(self):
         bucket = CloudPath(self.BUCKET)
@@ -166,9 +187,9 @@ class TrainJob:
         estimator = self.estimator = Estimator(
             image_uri="630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest",
             role="SageMakerRole",
-            use_spot_instances=self.use_spot,
+            use_spot_instances=self.use_spot(config),
             max_run=self.MAX_RUN,
-            max_wait=self.MAX_RUN + self.MAX_WAIT if self.use_spot else None,
+            max_wait=self.MAX_RUN + self.MAX_WAIT if self.use_spot(config) else None,
             instance_count=1,
             instance_type=config.instance,
             environment={
@@ -186,7 +207,9 @@ class TrainJob:
             dependencies=["dreambooth", "data/config"],
             entry_point="scripts/train_model.sh",
             container_log_level=logging.INFO,
-            keep_alive_period_in_seconds=self.keep_alive,
+            keep_alive_period_in_seconds=None
+            if self.use_spot(config)
+            else self.keep_alive,
         )
         estimator.fit(
             {
