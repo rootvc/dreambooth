@@ -209,6 +209,7 @@ class Trainer:
         )
         self.logger = get_logger(__name__)
         self.logger.warning(self.accelerator.state)
+        self.logger.warning(self.params)
 
         self._total_steps = 0
 
