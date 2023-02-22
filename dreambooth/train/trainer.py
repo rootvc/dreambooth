@@ -196,7 +196,11 @@ class TrainJob:
     async def run(self):
         for config in self.instance_options:
             print(f"Running {config.instance} {config.dtype}...")
-            estimator = await self._run(config)
+            try:
+                estimator = await self._run(config)
+            except Exception as e:
+                print(e)
+                continue
             if await self._wait_for_start(estimator):
                 print("Success!")
                 yield estimator

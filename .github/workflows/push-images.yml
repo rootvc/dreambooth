@@ -63,6 +63,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
+      - name: Set up containerd
+        uses: crazy-max/ghaction-setup-containerd@v2
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
@@ -80,23 +83,7 @@ jobs:
           git clone https://github.com/awslabs/soci-snapshotter.git
           cd soci-snapshotter
           make
-          docker buildx build . -t soci --target containerd-snapshotter-base --cache-from type=gha --cache-to type=gha,mode=max --load
-          docker run -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_DEFAULT_REGION -e AWS_REGION -i soci bash <<EOF
-          #!/bin/bash
-
-          # AWS CLI
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          python -m zipfile -e awscliv2.zip .
-          ./aws/install
-
-          # ECR Login
-          aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-
-          # SOCI
-          cd $GOPATH/src/github.com/awslabs/soci-snapshotter
-          make
           ./out/soci create ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
           ./out/soci push ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
-          EOF
         env:
           DOCKER_BUILDKIT: 1
