@@ -80,8 +80,8 @@ jobs:
           git clone https://github.com/awslabs/soci-snapshotter.git
           cd soci-snapshotter
           make
-          docker build . -t soci --target containerd-snapshotter-base
-          docker exec -it soci bash <<EOF
+          docker buildx build . -t soci --target containerd-snapshotter-base --cache-from type=gha --cache-to type=gha,mode=max
+          docker run -i soci bash <<EOF
           #!/bin/bash
           sudo soci create ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest
           sudo soci push ${{ steps.login-ecr.outputs.registry }}/train-dreambooth-sagemaker:latest

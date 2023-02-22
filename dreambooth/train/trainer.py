@@ -32,20 +32,20 @@ class TrainJob:
     DEFAULT_MULTI_INSTANCES = [
         IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g4dn.metal", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.12xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.24xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.12xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.p3.8xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.48xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.48xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.p3.16xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p3dn.24xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p4d.24xlarge", dtype="bf16"),
     ]
 
     DEFAULT_INSTANCES = [
-        IntanceConfig(instance="ml.g5.8xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.4xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.2xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g5.xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.8xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.4xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.2xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.xlarge", dtype="bf16"),
     ]
 
     estimator: Estimator
