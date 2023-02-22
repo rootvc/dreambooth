@@ -34,8 +34,6 @@ def sagemaker_params(env: environment.Environment) -> Params:
             ]
         )
         shutil.unpack_archive(f.name, model_dir, format="tar")
-    print("Model directory:", model_dir)
-    subprocess.run(["ls", "-l", model_dir])
 
     params.model.name = model_dir
     params.prior_class = Class(prompt=params.prior_prompt, data=prior_data)

@@ -28,7 +28,7 @@ class HyperParams(BaseModel):
     prior_prompt: str = "a photo of a person"
     prior_samples: int = 100
     prior_class: Optional[Class] = None
-    batch_size: int = 8
+    batch_size: int = 1
 
     # Optimizer
     learning_rate: float = 1e-4

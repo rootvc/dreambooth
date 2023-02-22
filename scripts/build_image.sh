@@ -18,7 +18,7 @@ pull_build_push() {
   IMAGE_NAME="rootventures/$2:latest"
   docker pull "$IMAGE_NAME"
   docker build \
-    -o type=registry,oci-mediatypes=true,compression=estargz,force-compression=true \
+    -o type=registry,oci-mediatypes=true,compression=estargz \
     --cache-from=type=registry,ref=rootventures/$2:cache \
     --cache-to=type=registry,ref=rootventures/$2:cache,mode=max \
     --builder builder \
@@ -35,10 +35,10 @@ pull_build_push Dockerfile.train train-dreambooth
 pull_build_push Dockerfile.sagemaker train-dreambooth-sagemaker
 
 docker build \
-  -o type=registry,oci-mediatypes=true,compression=estargz,force-compression=true \
+  -o type=registry,oci-mediatypes=true,compression=estargz \
   --cache-from=type=registry,ref=rootventures/train-dreambooth-sagemaker:cache \
   --builder builder \
-  -f Dockerfile.sagemaker . \
+  -f dockerfiles/Dockerfile.sagemaker . \
   -t 630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest
 
 pull_build_push Dockerfile dreambooth

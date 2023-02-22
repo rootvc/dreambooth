@@ -518,7 +518,7 @@ class Trainer:
 
         dataset = DreamBoothDataset(
             instance=self.instance_class,
-            prior=self.generate_priors(),
+            prior=self.params.prior_class or self.generate_priors(),
             tokenizer=self._tokenizer(),
             size=self.params.model.resolution,
         )
