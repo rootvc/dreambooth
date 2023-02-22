@@ -608,8 +608,8 @@ def get_params() -> HyperParams:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
         case float(n) if n < 24:
-            params.batch_size = 4
-            params.gradient_accumulation_steps = 2
+            params.batch_size = 2
+            params.gradient_accumulation_steps = 1
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1

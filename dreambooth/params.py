@@ -38,7 +38,7 @@ class HyperParams(BaseModel):
 
     # Training
     loading_workers: int = 4
-    train_epochs: int = 100
+    train_epochs: int = 250
     lr_scheduler: str = "constant"
     lr_warmup_steps: int = 500
     prior_loss_weight: float = 1.0
