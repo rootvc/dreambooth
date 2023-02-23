@@ -25,7 +25,6 @@ pull_build_push() {
     -f "$DOCKERFILE" . \
     -t "$IMAGE_NAME"
   docker pull "$IMAGE_NAME"
-  docker system prune -f
 }
 
 init
@@ -42,3 +41,5 @@ docker build \
   -t 630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest
 
 pull_build_push Dockerfile dreambooth
+
+docker system prune -f
