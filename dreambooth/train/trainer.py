@@ -7,16 +7,16 @@ import tempfile
 from enum import Enum, auto
 from functools import lru_cache, partial
 from operator import attrgetter
-from pathlib import Path
-from typing import Iterable, Literal, Optional
+from typing import Iterable, Literal, Optional, Type
 
 import boto3
 from cloudpathlib import CloudPath
+from diffusers import AutoencoderKL, StableDiffusionPipeline
 from pydantic import BaseModel
 from sagemaker.estimator import Estimator
 from sagemaker.inputs import FileSystemInput, TrainingInput
 
-from dreambooth.download import download_model
+from dreambooth.download import download
 from dreambooth.params import HyperParams
 from dreambooth.train.utils import hash_bytes
 
@@ -81,9 +81,9 @@ class TrainJob:
         self.id = id
         self.instance_optimizer = optimizer
         self.check_priors()
-        self.check_model(self.model_name)
-        if self.vae_name:
-            self.check_model(self.vae_name)
+        self.check_model(StableDiffusionPipeline, **self.model_params)
+        if self.vae_params:
+            self.check_model(AutoencoderKL, **self.vae_params)
 
     @property
     def instance_options(self) -> Iterable[IntanceConfig]:
@@ -107,12 +107,19 @@ class TrainJob:
                 return sum(reversed(instances[1:]), [])
 
     @property
-    def model_name(self) -> str:
-        return HyperParams().model.name
+    def model_params(self) -> dict:
+        params = HyperParams()
+        return {
+            "name": params.model.name,
+            "revision": params.model.revision,
+            "dtype": params.dtype,
+        }
 
     @property
-    def vae_name(self) -> Optional[str]:
-        return HyperParams().model.vae
+    def vae_params(self) -> Optional[dict]:
+        params = HyperParams()
+        if params.model.vae:
+            return {"name": params.model.vae}
 
     @property
     def priors_hash(self):
@@ -160,17 +167,17 @@ class TrainJob:
 
         raise RuntimeError("Priors not found!")
 
-    def check_model(self, model_name: str):
+    def check_model(self, klass: Type, name: str, **kwargs):
         bucket = CloudPath(self.BUCKET)
-        model_path = bucket / "models" / f"{model_name}.tpxz"
+        model_path = bucket / "models" / f"{name}.tpxz"
 
         if model_path.is_file():
-            print(f"Model {model_name} already uploaded!")
+            print(f"Model {name} already uploaded!")
             return
         else:
-            print("Downloading model...")
+            print(f"Downloading model {name}...")
 
-        model = download_model()
+        model = download(klass, name, **kwargs)
         with tempfile.TemporaryDirectory() as dir:
             print("Saving model to", dir)
             model.save_pretrained(dir)

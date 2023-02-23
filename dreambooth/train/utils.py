@@ -612,7 +612,7 @@ class Trainer:
 
         self._log_images(
             self.instance_class.prompt,
-            self.instance_class.data.iterdir(),
+            map(str, self.instance_class.data.iterdir()),
             title="data",
         )
 
