@@ -345,11 +345,10 @@ class Trainer:
         unet: UNet2DConditionModel,
         models: dict,
     ):
-        pipeline = self._pipeline(
-            unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True),
-            text_encoder=self.accelerator.unwrap_model(
-                models["text_encoder"], keep_fp32_wrapper=True
-            ),
+        pipeline = self._pipeline(unet=None, text_encoder=None)
+        pipeline.unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True)
+        pipeline.text_encoder = self.accelerator.unwrap_model(
+            models["text_encoder"], keep_fp32_wrapper=True
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
