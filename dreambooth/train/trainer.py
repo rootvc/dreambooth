@@ -198,7 +198,14 @@ class TrainJob:
                 print(f"Uploading model to {model_path}...")
                 model_path.upload_from(f.name)
 
+    def check_cache(self, config: IntanceConfig):
+        bucket = CloudPath(self.BUCKET)
+        path = bucket / "models" / "cache" / config.instance / ".keep"
+        path.touch(exist_ok=True)
+        print(f"Cache path: {path.parent}")
+
     async def _run(self, config: IntanceConfig):
+        self.check_cache(config)
         estimator = self.estimator = Estimator(
             image_uri="630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest",
             role="SageMakerRole",
@@ -213,6 +220,8 @@ class TrainJob:
                 "ACCELERATE_MIXED_PRECISION": config.dtype,
                 "NVIDIA_DISABLE_REQUIRE": "true",
                 "TRITON_CACHE_DIR": "/opt/ml/input/data/cache/triton",
+                "TORCHINDUCTOR_CACHE_DIR": "/opt/ml/input/data/cache/torchinductor",
+                "PYTORCH_KERNEL_CACHE_PATH": "/opt/ml/input/data/cache/torch",
             },
             subnets=["subnet-0425d46d0751e9df0"],
             security_group_ids=["sg-0edc333b71f1d600d"],
@@ -246,7 +255,7 @@ class TrainJob:
                 "cache": FileSystemInput(
                     file_system_id="fs-0cbeda3084aca5585",
                     file_system_type="FSxLustre",
-                    directory_path="/teld3bev/cache",
+                    directory_path=f"/teld3bev/models/cache/{config.instance}",
                     file_system_access_mode="rw",
                 ),
             },
