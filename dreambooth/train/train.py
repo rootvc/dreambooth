@@ -19,7 +19,7 @@ def _unpack_model(env: environment.Environment, name: str):
     model_data = Path(env.channel_input_dirs["model"])
     model_dir = tempfile.mkdtemp()
 
-    model_file = model_data / Path(name).with_suffix(".tpxz").name
+    model_file = model_data / Path(name).with_suffix(".tpxz")
     with tempfile.NamedTemporaryFile() as f:
         subprocess.check_call(
             [
