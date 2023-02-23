@@ -35,9 +35,7 @@ def _unpack_model(env: environment.Environment, name: str):
 
 def sagemaker_params(env: environment.Environment) -> Params:
     train_data = Path(env.channel_input_dirs["train"])
-
     prior_data = Path(env.channel_input_dirs["prior"])
-
     params = get_params()
 
     params.model.name = _unpack_model(env, params.model.name)

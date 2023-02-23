@@ -4,6 +4,7 @@ set -euxo pipefail
 export DOCKER_BUILDKIT=1
 
 init() {
+  git pull
   aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 630351220487.dkr.ecr.us-west-2.amazonaws.com
   docker buildx create --use --name builder \
     --buildkitd-flags '--oci-worker-snapshotter=stargz' \
