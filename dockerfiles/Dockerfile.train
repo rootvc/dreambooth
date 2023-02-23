@@ -25,9 +25,10 @@ WORKDIR /
 
 RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
+# Triton needs build-essential for JIT
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   apt-get update && \
-  apt-get install -y pixz && \
+  apt-get install -y pixz build-essential && \
   rm -rf /var/lib/apt/lists/*
 
 ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
