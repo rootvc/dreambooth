@@ -377,6 +377,7 @@ class Trainer:
         unet: UNet2DConditionModel,
         models: dict,
     ):
+        return self._do_final_validation()
         pipeline = self._pipeline(
             unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True),
             text_encoder=self.accelerator.unwrap_model(

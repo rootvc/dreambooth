@@ -14,7 +14,8 @@ from dreambooth.train.utils import HyperParams, get_model, get_params
 IGNORE_MODS = ["_functorch", "fmha"]
 IGNORE_RE = r"|".join([rf"(.*)\.{mod}\.(.*)" for mod in IGNORE_MODS])
 warnings.filterwarnings("ignore", module=IGNORE_RE)
-warnings.simplefilter("ignore", category=ImportWarning)
+for klass in [ImportWarning, DeprecationWarning, ResourceWarning]:
+    warnings.filterwarnings("ignore", category=klass)
 
 
 class Params(TypedDict):
@@ -62,6 +63,9 @@ def standalone_params(env: environment.Environment):
 def main():
     env = environment.Environment()
     if env.channel_input_dirs:
+        shutil.copytree(
+            env.channel_input_dirs["cache"], os.environ["CACHE_DIR"], dirs_exist_ok=True
+        )
         params = sagemaker_params(env)
     else:
         params = standalone_params(env)
