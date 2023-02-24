@@ -12,6 +12,7 @@ from typing import Iterable, Literal, Optional, Type
 import boto3
 from cloudpathlib import CloudPath
 from diffusers import AutoencoderKL, StableDiffusionPipeline
+from git import Repo
 from pydantic import BaseModel
 from sagemaker.estimator import Estimator
 from sagemaker.inputs import FileSystemInput, TrainingInput
@@ -206,6 +207,7 @@ class TrainJob:
 
     async def _run(self, config: IntanceConfig):
         self.check_cache(config)
+        repo = Repo().remotes.origin
         estimator = self.estimator = Estimator(
             image_uri="630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest",
             role="SageMakerRole",
@@ -216,6 +218,9 @@ class TrainJob:
             instance_type=config.instance,
             environment={
                 "WANDB_API_KEY": os.environ["WANDB_API_KEY"],
+                "WANDB_GIT_COMMIT": repo.refs.main.commit.hexsha,
+                "WANDB_GIT_REMOTE_URL": repo.url,
+                "WANDB_NOTES": repo.refs.main.commit.summary,
                 "INSTANCE_TYPE": config.instance,
                 "ACCELERATE_MIXED_PRECISION": config.dtype,
             },
