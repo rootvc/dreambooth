@@ -200,7 +200,7 @@ class TrainJob:
 
     def check_cache(self, config: IntanceConfig):
         bucket = CloudPath(self.BUCKET)
-        path = bucket / "models" / "cache" / config.instance / ".keep"
+        path = bucket / "cache" / config.instance / ".keep"
         path.touch(exist_ok=True)
         print(f"Cache path: {path.parent}")
 
@@ -245,13 +245,13 @@ class TrainJob:
                 "model": FileSystemInput(
                     file_system_id="fs-0cbeda3084aca5585",
                     file_system_type="FSxLustre",
-                    directory_path="/teld3bev/models",
+                    directory_path="/i5ntrbev/models",
                     file_system_access_mode="ro",
                 ),
                 "cache": FileSystemInput(
                     file_system_id="fs-0cbeda3084aca5585",
                     file_system_type="FSxLustre",
-                    directory_path=f"/teld3bev/models/cache/{config.instance}",
+                    directory_path=f"/i5ntrbev/cache/{config.instance}",
                     file_system_access_mode="rw",
                 ),
             },
