@@ -66,6 +66,7 @@ def main():
         shutil.copytree(
             env.channel_input_dirs["cache"], os.environ["CACHE_DIR"], dirs_exist_ok=True
         )
+        subprocess.check_call(["ls", "-l", os.environ["CACHE_DIR"]])
         params = sagemaker_params(env)
     else:
         params = standalone_params(env)
@@ -82,6 +83,7 @@ def main():
                 env.channel_input_dirs["cache"],
                 dirs_exist_ok=True,
             )
+            subprocess.check_call(["ls", "-l", env.channel_input_dirs["cache"]])
 
 
 if __name__ == "__main__":

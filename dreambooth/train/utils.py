@@ -239,6 +239,7 @@ class Trainer:
         self,
         unet: Optional[UNet2DConditionModel] = None,
         text_encoder: Optional[CLIPTextModel] = None,
+        half: bool = False,
         **kwargs,
     ):
         pipe = self._spawn(
@@ -257,6 +258,9 @@ class Trainer:
             pipe.unet = unet.eval()
         if text_encoder:
             pipe.text_encoder = text_encoder.eval()
+        if half:
+            pipe.unet.half()
+            pipe.text_encoder.half()
         return pipe.to(self.accelerator.device)
 
     def _text_encoder(self):
@@ -395,7 +399,9 @@ class Trainer:
     def _do_final_validation(self):
         pipeline = self._pipeline(half=True)
         config = json.loads((self.output_dir / "lora_config.json").read_text())
-        state = torch.load(self.output_dir / "lora_weights.pt")
+        state = torch.load(
+            self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
+        )
 
         self._print("Loaded config with keys: ", config.keys())
 
