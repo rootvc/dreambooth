@@ -409,7 +409,7 @@ class Trainer:
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(
             self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
-        )
+        ).to(self.params.dtype)
 
         self._print("Loaded config with keys: ", config.keys())
 
