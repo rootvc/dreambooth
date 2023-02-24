@@ -39,7 +39,7 @@ class HyperParams(BaseModel):
 
     # Training
     loading_workers: int = 4
-    train_epochs: int = 100
+    train_epochs: int = 50
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 500
     prior_loss_weight: float = 1.0
@@ -48,16 +48,16 @@ class HyperParams(BaseModel):
     # LoRA
     lora_rank: int = 8
     lora_alpha: int = 32
-    lora_dropout: float = 0.0
+    lora_dropout: float = 0.1
 
     # Text Encoder
     train_text_encoder: bool = True
     lora_text_rank: int = 8
     lora_text_alpha: int = 32
-    lora_text_dropout: float = 0.0
+    lora_text_dropout: float = 0.1
 
     # Validation
-    validate_every: int = 10  # epochs
+    validate_every: int = 5  # epochs
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 25

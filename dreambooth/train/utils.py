@@ -17,11 +17,20 @@ import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
-                       DPMSolverMultistepScheduler, UNet2DConditionModel)
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+    DiffusionPipeline,
+    DPMSolverMultistepScheduler,
+    UNet2DConditionModel,
+)
 from diffusers.optimization import get_scheduler
-from peft import (LoraConfig, LoraModel, get_peft_model_state_dict,
-                  set_peft_model_state_dict)
+from peft import (
+    LoraConfig,
+    LoraModel,
+    get_peft_model_state_dict,
+    set_peft_model_state_dict,
+)
 from PIL import Image
 from torch._dynamo import disable
 from torch.utils.data import DataLoader, Dataset
@@ -107,8 +116,22 @@ class DreamBoothDataset(Dataset):
         if self.augment and augment:
             t += [
                 transforms.RandomCrop(self.size),
-                transforms.ColorJitter(0.1, 0.1),
                 transforms.RandomErasing(p=0.5),
+                transforms.RandomOrder(
+                    [
+                        transforms.ColorJitter(
+                            brightness=0.2,
+                            contrast=0.2,
+                            saturation=0.2,
+                            hue=0.2,
+                        ),
+                        transforms.RandomHorizontalFlip(0.5),
+                        transforms.RandomVerticalFlip(0.5),
+                        transforms.RandomInvert(0.5),
+                        transforms.RandomAdjustSharpness(2, p=0.5),
+                        transforms.RandomAutocontrast(p=0.5),
+                    ]
+                ),
             ]
         else:
             t += [

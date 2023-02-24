@@ -112,7 +112,7 @@ class TrainJob:
         return {
             "name": params.model.name,
             "revision": params.model.revision,
-            "dtype": params.dtype,
+            "torch_dtype": params.dtype,
         }
 
     @property
