@@ -584,16 +584,7 @@ class Trainer:
             self._print("Persisted config with keys: ", config.keys())
 
     def _compile(self, model: torch.nn.Module) -> torch.nn.Module:
-        key = hash_bytes(cast(ConfigMixin, model).to_json_string().encode("utf-8"))
-        path = self.cache_dir / "compiled" / self.DYNAMO_BACKEND / f"{key}.pt"
-        if path.exists():
-            return torch.jit.load(path.open("rb")).to(self.accelerator.device)
-        else:
-            compiled = torch._dynamo.optimize(backend=self.DYNAMO_BACKEND)(model)
-            compiled, _ = torch._dynamo.export(compiled, aten_graph=True)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            torch.jit.save(compiled, path.open("wb"))
-            return compiled
+        return torch._dynamo.optimize(backend=self.DYNAMO_BACKEND)(model)
 
     def train(self):
         lora_config = LoraConfig(
