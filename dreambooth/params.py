@@ -55,14 +55,14 @@ class HyperParams(BaseModel):
     train_text_encoder: bool = True
     lora_text_rank: int = 8
     lora_text_alpha: int = 32
-    lora_text_dropout: float = 0.1
+    lora_text_dropout: float = 0.0
 
     # Validation
     validate_every: int = 5  # epochs
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
-    validation_steps: int = 25
-    negative_prompt: str = "poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face"
+    validation_steps: int = 50
+    negative_prompt: str = "poorly drawn hands, poorly drawn face, mutation, deformed, distorted, blurry, bad anatomy, bad proportions, extra limbs, cloned face"
 
     class Config:
         arbitrary_types_allowed = True

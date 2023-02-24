@@ -118,7 +118,6 @@ class DreamBoothDataset(Dataset):
         if self.augment and augment:
             t += [
                 transforms.RandomCrop(self.size),
-                transforms.RandomErasing(p=0.5, scale=(0.02, 0.05)),
                 transforms.RandomOrder(
                     [
                         transforms.ColorJitter(brightness=0.2, contrast=0.1),
