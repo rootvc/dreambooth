@@ -221,7 +221,6 @@ def partition(
 class Trainer:
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
-    DYNAMO_BACKEND = "inductor"
 
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
@@ -584,7 +583,10 @@ class Trainer:
             self._print("Persisted config with keys: ", config.keys())
 
     def _compile(self, model: torch.nn.Module) -> torch.nn.Module:
-        return model  # inductor breaks SD atm
+        if self.params.dynamo_backend:
+            return torch._dynamo.optimize(backend=self.params.dynamo_backend)(model)
+        else:
+            return model
 
     def train(self):
         lora_config = LoraConfig(
@@ -744,18 +746,22 @@ def get_params() -> HyperParams:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
             params.train_text_encoder = False
+            params.dynamo_backend = None
         case float(n) if n < 24:
             params.batch_size = 2
             params.gradient_accumulation_steps = 1
             params.train_text_encoder = True
+            params.dynamo_backend = None  # "inductor" currently breaks SD
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1
             params.train_text_encoder = True
+            params.dynamo_backend = "cudagraphs"
         case float(n):
             params.batch_size = 8 * torch.cuda.device_count()
             params.gradient_accumulation_steps = 1
             params.train_text_encoder = True
+            params.dynamo_backend = "cudagraphs"
 
     match torch.cuda.device_count():
         case int(n) if n > 1:
