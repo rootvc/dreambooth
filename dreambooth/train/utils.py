@@ -221,7 +221,7 @@ def partition(
 class Trainer:
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
-    DYNAMO_BACKEND = "cudagraphs"
+    DYNAMO_BACKEND = "inductor"
 
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
@@ -584,7 +584,7 @@ class Trainer:
             self._print("Persisted config with keys: ", config.keys())
 
     def _compile(self, model: torch.nn.Module) -> torch.nn.Module:
-        return torch._dynamo.optimize(backend=self.DYNAMO_BACKEND)(model)
+        return model  # inductor breaks SD atm
 
     def train(self):
         lora_config = LoraConfig(

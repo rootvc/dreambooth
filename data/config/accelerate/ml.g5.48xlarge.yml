@@ -1,10 +1,15 @@
 compute_environment: LOCAL_MACHINE
 deepspeed_config: {}
-distributed_type: MULTI_GPU
+distributed_type: FSDP
 downcast_bf16: "no"
-dynamo_backend: "no"
-fsdp_config: {}
-gpu_ids: all
+dynamo_backend: "NO"
+fsdp_config:
+  fsdp_auto_wrap_policy: SIZE_BASED_WRAP
+  fsdp_backward_prefetch_policy: BACKWARD_PRE
+  fsdp_min_num_params: 100000000.0
+  fsdp_offload_params: false
+  fsdp_sharding_strategy: 2
+  fsdp_state_dict_type: FULL_STATE_DICT
 machine_rank: 0
 main_training_function: main
 megatron_lm_config: {}
