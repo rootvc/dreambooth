@@ -362,6 +362,7 @@ class Trainer:
         images = [
             pipeline(
                 prompt,
+                negative_prompt=self.params.negative_prompt,
                 num_inference_steps=self.params.validation_steps,
                 generator=generator,
             ).images[0]
