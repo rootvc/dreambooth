@@ -34,7 +34,6 @@ from peft import (
     set_peft_model_state_dict,
 )
 from PIL import Image
-from torch._dynamo import disable
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
@@ -381,7 +380,7 @@ class Trainer:
         return images
 
     @_main_process_only
-    @disable
+    @torch.inference_mode()
     def _do_validation(
         self,
         unet: UNet2DConditionModel,
@@ -391,8 +390,6 @@ class Trainer:
         text_encoder = self.accelerator.unwrap_model(
             models["text_encoder"], keep_fp32_wrapper=True
         )
-        self._persist(unet, text_encoder)
-        return self._do_final_validation()
         pipeline = self._pipeline(unet=unet, text_encoder=text_encoder)
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
@@ -704,7 +701,10 @@ class Trainer:
         for epoch in range(epochs):
             self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
             self._do_epoch(unet, loader, optimizer, models)
-            if epoch % self.params.validate_every == 0:
+            if (
+                self._total_steps > self.params.validate_after
+                and epoch % self.params.validate_every == 0
+            ):
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()

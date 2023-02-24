@@ -25,6 +25,7 @@ class HyperParams(BaseModel):
     gradient_accumulation_steps: int = 2
 
     # Model
+    token: str = "<krk>"
     model: Model = Model()
     prior_prompt: str = "a photo of a person"
     prior_samples: int = 250
@@ -58,10 +59,11 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.0
 
     # Validation
-    validate_every: int = 5  # epochs
+    validate_after: int = 0  # 220  # steps
+    validate_every: int = 10  # epochs
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
-    validation_steps: int = 50
+    validation_steps: int = 20
     negative_prompt: str = "poorly drawn hands, poorly drawn face, mutation, deformed, distorted, blurry, bad anatomy, bad proportions, extra limbs, cloned face"
 
     class Config:
