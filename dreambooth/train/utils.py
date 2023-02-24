@@ -2,6 +2,7 @@ import functools
 import hashlib
 import itertools
 import json
+import logging
 import math
 import os
 import tempfile
@@ -11,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Type, TypeVar
 
 import torch
+import torch._dynamo.config
+import torch._inductor.config
 import torch.nn.functional as F
 import wandb
 from accelerate import Accelerator
@@ -38,6 +41,10 @@ from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
 
 from dreambooth.params import Class, HyperParams
+
+torch._inductor.config.trace.enabled = True
+torch._dynamo.config.log_level = logging.INFO
+torch._dynamo.config.verbose = True
 
 T = TypeVar("T")
 
@@ -398,7 +405,7 @@ class Trainer:
     @_main_process_only
     @torch.inference_mode()
     def _do_final_validation(self):
-        pipeline = self._pipeline(half=True)
+        pipeline = self._pipeline()
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(
             self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
@@ -707,7 +714,7 @@ def get_params() -> HyperParams:
             params.model.revision = None
 
     mem = torch.cuda.mem_get_info()[1] / 1e9
-    print(f"Available GPU memory: {mem:.2f} GB")
+    print(f"[cuda:{torch.cuda.current_device()}] Available GPU memory: {mem:.2f} GB")
     match mem:
         case float(n) if n < 16:
             params.batch_size = 1
