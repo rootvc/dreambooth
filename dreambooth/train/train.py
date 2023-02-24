@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import tempfile
@@ -68,7 +69,11 @@ def main():
     model = get_model(**params)
     model.train()
 
-    shutil.copytree(model.output_dir, env.model_dir, dirs_exist_ok=True)
+    if env.channel_input_dirs:
+        shutil.copytree(model.output_dir, env.model_dir, dirs_exist_ok=True)
+        shutil.copytree(
+            os.environ["CACHE_DIR"], env.channel_input_dirs["cache"], dirs_exist_ok=True
+        )
 
 
 if __name__ == "__main__":
