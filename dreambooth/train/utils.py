@@ -221,7 +221,7 @@ def partition(
 class Trainer:
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
-    DYNAMO_BACKEND = "aot_ts_nvfuser"
+    DYNAMO_BACKEND = "nvprims_nvfuser"
 
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
