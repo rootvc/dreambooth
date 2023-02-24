@@ -291,7 +291,7 @@ class Trainer:
             AutoTokenizer,
             subfolder="tokenizer",
             use_fast=False,
-        ).to(self.accelerator.device, dtype=self.params.dtype)
+        )
 
     def _unet(self):
         unet = self._spawn(
@@ -376,10 +376,10 @@ class Trainer:
         models: dict,
     ):
         pipeline = self._pipeline(
-            unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True),
+            unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True)._orig_mod,
             text_encoder=self.accelerator.unwrap_model(
                 models["text_encoder"], keep_fp32_wrapper=True
-            ),
+            )._orig_mod,
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
