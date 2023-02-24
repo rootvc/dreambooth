@@ -250,6 +250,7 @@ class Trainer:
             unet=self._unet().eval(),
             text_encoder=self._text_encoder().eval(),
             vae=self._vae().eval(),
+            tokenizer=self._tokenizer(),
             **kwargs,
         )
         if unet:
@@ -290,7 +291,7 @@ class Trainer:
             AutoTokenizer,
             subfolder="tokenizer",
             use_fast=False,
-        )
+        ).to(self.accelerator.device, dtype=self.params.dtype)
 
     def _unet(self):
         unet = self._spawn(

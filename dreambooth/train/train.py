@@ -10,7 +10,9 @@ from sagemaker_training import environment
 from dreambooth.params import Class
 from dreambooth.train.utils import HyperParams, get_model, get_params
 
-warnings.filterwarnings("ignore", module=r"(.*)\._functorch\.(.*)")
+IGNORE_MODS = ["_functorch", "importlib", "fmha"]
+IGNORE_RE = r"|".join([rf"(.*)\.{mod}\.(.*)" for mod in IGNORE_MODS])
+warnings.filterwarnings("ignore", module=IGNORE_RE)
 
 
 class Params(TypedDict):
