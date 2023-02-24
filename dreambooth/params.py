@@ -14,9 +14,9 @@ class Class(BaseModel):
 
 
 class Model(BaseModel):
-    name: Union[str, Path] = "stabilityai/stable-diffusion-2-1-base"
+    name: Union[str, Path] = "stabilityai/stable-diffusion-2-1"
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-mse"
-    resolution: int = 512
+    resolution: int = 768
     revision: Optional[str] = "fp16"
 
 

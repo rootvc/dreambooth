@@ -21,7 +21,6 @@ from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
 from diffusers import (
     AutoencoderKL,
-    ConfigMixin,
     DDPMScheduler,
     DiffusionPipeline,
     DPMSolverMultistepScheduler,
@@ -41,7 +40,7 @@ from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
 
-from dreambooth.params import Class, HyperParams
+from dreambooth.params import Class, HyperParams, Model
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -119,20 +118,12 @@ class DreamBoothDataset(Dataset):
         if self.augment and augment:
             t += [
                 transforms.RandomCrop(self.size),
-                transforms.RandomErasing(p=0.5),
+                transforms.RandomErasing(p=0.5, scale=(0.02, 0.05)),
                 transforms.RandomOrder(
                     [
-                        transforms.ColorJitter(
-                            brightness=0.2,
-                            contrast=0.2,
-                            saturation=0.2,
-                            hue=0.2,
-                        ),
-                        transforms.RandomHorizontalFlip(0.5),
-                        transforms.RandomVerticalFlip(0.5),
-                        transforms.RandomInvert(0.5),
+                        transforms.ColorJitter(brightness=0.2, contrast=0.1),
+                        transforms.RandomHorizontalFlip(p=0.5),
                         transforms.RandomAdjustSharpness(2, p=0.5),
-                        transforms.RandomAutocontrast(p=0.5),
                     ]
                 ),
             ]
@@ -548,7 +539,16 @@ class Trainer:
 
     @_main_process_only
     def _init_trackers(self):
-        self.accelerator.init_trackers("dreambooth", config=self.params.dict())
+        self.accelerator.init_trackers(
+            "dreambooth",
+            config=self.params.copy(
+                update={
+                    "model": self.params.model.copy(
+                        update={"name": Model().name, "vae": Model().vae}
+                    )
+                }
+            ).dict(),
+        )
 
     @_main_process_only
     def _persist(self, unet: UNet2DConditionModel, text_encoder: CLIPTextModel):
