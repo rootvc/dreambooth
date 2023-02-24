@@ -230,7 +230,6 @@ class Trainer:
         instance = klass.from_pretrained(
             self.params.model.name,
             revision=self.params.model.revision,
-            torch_dtype=self.params.dtype,
             **kwargs,
         )
         tap(instance)
@@ -240,11 +239,11 @@ class Trainer:
         self,
         unet: Optional[UNet2DConditionModel] = None,
         text_encoder: Optional[CLIPTextModel] = None,
-        half: bool = False,
         **kwargs,
     ):
         pipe = self._spawn(
             DiffusionPipeline,
+            torch_dtype=self.params.dtype,
             safety_checker=None,
             low_cpu_mem_usage=True,
             local_files_only=True,
@@ -258,9 +257,6 @@ class Trainer:
             pipe.unet = unet.eval()
         if text_encoder:
             pipe.text_encoder = text_encoder.eval()
-        if half:
-            pipe.unet.half()
-            pipe.text_encoder.half()
         return pipe.to(self.accelerator.device)
 
     def _text_encoder(self):
