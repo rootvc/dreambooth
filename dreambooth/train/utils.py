@@ -403,7 +403,6 @@ class Trainer:
         state = torch.load(
             self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
         )
-        state = {k: v.to(self.accelerator.device) for k, v in state.items()}
 
         self._print("Loaded config with keys: ", config.keys())
 
