@@ -378,10 +378,8 @@ class Trainer:
         models: dict,
     ):
         unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True)
-        text_encoder = (
-            self.accelerator.unwrap_model(
-                models["text_encoder"], keep_fp32_wrapper=True
-            ),
+        text_encoder = self.accelerator.unwrap_model(
+            models["text_encoder"], keep_fp32_wrapper=True
         )
         self._persist(unet, text_encoder)
         return self._do_final_validation()
