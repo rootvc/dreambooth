@@ -71,13 +71,17 @@ def main():
         params = standalone_params(env)
 
     model = get_model(**params)
-    model.train()
 
-    if env.channel_input_dirs:
-        shutil.copytree(model.output_dir, env.model_dir, dirs_exist_ok=True)
-        shutil.copytree(
-            os.environ["CACHE_DIR"], env.channel_input_dirs["cache"], dirs_exist_ok=True
-        )
+    try:
+        model.train()
+    finally:
+        if env.channel_input_dirs:
+            shutil.copytree(model.output_dir, env.model_dir, dirs_exist_ok=True)
+            shutil.copytree(
+                os.environ["CACHE_DIR"],
+                env.channel_input_dirs["cache"],
+                dirs_exist_ok=True,
+            )
 
 
 if __name__ == "__main__":

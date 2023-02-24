@@ -401,6 +401,8 @@ class Trainer:
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(self.output_dir / "lora_weights.pt")
 
+        self._print("Loaded config with keys: ", config.keys())
+
         unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
         pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet)
@@ -551,6 +553,8 @@ class Trainer:
 
             self.accelerator.save(state, self.output_dir / "lora_weights.pt")
             (self.output_dir / "lora_config.json").write_text(json.dumps(config))
+
+            self._print("Persisted config with keys: ", config.keys())
 
     def train(self):
         lora_config = LoraConfig(
