@@ -401,9 +401,7 @@ class Trainer:
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(self.output_dir / "lora_weights.pt")
 
-        unet_state, text_state = partition(
-            state.items(), lambda kv: "text_encoder_" in kv[0]
-        )
+        unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
         pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet)
         set_peft_model_state_dict(pipeline.unet, unet_state)
@@ -551,7 +549,6 @@ class Trainer:
             state.update(text_state)
             config["text_peft"] = text_encoder.get_peft_config_as_dict(inference=True)
 
-            self.accelerator.print(state)
             self.accelerator.save(state, self.output_dir / "lora_weights.pt")
             (self.output_dir / "lora_config.json").write_text(json.dumps(config))
 

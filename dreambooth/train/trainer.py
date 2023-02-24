@@ -227,7 +227,7 @@ class TrainJob:
             },
             dependencies=["dreambooth", "data/config"],
             entry_point="scripts/train_model.sh",
-            container_log_level=logging.INFO,
+            container_log_level=logging.DEBUG,
             keep_alive_period_in_seconds=None
             if self.use_spot(config)
             else self.keep_alive,
