@@ -10,7 +10,7 @@ from sagemaker_training import environment
 from dreambooth.params import Class
 from dreambooth.train.utils import HyperParams, get_model, get_params
 
-warnings.simplefilter("once", UserWarning)
+warnings.filterwarnings("ignore", module=r"(.*)\._functorch\.(.*)")
 
 
 class Params(TypedDict):
