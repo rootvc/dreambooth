@@ -11,25 +11,17 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Type, TypeVar
 
 import torch
+import torch.backends.cuda
 import torch.nn.functional as F
 import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    UNet2DConditionModel,
-)
+from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
+                       DPMSolverMultistepScheduler, UNet2DConditionModel)
 from diffusers.optimization import get_scheduler
-from peft import (
-    LoraConfig,
-    LoraModel,
-    get_peft_model_state_dict,
-    set_peft_model_state_dict,
-)
+from peft import (LoraConfig, LoraModel, get_peft_model_state_dict,
+                  set_peft_model_state_dict)
 from PIL import Image
 from torch._dynamo import disable
 from torch.utils.data import DataLoader, Dataset
@@ -38,6 +30,8 @@ from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
 
 from dreambooth.params import Class, HyperParams
+
+torch.backends.cuda.matmul.allow_tf32 = True
 
 T = TypeVar("T")
 
@@ -691,7 +685,10 @@ class Trainer:
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()
-        self._persist(unet, text_encoder)
+        self._persist(
+            self.accelerator.unwrap_model(unet, keep_fp32_wrapper=False),
+            self.accelerator.unwrap_model(text_encoder, keep_fp32_wrapper=False),
+        )
         images = self._do_final_validation()
         self.accelerator.end_training()
         return images
