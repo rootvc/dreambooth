@@ -2,7 +2,6 @@ import functools
 import hashlib
 import itertools
 import json
-import logging
 import math
 import os
 import tempfile
@@ -12,8 +11,6 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Type, TypeVar
 
 import torch
-import torch._dynamo.config
-import torch._inductor.config
 import torch.nn.functional as F
 import wandb
 from accelerate import Accelerator
@@ -41,10 +38,6 @@ from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
 
 from dreambooth.params import Class, HyperParams
-
-torch._inductor.config.trace.enabled = True
-torch._dynamo.config.log_level = logging.INFO
-torch._dynamo.config.verbose = True
 
 T = TypeVar("T")
 
@@ -409,7 +402,8 @@ class Trainer:
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(
             self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
-        ).to(self.params.dtype)
+        )
+        state = {k: v.to(self.accelerator.device) for k, v in state.items()}
 
         self._print("Loaded config with keys: ", config.keys())
 
