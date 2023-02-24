@@ -1,5 +1,9 @@
 FROM rootventures/train-dreambooth:latest
 
+ENV TRITON_CACHE_DIR /opt/ml/input/data/cache/triton
+ENV TORCHINDUCTOR_CACHE_DIR /opt/ml/input/data/cache/torchinductor
+ENV PYTORCH_KERNEL_CACHE_PATH /opt/ml/input/data/cache/torch
+
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --no-cache-dir sagemaker-training
 

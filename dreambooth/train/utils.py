@@ -352,7 +352,7 @@ class Trainer:
                 }
             )
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def _validation(self, pipeline: DiffusionPipeline) -> list:
         prompt = self.instance_class.prompt + " " + self.params.validation_prompt_suffix
         generator = torch.Generator(device=self.accelerator.device)
@@ -391,6 +391,7 @@ class Trainer:
         torch.cuda.empty_cache()
 
     @_main_process_only
+    @torch.inference_mode()
     def _do_final_validation(self):
         pipeline = self._pipeline(half=True)
         config = json.loads((self.output_dir / "lora_config.json").read_text())
