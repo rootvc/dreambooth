@@ -31,6 +31,7 @@ from peft import (
     set_peft_model_state_dict,
 )
 from PIL import Image
+from torch._dynamo import disable
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
@@ -370,16 +371,17 @@ class Trainer:
         return images
 
     @_main_process_only
+    @disable
     def _do_validation(
         self,
         unet: UNet2DConditionModel,
         models: dict,
     ):
         pipeline = self._pipeline(
-            unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True)._orig_mod,
+            unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True),
             text_encoder=self.accelerator.unwrap_model(
                 models["text_encoder"], keep_fp32_wrapper=True
-            )._orig_mod,
+            ),
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
