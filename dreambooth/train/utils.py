@@ -409,17 +409,21 @@ class Trainer:
 
         unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
-        pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet)
+        pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet).to(
+            self.accelerator.device, dtype=self.params.dtype
+        )
         set_peft_model_state_dict(pipeline.unet, unet_state)
+        pipeline.unet.to(self.accelerator.device, dtype=self.params.dtype)
 
         if self.params.train_text_encoder:
             pipeline.text_encoder = LoraModel(
                 LoraConfig(**config["text_peft"]), pipeline.text_encoder
-            )
+            ).to(self.accelerator.device, dtype=self.params.dtype)
             set_peft_model_state_dict(
                 pipeline.text_encoder,
                 {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
             )
+            pipeline.text_encoder.to(self.accelerator.device, dtype=self.params.dtype)
 
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
