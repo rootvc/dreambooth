@@ -219,6 +219,7 @@ class TrainJob:
                 "INSTANCE_TYPE": config.instance,
                 "ACCELERATE_MIXED_PRECISION": config.dtype,
                 "NVIDIA_DISABLE_REQUIRE": "true",
+                "PYTHONWARNINGS": "once",
                 "TRITON_CACHE_DIR": "/opt/ml/input/data/cache/triton",
                 "TORCHINDUCTOR_CACHE_DIR": "/opt/ml/input/data/cache/torchinductor",
                 "PYTORCH_KERNEL_CACHE_PATH": "/opt/ml/input/data/cache/torch",

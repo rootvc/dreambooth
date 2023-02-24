@@ -23,17 +23,20 @@ from diffusers import (
     DPMSolverMultistepScheduler,
     UNet2DConditionModel,
 )
-from diffusers.loaders import AttnProcsLayers
-from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from diffusers.optimization import get_scheduler
-from peft import LoraConfig, LoraModel, get_peft_model_state_dict
+from peft import (
+    LoraConfig,
+    LoraModel,
+    get_peft_model_state_dict,
+    set_peft_model_state_dict,
+)
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel
 from transformers.modeling_utils import PreTrainedModel
 
-from dreambooth.params import Class, HyperParams, Model
+from dreambooth.params import Class, HyperParams
 
 T = TypeVar("T")
 
@@ -187,6 +190,13 @@ def _main_process_only(f):
     return wrapper
 
 
+def partition(
+    d: dict[str, T], pred: Callable[[tuple[str, T]], bool]
+) -> tuple[dict[str, T], dict[str, T]]:
+    t1, t2 = itertools.tee(d.items())
+    return tuple(map(dict, [itertools.filterfalse(pred, t1), filter(pred, t2)]))
+
+
 class Trainer:
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
@@ -224,13 +234,32 @@ class Trainer:
         tap(instance)
         return instance
 
-    def _pipeline(self, **kwargs):
-        return self._spawn(
+    def _pipeline(
+        self,
+        unet: Optional[UNet2DConditionModel] = None,
+        text_encoder: Optional[CLIPTextModel] = None,
+        half: bool = False,
+        **kwargs,
+    ):
+        pipe = self._spawn(
             DiffusionPipeline,
             torch_dtype=self.params.dtype,
             safety_checker=None,
+            low_cpu_mem_usage=True,
+            local_files_only=True,
+            unet=self._unet().eval(),
+            text_encoder=self._text_encoder().eval(),
+            vae=self._vae().eval(),
             **kwargs,
-        ).to(self.accelerator.device)
+        )
+        if unet:
+            pipe.unet = unet.eval()
+        if text_encoder:
+            pipe.text_encoder = text_encoder.eval()
+        if half:
+            pipe.unet.half()
+            pipe.text_encoder.half()
+        return pipe.to(self.accelerator.device)
 
     def _text_encoder(self):
         return self._spawn(
@@ -345,10 +374,11 @@ class Trainer:
         unet: UNet2DConditionModel,
         models: dict,
     ):
-        pipeline = self._pipeline(unet=None, text_encoder=None)
-        pipeline.unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True)
-        pipeline.text_encoder = self.accelerator.unwrap_model(
-            models["text_encoder"], keep_fp32_wrapper=True
+        pipeline = self._pipeline(
+            unet=self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True),
+            text_encoder=self.accelerator.unwrap_model(
+                models["text_encoder"], keep_fp32_wrapper=True
+            ),
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
@@ -362,11 +392,30 @@ class Trainer:
 
     @_main_process_only
     def _do_final_validation(self):
-        pipeline = self._pipeline()
+        pipeline = self._pipeline(half=True)
+        config = json.loads((self.output_dir / "lora_config.json").read_text())
+        state = torch.load(self.output_dir / "lora_weights.pt")
+
+        unet_state, text_state = partition(
+            state.items(), lambda kv: "text_encoder_" in kv[0]
+        )
+
+        pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet)
+        set_peft_model_state_dict(pipeline.unet, unet_state)
+
+        if self.params.train_text_encoder:
+            pipeline.text_encoder = LoraModel(
+                LoraModel(LoraConfig(**config["text_peft"]), pipeline.unet),
+                pipeline.text_encoder,
+            )
+            set_peft_model_state_dict(
+                pipeline.text_encoder,
+                {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
+            )
+
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
-        pipeline.unet.load_attn_procs(self.output_dir)
         return self._validation(pipeline)
 
     def _do_epoch(
@@ -498,9 +547,7 @@ class Trainer:
             config["text_peft"] = text_encoder.get_peft_config_as_dict(inference=True)
 
             self.accelerator.print(state)
-            self.accelerator.save(
-                state, os.path.join(self.output_dir, f"lora_weights.pt")
-            )
+            self.accelerator.save(state, self.output_dir / "lora_weights.pt")
             (self.output_dir / "lora_config.json").write_text(json.dumps(config))
 
     def train(self):
