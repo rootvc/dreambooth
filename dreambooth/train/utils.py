@@ -410,8 +410,7 @@ class Trainer:
 
         if self.params.train_text_encoder:
             pipeline.text_encoder = LoraModel(
-                LoraModel(LoraConfig(**config["text_peft"]), pipeline.unet),
-                pipeline.text_encoder,
+                LoraConfig(**config["text_peft"]), pipeline.text_encoder
             )
             set_peft_model_state_dict(
                 pipeline.text_encoder,
