@@ -229,6 +229,7 @@ class Trainer:
         instance = klass.from_pretrained(
             self.params.model.name,
             revision=self.params.model.revision,
+            torch_dtype=self.params.dtype,
             **kwargs,
         )
         tap(instance)
