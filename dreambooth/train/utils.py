@@ -8,10 +8,12 @@ import tempfile
 from functools import cached_property
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
 
 import torch
+import torch._dynamo
 import torch.backends.cuda
+import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate import Accelerator
@@ -19,6 +21,7 @@ from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
 from diffusers import (
     AutoencoderKL,
+    ConfigMixin,
     DDPMScheduler,
     DiffusionPipeline,
     DPMSolverMultistepScheduler,
@@ -218,6 +221,7 @@ def partition(
 class Trainer:
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
+    DYNAMO_BACKEND = "aot_ts_nvfuser"
 
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
@@ -225,6 +229,7 @@ class Trainer:
 
         self.priors_dir = Path(tempfile.mkdtemp())
         self.output_dir = Path(tempfile.mkdtemp())
+        self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
         self.accelerator = Accelerator(
             mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
@@ -256,7 +261,6 @@ class Trainer:
         self,
         unet: Optional[UNet2DConditionModel] = None,
         text_encoder: Optional[CLIPTextModel] = None,
-        half: bool = False,
         **kwargs,
     ):
         pipe = self._spawn(
@@ -275,17 +279,16 @@ class Trainer:
             pipe.unet = unet.eval()
         if text_encoder:
             pipe.text_encoder = text_encoder.eval()
-        if half:
-            pipe.unet.half()
-            pipe.text_encoder.half()
         return pipe.to(self.accelerator.device)
 
     def _text_encoder(self):
-        return self._spawn(
-            CLIPTextModel,
-            subfolder="text_encoder",
-            tap=lambda x: x.requires_grad_(False),
-        ).to(self.accelerator.device, dtype=self.params.dtype)
+        return self._compile(
+            self._spawn(
+                CLIPTextModel,
+                subfolder="text_encoder",
+                tap=lambda x: x.requires_grad_(False),
+            ).to(self.accelerator.device, dtype=self.params.dtype)
+        )
 
     def _noise_scheduler(self):
         return self._spawn(DDPMScheduler, subfolder="scheduler")
@@ -302,7 +305,7 @@ class Trainer:
             )
 
         vae.requires_grad_(False)
-        return vae.to(self.accelerator.device, dtype=self.params.dtype)
+        return self._compile(vae.to(self.accelerator.device, dtype=self.params.dtype))
 
     def _tokenizer(self):
         return self._spawn(
@@ -322,7 +325,7 @@ class Trainer:
         except Exception as e:
             self._print("Cannot enable xformers memory efficient attention")
             self._print(e)
-        return unet
+        return self._compile(unet)
 
     @torch.inference_mode()
     def generate_priors(self, progress_bar: bool = False) -> Class:
@@ -579,6 +582,17 @@ class Trainer:
             (self.output_dir / "lora_config.json").write_text(json.dumps(config))
 
             self._print("Persisted config with keys: ", config.keys())
+
+    def _compile(self, model: torch.nn.Module) -> torch.nn.Module:
+        key = hash_bytes(cast(ConfigMixin, model).to_json_string().encode("utf-8"))
+        path = self.cache_dir / "compiled" / self.DYNAMO_BACKEND / f"{key}.pt"
+        if path.exists():
+            return torch.jit.load(path.open("rb")).to(self.accelerator.device)
+        else:
+            compiled = torch._dynamo.optimize(backend=self.DYNAMO_BACKEND)(model)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            torch.jit.save(compiled, path.open("wb"))
+            return compiled
 
     def train(self):
         lora_config = LoraConfig(
