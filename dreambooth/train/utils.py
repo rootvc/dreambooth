@@ -438,12 +438,6 @@ class Trainer:
             {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
         )
 
-        pipeline.text_encoder.a
-
-        token_embedding = text_encoder.get_input_embeddings().weight[
-            self.token_id(tokenizer)
-        ]
-
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
@@ -718,6 +712,8 @@ class Trainer:
 
         self._print("Preparing for training...")
 
+        input_embeddings = text_encoder.get_input_embeddings().weight.data.clone()
+
         (
             unet,
             text_encoder,
@@ -752,7 +748,7 @@ class Trainer:
             "vae": self._vae(),
             "noise_scheduler": self._noise_scheduler(),
             "lr_scheduler": lr_scheduler,
-            "input_embeddings": text_encoder.get_input_embeddings().weight.data.clone(),
+            "input_embeddings": input_embeddings,
         }
         for epoch in range(epochs):
             self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
