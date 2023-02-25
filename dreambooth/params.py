@@ -25,15 +25,18 @@ class HyperParams(BaseModel):
     gradient_accumulation_steps: int = 2
 
     # Model
+    source_token: str = "person"
     token: str = "<krk>"
     model: Model = Model()
-    prior_prompt: str = "a photo of a person"
+    prior_prompt: str = f"a photo of a {source_token}"
     prior_samples: int = 250
     prior_class: Optional[Class] = None
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-4
+    learning_rate: float = 1e-5
+    text_learning_rate: float = 1e-5
+    ti_learning_rate: float = 5e-4
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
     epsilon: float = 1e-8
@@ -41,6 +44,7 @@ class HyperParams(BaseModel):
     # Training
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
+    ti_train_epochs: int = 10
     train_epochs: int = 40
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 500
@@ -53,7 +57,6 @@ class HyperParams(BaseModel):
     lora_dropout: float = 0.1
 
     # Text Encoder
-    train_text_encoder: bool = True
     lora_text_rank: int = 8
     lora_text_alpha: int = 32
     lora_text_dropout: float = 0.0

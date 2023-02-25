@@ -5,7 +5,7 @@ import json
 import math
 import os
 import tempfile
-from functools import cached_property
+from functools import cached_property, lru_cache
 from operator import itemgetter
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
@@ -36,7 +36,7 @@ from peft import (
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from transformers import AutoTokenizer, CLIPTextModel
+from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 from transformers.modeling_utils import PreTrainedModel
 
 from dreambooth.params import Class, HyperParams, Model
@@ -64,7 +64,7 @@ class DreamBoothDataset(Dataset):
         *,
         instance: Class,
         prior: Class,
-        tokenizer: PreTrainedModel,
+        tokenizer: CLIPTokenizer,
         size: int,
         augment: bool = True,
     ):
@@ -234,6 +234,10 @@ class Trainer:
     def _print(self, *args, **kwargs):
         print(*args, **kwargs)
 
+    @lru_cache(maxsize=1)
+    def token_id(self, tokenizer: CLIPTokenizer):
+        return tokenizer.convert_tokens_to_ids(self.params.token)
+
     def _spawn(
         self, klass: Type[T], tap: Callable[[T], Any] = lambda x: x, **kwargs
     ) -> T:
@@ -249,6 +253,8 @@ class Trainer:
         self,
         unet: Optional[UNet2DConditionModel] = None,
         text_encoder: Optional[CLIPTextModel] = None,
+        vae: Optional[AutoencoderKL] = None,
+        tokenizer: Optional[CLIPTokenizer] = None,
         **kwargs,
     ):
         pipe = self._spawn(
@@ -259,8 +265,8 @@ class Trainer:
             local_files_only=True,
             unet=self._unet().eval(),
             text_encoder=self._text_encoder().eval(),
-            vae=self._vae().eval(),
-            tokenizer=self._tokenizer(),
+            vae=vae or self._vae().eval(),
+            tokenizer=tokenizer or self._tokenizer(),
             **kwargs,
         )
         if unet:
@@ -269,7 +275,7 @@ class Trainer:
             pipe.text_encoder = text_encoder.eval()
         return pipe.to(self.accelerator.device)
 
-    def _text_encoder(self):
+    def _text_encoder(self) -> CLIPTextModel:
         return self._compile(
             self._spawn(
                 CLIPTextModel,
@@ -295,7 +301,7 @@ class Trainer:
         vae.requires_grad_(False)
         return self._compile(vae.to(self.accelerator.device, dtype=self.params.dtype))
 
-    def _tokenizer(self):
+    def _tokenizer(self) -> CLIPTokenizer:
         return self._spawn(
             AutoTokenizer,
             subfolder="tokenizer",
@@ -386,10 +392,12 @@ class Trainer:
         unet: UNet2DConditionModel,
         models: dict,
     ):
-        unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True)
+        unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True).to(
+            self.accelerator.device
+        )
         text_encoder = self.accelerator.unwrap_model(
             models["text_encoder"], keep_fp32_wrapper=True
-        )
+        ).to(self.accelerator.device)
         pipeline = self._pipeline(unet=unet, text_encoder=text_encoder)
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
@@ -404,7 +412,12 @@ class Trainer:
     @_main_process_only
     @torch.inference_mode()
     def _do_final_validation(self):
-        pipeline = self._pipeline()
+        token_embedding = torch.load(
+            self.output_dir / "token_embedding.pt", map_location=self.accelerator.device
+        )
+        tokenizer, text_encoder = self._init_text(token_embedding)
+
+        pipeline = self._pipeline(tokenizer=tokenizer, text_encoder=text_encoder)
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(
             self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
@@ -417,14 +430,19 @@ class Trainer:
         )
         set_peft_model_state_dict(pipeline.unet, unet_state)
 
-        if self.params.train_text_encoder:
-            pipeline.text_encoder = LoraModel(
-                LoraConfig(**config["text_peft"]), pipeline.text_encoder
-            ).to(self.accelerator.device, dtype=self.params.dtype)
-            set_peft_model_state_dict(
-                pipeline.text_encoder,
-                {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
-            )
+        pipeline.text_encoder = LoraModel(
+            LoraConfig(**config["text_peft"]), pipeline.text_encoder
+        ).to(self.accelerator.device, dtype=self.params.dtype)
+        set_peft_model_state_dict(
+            pipeline.text_encoder,
+            {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
+        )
+
+        pipeline.text_encoder.a
+
+        token_embedding = text_encoder.get_input_embeddings().weight[
+            self.token_id(tokenizer)
+        ]
 
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
@@ -433,14 +451,14 @@ class Trainer:
 
     def _do_epoch(
         self,
+        epoch: int,
         unet: UNet2DConditionModel,
         loader: DataLoader,
         optimizer: torch.optim.Optimizer,
         models: dict,
     ):
         unet.train()
-        if self.params.train_text_encoder:
-            models["text_encoder"].train()
+        models["text_encoder"].train()
 
         for batch in loader:
             with self.accelerator.accumulate(unet):
@@ -508,12 +526,8 @@ class Trainer:
 
                 self.accelerator.backward(loss)
                 if self.accelerator.sync_gradients:
-                    params_to_clip = (
-                        itertools.chain(
-                            unet.parameters(), models["text_encoder"].parameters()
-                        )
-                        if self.params.train_text_encoder
-                        else unet.parameters()
+                    params_to_clip = itertools.chain(
+                        unet.parameters(), models["text_encoder"].parameters()
                     )
                     self.accelerator.clip_grad_norm_(
                         params_to_clip, self.params.max_grad_norm
@@ -521,6 +535,15 @@ class Trainer:
                 optimizer.step()
                 models["lr_scheduler"].step()
                 optimizer.zero_grad(set_to_none=True)
+
+                if epoch < self.params.ti_train_epochs:
+                    with torch.no_grad():
+                        idx = torch.arange(len(models["tokenizer"])) != self.token_id(
+                            models["tokenizer"]
+                        )
+                        models["text_encoder"].get_input_embeddings().weight[
+                            idx
+                        ] = models["input_embeddings"][idx]
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
@@ -547,7 +570,12 @@ class Trainer:
         )
 
     @_main_process_only
-    def _persist(self, unet: UNet2DConditionModel, text_encoder: CLIPTextModel):
+    def _persist(
+        self,
+        unet: UNet2DConditionModel,
+        text_encoder: CLIPTextModel,
+        tokenizer: CLIPTokenizer,
+    ):
         config = {}
         state = {}
 
@@ -557,19 +585,26 @@ class Trainer:
         state.update(unet_state)
         config["unet_peft"] = unet.get_peft_config_as_dict(inference=True)
 
-        if self.params.train_text_encoder:
-            text_state = {
-                f"text_encoder_{k}": v
-                for k, v in get_peft_model_state_dict(
-                    text_encoder,
-                    state_dict=self.accelerator.get_state_dict(text_encoder),
-                ).items()
-            }
-            state.update(text_state)
-            config["text_peft"] = text_encoder.get_peft_config_as_dict(inference=True)
+        text_state = {
+            f"text_encoder_{k}": v
+            for k, v in get_peft_model_state_dict(
+                text_encoder,
+                state_dict=self.accelerator.get_state_dict(text_encoder),
+            ).items()
+        }
+        state.update(text_state)
+        config["text_peft"] = text_encoder.get_peft_config_as_dict(inference=True)
 
-            self.accelerator.save(state, self.output_dir / "lora_weights.pt")
-            (self.output_dir / "lora_config.json").write_text(json.dumps(config))
+        token_embedding = text_encoder.get_input_embeddings().weight[
+            self.token_id(tokenizer)
+        ]
+        self.accelerator.save(
+            {self.params.token: token_embedding},
+            self.output_dir / "token_embedding.pt",
+        )
+
+        self.accelerator.save(state, self.output_dir / "lora_weights.pt")
+        (self.output_dir / "lora_config.json").write_text(json.dumps(config))
 
     def _compile(self, model: torch.nn.Module) -> torch.nn.Module:
         if self.params.dynamo_backend:
@@ -577,25 +612,45 @@ class Trainer:
         else:
             return model
 
+    def _init_text(self, init: Optional[torch.Tensor] = None):
+        tokenizer = self._tokenizer()
+        if not tokenizer.add_tokens(self.params.token):
+            raise ValueError(f"Token {self.params.token} already in tokenizer")
+
+        text_encoder = self._text_encoder()
+        text_encoder.resize_token_embeddings(len(tokenizer))
+
+        embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
+
+        if not init:
+            src_token_ids = tokenizer.encode(
+                self.params.source_token, add_special_tokens=False
+            )
+            assert len(src_token_ids) == 1
+            init = embeds[src_token_ids[0]]
+
+        embeds[self.token_id(tokenizer)] = init
+
+        return (tokenizer, text_encoder)
+
     def train(self):
+        tokenizer, text_encoder = self._init_text()
+
         lora_config = LoraConfig(
             r=self.params.lora_rank,
             lora_alpha=self.params.lora_alpha,
             target_modules=self.UNET_TARGET_MODULES,
             lora_dropout=self.params.lora_dropout,
         )
-        unet = LoraModel(lora_config, self._unet())
+        unet: UNet2DConditionModel = LoraModel(lora_config, self._unet())
 
-        if self.params.train_text_encoder:
-            lora_text_config = LoraConfig(
-                r=self.params.lora_text_rank,
-                lora_alpha=self.params.lora_text_alpha,
-                target_modules=self.TEXT_ENCODER_TARGET_MODULES,
-                lora_dropout=self.params.lora_text_dropout,
-            )
-            text_encoder = LoraModel(lora_text_config, self._text_encoder())
-        else:
-            text_encoder = self._text_encoder()
+        lora_text_config = LoraConfig(
+            r=self.params.lora_text_rank,
+            lora_alpha=self.params.lora_text_alpha,
+            target_modules=self.TEXT_ENCODER_TARGET_MODULES,
+            lora_dropout=self.params.lora_text_dropout,
+        )
+        text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder)
 
         try:
             if self.accelerator.state.deepspeed_plugin:
@@ -610,16 +665,21 @@ class Trainer:
             optimizer_class = bnb.optim.AdamW8bit
 
         self._print("Initializing Optimizer...")
-
-        lora_params = (
-            itertools.chain(unet.parameters(), text_encoder.parameters())
-            if self.params.train_text_encoder
-            else unet.parameters()
-        )
+        ti_params = list(text_encoder.get_input_embeddings().parameters())
+        params = [
+            {
+                "lr": self.params.ti_learning_rate,
+                "params": (p.requires_grad_(True) for p in ti_params),
+            },
+            {
+                "lr": 0.0,
+                "params": list(set(text_encoder.parameters()) - set(ti_params)),
+            },
+            {"lr": 0.0, "params": unet.parameters()},
+        ]
 
         optimizer = optimizer_class(
-            lora_params,
-            lr=self.params.learning_rate,
+            params,
             betas=self.params.betas,
             weight_decay=self.params.weight_decay,
             eps=self.params.epsilon,
@@ -630,7 +690,7 @@ class Trainer:
         dataset = DreamBoothDataset(
             instance=self.instance_class,
             prior=self.params.prior_class or self.generate_priors(),
-            tokenizer=self._tokenizer(),
+            tokenizer=tokenizer,
             size=self.params.model.resolution,
         )
         loader = DataLoader(
@@ -658,20 +718,15 @@ class Trainer:
 
         self._print("Preparing for training...")
 
-        if self.params.train_text_encoder:
-            (
-                unet,
-                text_encoder,
-                optimizer,
-                loader,
-                lr_scheduler,
-            ) = self.accelerator.prepare(
-                unet, text_encoder, optimizer, loader, lr_scheduler
-            )
-        else:
-            unet, optimizer, loader, lr_scheduler = self.accelerator.prepare(
-                unet, optimizer, loader, lr_scheduler
-            )
+        (
+            unet,
+            text_encoder,
+            optimizer,
+            loader,
+            lr_scheduler,
+        ) = self.accelerator.prepare(
+            unet, text_encoder, optimizer, loader, lr_scheduler
+        )
 
         steps_per_epoch = math.ceil(
             len(loader) / self.params.gradient_accumulation_steps
@@ -697,10 +752,21 @@ class Trainer:
             "vae": self._vae(),
             "noise_scheduler": self._noise_scheduler(),
             "lr_scheduler": lr_scheduler,
+            "input_embeddings": text_encoder.get_input_embeddings().weight.data.clone(),
         }
         for epoch in range(epochs):
             self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
-            self._do_epoch(unet, loader, optimizer, models)
+
+            if epoch == self.params.ti_train_epochs:
+                self._print(f"Finished TI training at epoch {epoch}.")
+                optimizer.param_groups[0]["lr"] = 0.0
+                optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
+                optimizer.param_groups[2]["lr"] = self.params.learning_rate
+
+                del models["input_embeddings"]
+                torch.cuda.empty_cache()
+
+            self._do_epoch(epoch, unet, loader, optimizer, models)
             if (
                 self._total_steps > self.params.validate_after
                 and epoch % self.params.validate_every == 0
@@ -737,22 +803,18 @@ def get_params() -> HyperParams:
         case float(n) if n < 16:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
-            params.train_text_encoder = False
             params.dynamo_backend = None
         case float(n) if n < 24:
             params.batch_size = 2
             params.gradient_accumulation_steps = 1
-            params.train_text_encoder = True
             params.dynamo_backend = None  # "inductor" currently breaks SD
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1
-            params.train_text_encoder = True
             params.dynamo_backend = "cudagraphs"
         case float(n):
             params.batch_size = 8 * torch.cuda.device_count()
             params.gradient_accumulation_steps = 1
-            params.train_text_encoder = True
             params.dynamo_backend = "cudagraphs"
 
     match torch.cuda.device_count():
@@ -781,7 +843,10 @@ def get_model(
     if not instance_path:
         raise RuntimeError("No input data!")
 
+    params = params or get_params()
     return Trainer(
-        instance_class=Class(prompt="a photo of sks person", data=instance_path),
-        params=params or get_params(),
+        instance_class=Class(
+            prompt=f"a photo of {params.token} person", data=instance_path
+        ),
+        params=params,
     )
