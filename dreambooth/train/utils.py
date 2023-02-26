@@ -41,8 +41,6 @@ from transformers.modeling_utils import PreTrainedModel
 
 from dreambooth.params import Class, HyperParams, Model
 
-torch.backends.cuda.matmul.allow_tf32 = True
-
 T = TypeVar("T")
 
 
