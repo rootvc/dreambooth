@@ -661,7 +661,10 @@ class Trainer:
         params = [
             {
                 "lr": self.params.ti_learning_rate,
-                "params": (p.requires_grad_(True) for p in ti_params),
+                "params": (
+                    p.requires_grad_(True).to(self.accelerator.device)
+                    for p in ti_params
+                ),
             },
             {
                 "lr": 0.0,
@@ -810,6 +813,7 @@ def get_params() -> HyperParams:
             params.batch_size = 8 * torch.cuda.device_count()
             params.gradient_accumulation_steps = 1
             params.dynamo_backend = "cudagraphs"
+            torch.backends.cuda.matmul.allow_tf32 = True
 
     match torch.cuda.device_count():
         case int(n) if n > 1:
