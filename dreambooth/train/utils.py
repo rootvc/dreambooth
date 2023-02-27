@@ -780,6 +780,10 @@ class Trainer:
 
                 del models["input_embeddings"]
                 torch.cuda.empty_cache()
+            if epoch > self.params.ti_train_epochs:
+                optimizer.param_groups[0]["lr"] = 0.0
+                optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
+                optimizer.param_groups[2]["lr"] = self.params.learning_rate
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if (
