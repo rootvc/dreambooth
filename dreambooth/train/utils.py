@@ -354,7 +354,7 @@ class Trainer:
         del pipeline
         torch.cuda.empty_cache()
 
-        return Class(prompt=self.params.prior_prompt, data=self.priors_dir)
+        return Class(_prompt=self.params.prior_prompt, data=self.priors_dir)
 
     @_main_process_only
     def _log_images(self, prompt: str, images: Iterable, title: str = "validation"):
@@ -896,8 +896,6 @@ def get_model(
 
     params = params or get_params()
     return Trainer(
-        instance_class=Class(
-            prompt=f"a photo of a {params.token} person", data=instance_path
-        ),
+        instance_class=Class(_prompt=params.token, data=instance_path, type_="token"),
         params=params,
     )

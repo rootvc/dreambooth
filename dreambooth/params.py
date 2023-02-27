@@ -1,13 +1,53 @@
+import random
 from pathlib import Path
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 import torch
 from pydantic import BaseModel
 
 
 class Class(BaseModel):
-    prompt: str
+    IMAGENET_TEMPLATES = [
+        "a photo of a {}",
+        "a rendering of a {}",
+        "a cropped photo of the {}",
+        "the photo of a {}",
+        "a photo of a clean {}",
+        "a photo of a dirty {}",
+        "a dark photo of the {}",
+        "a photo of my {}",
+        "a photo of the cool {}",
+        "a close-up photo of a {}",
+        "a bright photo of the {}",
+        "a cropped photo of a {}",
+        "a photo of the {}",
+        "a good photo of the {}",
+        "a photo of one {}",
+        "a close-up photo of the {}",
+        "a rendition of the {}",
+        "a photo of the clean {}",
+        "a rendition of a {}",
+        "a photo of a nice {}",
+        "a good photo of a {}",
+        "a photo of the nice {}",
+        "a photo of the small {}",
+        "a photo of the weird {}",
+        "a photo of the large {}",
+        "a photo of a cool {}",
+        "a photo of a small {}",
+    ]
+
+    _prompt: str
+    type_: Literal["prompt", "token"] = "prompt"
     data: Path
+
+    @property
+    def prompt(self):
+        return (
+            self.prompt
+            if self.type_ == "prompt"
+            else random.choice(self.IMAGENET_TEMPLATES).format(self.prompt)
+        )
 
     def check(self):
         return self.data.exists()

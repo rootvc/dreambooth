@@ -49,7 +49,7 @@ def sagemaker_params(env: environment.Environment) -> Params:
     params.model.name = _unpack_model(env, params.model.name)
     if params.model.vae:
         params.model.vae = _unpack_model(env, params.model.vae)
-    params.prior_class = Class(prompt=params.prior_prompt, data=prior_data)
+    params.prior_class = Class(_prompt=params.prior_prompt, data=prior_data)
 
     return {"instance_path": train_data, "params": params}
 
