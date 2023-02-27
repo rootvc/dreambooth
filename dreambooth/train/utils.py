@@ -689,12 +689,20 @@ class Trainer:
             optimizer_class = bnb.optim.AdamW8bit
 
         self._print("Initializing Optimizer...")
-        ti_params = list(text_encoder.get_input_embeddings().parameters())
+        # ti_params = list(text_encoder.get_input_embeddings().parameters())
+
+        ti_params = []
+        pps = list(text_encoder.get_input_embeddings().named_parameters())
+        self._print("PPs:", len(pps))
+        for name, param in pps:
+            self._print(name, param.requires_grad)
+            param.requires_grad = True
+            ti_params.append(param)
 
         params = [
             {
                 "lr": self.params.ti_learning_rate,
-                "params": (p.requires_grad_(True) for p in ti_params),
+                "params": ti_params,
             },
             {
                 "lr": self.params.text_learning_rate,
