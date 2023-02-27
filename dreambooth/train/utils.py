@@ -766,7 +766,7 @@ class Trainer:
             "unet": unet,
             "text_encoder": text_encoder,
             "tokenizer": tokenizer,
-            "vae": self._vae(dtype=self.params.dtype),
+            "vae": self._vae(torch_dtype=self.params.dtype),
             "noise_scheduler": self._noise_scheduler(),
             "lr_scheduler": lr_scheduler,
             "input_embeddings": input_embeddings,
