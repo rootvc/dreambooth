@@ -278,8 +278,7 @@ class Trainer:
             self._spawn(
                 CLIPTextModel,
                 subfolder="text_encoder",
-                tap=lambda x: x.requires_grad_(False),
-            ).to(self.accelerator.device, dtype=self.params.dtype)
+            ).to(self.accelerator.device)
         )
 
     def _noise_scheduler(self):
@@ -311,7 +310,7 @@ class Trainer:
             UNet2DConditionModel,
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
-        ).to(self.accelerator.device, dtype=self.params.dtype)
+        ).to(self.accelerator.device)
         try:
             unet.enable_xformers_memory_efficient_attention()
         except Exception as e:
