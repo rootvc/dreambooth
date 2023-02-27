@@ -26,7 +26,7 @@ class HyperParams(BaseModel):
 
     # Model
     source_token: str = "person"
-    token: str = "<krk>"
+    token: str = "sks"
     model: Model = Model()
     prior_prompt: str = f"a photo of a {source_token}"
     prior_samples: int = 250
@@ -45,9 +45,9 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
     ti_train_epochs: int = 0  # 15
-    train_epochs: int = 40
+    train_epochs: int = 100
     lr_scheduler: str = "linear"
-    lr_warmup_steps: int = 500
+    lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
 
@@ -59,7 +59,7 @@ class HyperParams(BaseModel):
     # Text Encoder
     lora_text_rank: int = 8
     lora_text_alpha: int = 32
-    lora_text_dropout: float = 0.0
+    lora_text_dropout: float = 0.1
 
     # Validation
     validate_after: int = 0  # 220  # steps

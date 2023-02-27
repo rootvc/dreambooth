@@ -449,7 +449,7 @@ class Trainer:
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
-        return self._validation(pipeline.to(dtype=self.params.dtype))
+        return self._validation(pipeline.to(torch_dtype=self.params.dtype))
 
     def _do_epoch(
         self,
@@ -752,7 +752,10 @@ class Trainer:
                 partial(
                     linear_with_warmup,
                     self.params.ti_train_epochs * steps_per_epoch,
-                    0,
+                    (
+                        self.params.lr_warmup_steps
+                        * self.params.gradient_accumulation_steps
+                    ),
                     max_train_steps * self.params.gradient_accumulation_steps,
                 ),
                 partial(
@@ -888,6 +891,8 @@ def get_model(
 
     params = params or get_params()
     return Trainer(
-        instance_class=Class(prompt=f"a photo of {params.token}", data=instance_path),
+        instance_class=Class(
+            prompt=f"a photo of a {params.token} person", data=instance_path
+        ),
         params=params,
     )
