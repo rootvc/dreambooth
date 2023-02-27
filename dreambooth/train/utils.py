@@ -421,7 +421,9 @@ class Trainer:
         tokenizer, text_encoder = self._init_text(token_embedding)
 
         pipeline = self._pipeline(
-            tokenizer=tokenizer, text_encoder=text_encoder, torch_dtype=torch.float16
+            tokenizer=tokenizer,
+            text_encoder=text_encoder,
+            torch_dtype=self.params.dtype,
         )
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(
@@ -631,10 +633,7 @@ class Trainer:
 
         embeds[self.token_id(tokenizer)] = init
 
-        return (
-            tokenizer,
-            text_encoder,
-        )
+        return (tokenizer, text_encoder)
 
     def train(self):
         tokenizer, text_encoder = self._init_text()
@@ -732,13 +731,6 @@ class Trainer:
             unet, text_encoder, optimizer, loader, lr_scheduler
         )
 
-        input_embeddings = (
-            self.accelerator.unwrap_model(text_encoder)
-            .get_input_embeddings()
-            .weight.data.clone()
-            .to(self.accelerator.device)
-        )
-
         steps_per_epoch = math.ceil(
             len(loader) / self.params.gradient_accumulation_steps
         )  # may have changed post-accelerate
@@ -764,7 +756,12 @@ class Trainer:
             "vae": self._vae(torch_dtype=self.params.dtype),
             "noise_scheduler": self._noise_scheduler(),
             "lr_scheduler": lr_scheduler,
-            "input_embeddings": input_embeddings,
+            "input_embeddings": (
+                self.accelerator.unwrap_model(text_encoder)
+                .get_input_embeddings()
+                .weight.data.clone()
+                .to(self.accelerator.device)
+            ),
         }
         for epoch in range(epochs):
             self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
