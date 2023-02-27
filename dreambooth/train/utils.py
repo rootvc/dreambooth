@@ -646,6 +646,7 @@ class Trainer:
             target_modules=self.TEXT_ENCODER_TARGET_MODULES,
             lora_dropout=self.params.lora_text_dropout,
         )
+        ti_params = list(text_encoder.get_input_embeddings().parameters())
         text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder)
 
         try:
@@ -662,8 +663,7 @@ class Trainer:
 
         self._print("Initializing Optimizer...")
 
-        ti_params = list(text_encoder.get_input_embeddings().parameters())
-        params = list(p.requires_grad_(True).to(dtype=torch.float) for p in ti_params)
+        params = ti_params
         # [
         # {
         #     "lr": self.params.ti_learning_rate,
