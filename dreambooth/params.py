@@ -44,9 +44,9 @@ class Class(BaseModel):
     @property
     def prompt(self):
         return (
-            self.prompt
+            self._prompt
             if self.type_ == "prompt"
-            else random.choice(self.IMAGENET_TEMPLATES).format(self.prompt)
+            else random.choice(self.IMAGENET_TEMPLATES).format(self._prompt)
         )
 
     def check(self):
