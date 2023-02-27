@@ -538,7 +538,8 @@ class Trainer:
                         params_to_clip, self.params.max_grad_norm
                     )
                 optimizer.step()
-                models["lr_scheduler"].step()
+                if not self.accelerator.optimizer_step_was_skipped:
+                    models["lr_scheduler"].step()
                 optimizer.zero_grad(set_to_none=True)
 
                 if epoch < self.params.ti_train_epochs:
@@ -630,7 +631,7 @@ class Trainer:
 
         embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
 
-        if not init:
+        if init is None:
             src_token_ids = tokenizer.encode(
                 self.params.source_token, add_special_tokens=False
             )
@@ -681,10 +682,10 @@ class Trainer:
                 "params": (p.requires_grad_(True) for p in ti_params),
             },
             {
-                "lr": 0.0,
+                "lr": self.params.text_learning_rate,
                 "params": list(set(text_encoder.parameters()) - set(ti_params)),
             },
-            {"lr": 0.0, "params": unet.parameters()},
+            {"lr": self.params.learning_rate, "params": unet.parameters()},
         ]
 
         optimizer = optimizer_class(
@@ -772,18 +773,15 @@ class Trainer:
         for epoch in range(epochs):
             self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
 
-            if epoch == self.params.ti_train_epochs:
-                self._print(f"Finished TI training at epoch {epoch}.")
+            if epoch < self.params.ti_train_epochs:
+                optimizer.param_groups[1]["lr"] = 0.0
+                optimizer.param_groups[2]["lr"] = 0.0
+            else:
                 optimizer.param_groups[0]["lr"] = 0.0
-                optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
-                optimizer.param_groups[2]["lr"] = self.params.learning_rate
-
-                del models["input_embeddings"]
-                torch.cuda.empty_cache()
-            if epoch > self.params.ti_train_epochs:
-                optimizer.param_groups[0]["lr"] = 0.0
-                optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
-                optimizer.param_groups[2]["lr"] = self.params.learning_rate
+                if epoch == self.params.ti_train_epochs:
+                    self._print(f"Finished TI training at epoch {epoch}.")
+                    del models["input_embeddings"]
+                    torch.cuda.empty_cache()
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if (
