@@ -50,6 +50,12 @@ class Class(BaseModel):
         suffix = random.choice(self.SUFFIXES)
         return ", ".join(filter(None, (prompt, suffix)))
 
+    @property
+    def deterministic_prompt(self):
+        if self.type_ == "prompt":
+            return self.prompt_
+        return self.IMAGENET_TEMPLATES[0].format(self.prompt_)
+
     def check(self):
         return self.data.exists()
 
