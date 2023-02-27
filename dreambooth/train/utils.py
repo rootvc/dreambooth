@@ -700,6 +700,9 @@ class Trainer:
             {"lr": self.params.learning_rate, "params": unet.parameters()},
         ]
 
+        for name, param in text_encoder.get_input_embeddings().parameters():
+            self._print(name, param.requires_grad)
+
         optimizer = optimizer_class(
             params,
             betas=self.params.betas,
