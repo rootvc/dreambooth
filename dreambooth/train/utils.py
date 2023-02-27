@@ -486,108 +486,99 @@ class Trainer:
         models["text_encoder"].train()
 
         for batch in loader:
-            with self.accelerator.accumulate(models["text_encoder"]):
-                # Convert images to latent space
-                latents = (
-                    models["vae"]
-                    .encode(batch["pixel_values"].to(dtype=self.params.dtype))
-                    .latent_dist.sample()
-                )
-                latents = latents * models["vae"].config.scaling_factor
+            # Convert images to latent space
+            latents = (
+                models["vae"]
+                .encode(batch["pixel_values"].to(dtype=self.params.dtype))
+                .latent_dist.sample()
+            )
+            latents = latents * models["vae"].config.scaling_factor
 
-                # Sample noise that we'll add to the latents
-                noise = torch.randn_like(latents)
-                bsz = latents.shape[0]
+            # Sample noise that we'll add to the latents
+            noise = torch.randn_like(latents)
+            bsz = latents.shape[0]
 
-                # Sample a random timestep for each image
-                timesteps = torch.randint(
-                    0,
-                    models["noise_scheduler"].config.num_train_timesteps,
-                    (bsz,),
-                    device=latents.device,
-                )
-                timesteps = timesteps.long()
+            # Sample a random timestep for each image
+            timesteps = torch.randint(
+                0,
+                models["noise_scheduler"].config.num_train_timesteps,
+                (bsz,),
+                device=latents.device,
+            )
+            timesteps = timesteps.long()
 
-                # Add noise to the latents according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
-                noisy_latents = models["noise_scheduler"].add_noise(
+            # Add noise to the latents according to the noise magnitude at each timestep
+            # (this is the forward diffusion process)
+            noisy_latents = models["noise_scheduler"].add_noise(
+                latents, noise, timesteps
+            )
+
+            # Get the text embedding for conditioning
+            encoder_hidden_states = models["text_encoder"](batch["input_ids"])[0]
+            # Predict the noise residual
+            model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+
+            # Get the target for loss depending on the prediction type
+            if models["noise_scheduler"].config.prediction_type == "epsilon":
+                target = noise
+            elif models["noise_scheduler"].config.prediction_type == "v_prediction":
+                target = models["noise_scheduler"].get_velocity(
                     latents, noise, timesteps
                 )
-
-                # Get the text embedding for conditioning
-                encoder_hidden_states = models["text_encoder"](batch["input_ids"])[0]
-                # Predict the noise residual
-                model_pred = unet(
-                    noisy_latents, timesteps, encoder_hidden_states
-                ).sample
-
-                # Get the target for loss depending on the prediction type
-                if models["noise_scheduler"].config.prediction_type == "epsilon":
-                    target = noise
-                elif models["noise_scheduler"].config.prediction_type == "v_prediction":
-                    target = models["noise_scheduler"].get_velocity(
-                        latents, noise, timesteps
-                    )
-                else:
-                    raise ValueError(
-                        "Unknown prediction type "
-                        + models["noise_scheduler"].config.prediction_type
-                    )
-
-                # Chunk the noise and model_pred into two parts and compute the loss on each part separately.
-                model_pred, model_pred_prior = torch.chunk(model_pred, 2, dim=0)
-                target, target_prior = torch.chunk(target, 2, dim=0)
-
-                # Compute instance loss
-                loss = (
-                    F.mse_loss(model_pred.float(), target.float(), reduction="none")
-                    .mean([1, 2, 3])
-                    .mean()
+            else:
+                raise ValueError(
+                    "Unknown prediction type "
+                    + models["noise_scheduler"].config.prediction_type
                 )
 
-                # Compute prior loss
-                prior_loss = F.mse_loss(
-                    model_pred_prior.float(), target_prior.float(), reduction="mean"
+            # Chunk the noise and model_pred into two parts and compute the loss on each part separately.
+            model_pred, model_pred_prior = torch.chunk(model_pred, 2, dim=0)
+            target, target_prior = torch.chunk(target, 2, dim=0)
+
+            # Compute instance loss
+            loss = (
+                F.mse_loss(model_pred.float(), target.float(), reduction="none")
+                .mean([1, 2, 3])
+                .mean()
+            )
+
+            # Compute prior loss
+            prior_loss = F.mse_loss(
+                model_pred_prior.float(), target_prior.float(), reduction="mean"
+            )
+
+            # Add the prior loss to the instance loss.
+            loss = loss + self.params.prior_loss_weight * prior_loss
+
+            self.accelerator.backward(loss)
+
+            val = (
+                self.accelerator.unwrap_model(models["text_encoder"])
+                .get_input_embeddings()
+                .weight[self.token_id(models["tokenizer"])]
+            )
+
+            if self.accelerator.sync_gradients:
+                params_to_clip = itertools.chain(
+                    unet.parameters(), models["text_encoder"].parameters()
                 )
-
-                # Add the prior loss to the instance loss.
-                loss = loss + self.params.prior_loss_weight * prior_loss
-
-                self.accelerator.backward(loss)
-
-                val = (
-                    self.accelerator.unwrap_model(models["text_encoder"])
-                    .get_input_embeddings()
-                    .weight[self.token_id(models["tokenizer"])]
+                self.accelerator.clip_grad_norm_(
+                    params_to_clip, self.params.max_grad_norm
                 )
-                self._print(
-                    "val.grad",
-                    self.accelerator.unwrap_model(models["text_encoder"])
-                    .get_input_embeddings()
-                    .weight.grad,
-                )
+            optimizer.step()
+            if not self.accelerator.optimizer_step_was_skipped:
+                models["lr_scheduler"].step()
+            optimizer.zero_grad(set_to_none=True)
 
-                if self.accelerator.sync_gradients:
-                    params_to_clip = itertools.chain(
-                        unet.parameters(), models["text_encoder"].parameters()
+            if epoch < self.params.ti_train_epochs:
+                with torch.no_grad():
+                    idx = torch.arange(len(models["tokenizer"])) != self.token_id(
+                        models["tokenizer"]
                     )
-                    self.accelerator.clip_grad_norm_(
-                        params_to_clip, self.params.max_grad_norm
-                    )
-                optimizer.step()
-                if not self.accelerator.optimizer_step_was_skipped:
-                    models["lr_scheduler"].step()
-                optimizer.zero_grad(set_to_none=True)
-
-                if epoch < self.params.ti_train_epochs:
-                    with torch.no_grad():
-                        idx = torch.arange(len(models["tokenizer"])) != self.token_id(
-                            models["tokenizer"]
-                        )
-                        source = models["input_embeddings"][idx]
-                        self.accelerator.unwrap_model(
-                            models["text_encoder"]
-                        ).get_input_embeddings().weight[idx] = source
+                    source = models["input_embeddings"][idx]
+                    self.accelerator.unwrap_model(
+                        models["text_encoder"]
+                    ).get_input_embeddings().weight[idx] = source
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
