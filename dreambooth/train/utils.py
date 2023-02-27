@@ -554,6 +554,14 @@ class Trainer:
                 loss = loss + self.params.prior_loss_weight * prior_loss
 
                 self.accelerator.backward(loss)
+
+                val = (
+                    self.accelerator.unwrap_model(models["text_encoder"])
+                    .get_input_embeddings()
+                    .weight[self.token_id(models["tokenizer"])]
+                )
+                self._print("val.grad", val.grad)
+
                 if self.accelerator.sync_gradients:
                     params_to_clip = itertools.chain(
                         unet.parameters(), models["text_encoder"].parameters()
@@ -579,20 +587,13 @@ class Trainer:
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
 
-            val = (
-                self.accelerator.unwrap_model(models["text_encoder"])
-                .get_input_embeddings()
-                .weight[self.token_id(models["tokenizer"])]
-            )
-            self._print("val", val.detach().item())
-
             self.accelerator.log(
                 {
                     "loss": loss.detach().item(),
                     "ti_lr": models["lr_scheduler"].get_last_lr()[0],
                     "text_lr": models["lr_scheduler"].get_last_lr()[1],
                     "unet_lr": models["lr_scheduler"].get_last_lr()[2],
-                    "val": val.detach().item(),
+                    "val": val.detach(),
                     "token_id": self.token_id(models["tokenizer"]),
                 },
                 step=self._total_steps,
@@ -673,7 +674,7 @@ class Trainer:
 
         tkn_id = self.token_id(tokenizer)
         embeds[tkn_id] = init
-        print("token id", tkn_id, init.shape)
+        self._print("token id", tkn_id, init.shape)
 
         return (tokenizer, text_encoder)
 
