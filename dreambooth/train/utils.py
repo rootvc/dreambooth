@@ -553,7 +553,9 @@ class Trainer:
             self.accelerator.log(
                 {
                     "loss": loss.detach().item(),
-                    "lr": models["lr_scheduler"].get_last_lr()[0],
+                    "ti_lr": models["lr_scheduler"].get_last_lr()[0],
+                    "text_lr": models["lr_scheduler"].get_last_lr()[1],
+                    "unet_lr": models["lr_scheduler"].get_last_lr()[2],
                 },
                 step=self._total_steps,
             )
