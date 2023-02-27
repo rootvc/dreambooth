@@ -37,11 +37,12 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
-from transformers.modeling_utils import PreTrainedModel
 
 from dreambooth.params import Class, HyperParams, Model
 
 T = TypeVar("T")
+
+torch.backends.cuda.matmul.allow_tf32 = True
 
 
 class PromptDataset(Dataset):
@@ -630,7 +631,6 @@ class Trainer:
 
     def train(self):
         tokenizer, text_encoder = self._init_text()
-        ti_params = list(text_encoder.get_input_embeddings().parameters())
 
         lora_config = LoraConfig(
             r=self.params.lora_rank,
@@ -662,9 +662,8 @@ class Trainer:
 
         self._print("Initializing Optimizer...")
 
-        params = list(
-            p.requires_grad_(True).to(self.accelerator.device) for p in ti_params
-        )
+        ti_params = list(text_encoder.get_input_embeddings().parameters())
+        params = list(p.requires_grad_(True).float() for p in ti_params)
         # [
         # {
         #     "lr": self.params.ti_learning_rate,
@@ -827,7 +826,6 @@ def get_params() -> HyperParams:
             params.batch_size = 8 * torch.cuda.device_count()
             params.gradient_accumulation_steps = 1
             params.dynamo_backend = "cudagraphs"
-            torch.backends.cuda.matmul.allow_tf32 = True
 
     match torch.cuda.device_count():
         case int(n) if n > 1:
