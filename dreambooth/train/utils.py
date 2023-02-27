@@ -110,7 +110,7 @@ class DreamBoothDataset(Dataset):
             transforms.ToTensor(),
             transforms.Resize(
                 self.size,
-                interpolation=transforms.InterpolationMode.BILINEAR,
+                interpolation=transforms.InterpolationMode.BICUBIC,
                 antialias=True,
             ),
         ]
@@ -897,7 +897,7 @@ def get_model(
     params = params or get_params()
     return Trainer(
         instance_class=Class(
-            prompt=f"a photo of {params.token} person", data=instance_path
+            prompt=f"a photo of a {params.token} person", data=instance_path
         ),
         params=params,
     )
