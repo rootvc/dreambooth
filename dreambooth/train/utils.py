@@ -90,7 +90,7 @@ class DreamBoothDataset(Dataset):
         )
 
         input_ids = self.tokenizer.pad(
-            {"input_ids": torch.cat(input_ids, dim=0)},
+            {"input_ids": input_ids},
             padding="max_length",
             max_length=self.tokenizer.model_max_length,
             return_tensors="pt",
@@ -165,7 +165,6 @@ class DreamBoothDataset(Dataset):
                 truncation=True,
                 padding="do_not_pad",
                 max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
             ).input_ids,
         }
 
@@ -180,7 +179,6 @@ class DreamBoothDataset(Dataset):
                 truncation=True,
                 padding="do_not_pad",
                 max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
             ).input_ids,
         }
 
@@ -231,7 +229,10 @@ class Trainer:
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
         )
         self.logger = get_logger(__name__)
-        self.logger.warning(self.accelerator.state, main_process_only=True)
+        self.logger.warning(self.accelerator.state, main_process_only=False)
+        self.logger.warning(
+            print(f"Available GPU memory: {get_mem():.2f} GB"), main_process_only=True
+        )
         self.logger.warning(self.params.dict(), main_process_only=True)
 
         self._total_steps = 0
@@ -844,6 +845,10 @@ class Trainer:
         return images
 
 
+def get_mem() -> float:
+    return torch.cuda.mem_get_info()[1] / 1e9
+
+
 def get_params() -> HyperParams:
     params = HyperParams()
 
@@ -858,9 +863,7 @@ def get_params() -> HyperParams:
             params.dtype = torch.float32
             params.model.revision = None
 
-    mem = torch.cuda.mem_get_info()[1] / 1e9
-    print(f"[cuda:{torch.cuda.current_device()}] Available GPU memory: {mem:.2f} GB")
-    match mem:
+    match get_mem():
         case float(n) if n < 16:
             params.batch_size = 1
             params.gradient_accumulation_steps = 2
