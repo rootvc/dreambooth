@@ -739,7 +739,7 @@ class Trainer:
             self.accelerator.unwrap_model(text_encoder)
             .get_input_embeddings()
             .weight.data.clone()
-            .to(self.accelerator.device, dtype=self.params.dtype)
+            .to(self.accelerator.device)
         )
 
         steps_per_epoch = math.ceil(
