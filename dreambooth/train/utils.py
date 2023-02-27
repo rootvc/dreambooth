@@ -231,7 +231,7 @@ class Trainer:
         self.logger = get_logger(__name__)
         self.logger.warning(self.accelerator.state, main_process_only=False)
         self.logger.warning(
-            print(f"Available GPU memory: {get_mem():.2f} GB"), main_process_only=True
+            f"Available GPU memory: {get_mem():.2f} GB", main_process_only=True
         )
         self.logger.warning(self.params.dict(), main_process_only=True)
 
