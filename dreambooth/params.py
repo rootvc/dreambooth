@@ -44,7 +44,7 @@ class HyperParams(BaseModel):
     # Training
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
-    ti_train_epochs: int = 0  # 15
+    ti_train_epochs: int = 15
     train_epochs: int = 100
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
