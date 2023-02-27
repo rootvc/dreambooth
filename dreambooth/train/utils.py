@@ -76,8 +76,7 @@ class DreamBoothDataset(Dataset):
 
         self._length = max(len(self.instance_images), len(self.prior_images))
 
-    @staticmethod
-    def loader_collate_fn(examples: list[dict]):
+    def loader_collate_fn(self, examples: list[dict]):
         input_ids = list(
             itertools.chain(
                 map(itemgetter("instance_prompt_ids"), examples),
@@ -90,6 +89,14 @@ class DreamBoothDataset(Dataset):
                 map(itemgetter("prior_image"), examples),
             )
         )
+
+        input_ids = self.tokenizer.pad(
+            {"input_ids": input_ids},
+            padding="max_length",
+            max_length=self.tokenizer.model_max_length,
+            return_tensors="pt",
+        ).input_ids
+
         return {
             "input_ids": torch.cat(input_ids, dim=0),
             "pixel_values": torch.stack(pixel_values)
