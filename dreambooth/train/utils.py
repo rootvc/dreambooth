@@ -8,7 +8,7 @@ import tempfile
 from functools import cached_property, lru_cache, partial
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union, cast
 
 import torch
 import torch._dynamo
@@ -364,14 +364,23 @@ class Trainer:
         return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
 
     @_main_process_only
-    def _log_images(self, prompt: str, images: Iterable, title: str = "validation"):
+    def _log_images(
+        self,
+        prompts: Union[str, list[str]],
+        images: Iterable,
+        title: str = "validation",
+    ):
+        images = list(images)
+        if not isinstance(prompts, list):
+            prompts = [prompts] * len(images)
+
         for tracker in self.accelerator.trackers:
             if not isinstance(tracker, WandBTracker):
                 continue
             tracker.log(
                 {
                     title: [
-                        wandb.Image(image, caption=f"{i}: {prompt}")
+                        wandb.Image(image, caption=f"{i}: {prompts[i]}")
                         for i, image in enumerate(images)
                     ]
                 }
@@ -398,7 +407,7 @@ class Trainer:
             for prompt in prompts
         ]
 
-        self._log_images(prompt, images, title="validation")
+        self._log_images(prompts, images, title="validation")
         return images
 
     @_main_process_only
@@ -570,12 +579,21 @@ class Trainer:
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
 
+            val = (
+                self.accelerator.unwrap_model(models["text_encoder"])
+                .get_input_embeddings()
+                .weight[self.token_id(models["tokenizer"])]
+            )
+            self._print("val", val.detach().item())
+
             self.accelerator.log(
                 {
                     "loss": loss.detach().item(),
                     "ti_lr": models["lr_scheduler"].get_last_lr()[0],
                     "text_lr": models["lr_scheduler"].get_last_lr()[1],
                     "unet_lr": models["lr_scheduler"].get_last_lr()[2],
+                    "val": val.detach().item(),
+                    "token_id": self.token_id(models["tokenizer"]),
                 },
                 step=self._total_steps,
             )
@@ -653,7 +671,9 @@ class Trainer:
             assert len(src_token_ids) == 1
             init = embeds[src_token_ids[0]]
 
-        embeds[self.token_id(tokenizer)] = init
+        tkn_id = self.token_id(tokenizer)
+        embeds[tkn_id] = init
+        print("token id", tkn_id, init.shape)
 
         return (tokenizer, text_encoder)
 
@@ -710,11 +730,6 @@ class Trainer:
         pps = list(text_encoder.get_input_embeddings().named_parameters())
         self._print("PPs:", len(pps))
         for name, param in pps:
-            self._print(name, param.requires_grad)
-
-        pps2 = list(text_encoder.named_parameters())
-        self._print("PPs2:", len(pps2))
-        for name, param in pps2:
             self._print(name, param.requires_grad)
 
         optimizer = optimizer_class(
