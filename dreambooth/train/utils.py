@@ -728,7 +728,8 @@ class Trainer:
         )
 
         input_embeddings = (
-            text_encoder.get_input_embeddings()
+            self.accelerator.unwrap_model(text_encoder)
+            .get_input_embeddings()
             .weight.data.clone()
             .to(self.accelerator.device, dtype=self.params.dtype)
         )
