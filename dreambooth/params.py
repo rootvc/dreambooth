@@ -36,6 +36,7 @@ class Class(BaseModel):
         "a photo of a cool {}",
         "a photo of a small {}",
     ]
+    SUFFIXES: list[str] = ["", "4k", "highres", "high quality", "realisitic"]
 
     _prompt: str
     type_: Literal["prompt", "token"] = "prompt"
@@ -43,11 +44,11 @@ class Class(BaseModel):
 
     @property
     def prompt(self):
-        return (
-            self._prompt
-            if self.type_ == "prompt"
-            else random.choice(self.IMAGENET_TEMPLATES).format(self._prompt)
-        )
+        if self.type_ == "prompt":
+            return self._prompt
+        prompt = random.choice(self.IMAGENET_TEMPLATES).format(self._prompt)
+        suffix = random.choice(self.SUFFIXES)
+        return ", ".join(filter(None, (prompt, suffix)))
 
     def check(self):
         return self.data.exists()
