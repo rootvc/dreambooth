@@ -518,9 +518,7 @@ class Trainer:
 
                 self.accelerator.backward(loss)
                 if self.accelerator.sync_gradients:
-                    params_to_clip = itertools.chain(
-                        unet.parameters(), models["text_encoder"].parameters()
-                    )
+                    params_to_clip = itertools.chain(unet.parameters())
                     self.accelerator.clip_grad_norm_(
                         params_to_clip, self.params.max_grad_norm
                     )
