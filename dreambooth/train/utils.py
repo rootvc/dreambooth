@@ -664,6 +664,7 @@ class Trainer:
         self._print("Initializing Optimizer...")
         with torch.no_grad():
             params = (x.to(torch.float32) for x in ti_params)
+        params = (x.requires_grad_(True) for x in params)
         # [
         # {
         #     "lr": self.params.ti_learning_rate,
