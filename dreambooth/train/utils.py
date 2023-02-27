@@ -5,7 +5,7 @@ import json
 import math
 import os
 import tempfile
-from functools import cached_property, lru_cache
+from functools import cached_property, lru_cache, partial
 from operator import itemgetter
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
@@ -26,7 +26,7 @@ from diffusers import (
     DPMSolverMultistepScheduler,
     UNet2DConditionModel,
 )
-from diffusers.optimization import get_scheduler
+from diffusers.optimization import get_constant_schedule, get_scheduler
 from peft import (
     LoraConfig,
     LoraModel,
@@ -34,6 +34,7 @@ from peft import (
     set_peft_model_state_dict,
 )
 from PIL import Image
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
@@ -717,31 +718,55 @@ class Trainer:
             len(loader) / self.params.gradient_accumulation_steps
         )
         max_train_steps = self.params.train_epochs * steps_per_epoch
-        lr_scheduler = get_scheduler(
-            self.params.lr_scheduler,
-            optimizer=optimizer,
-            num_warmup_steps=self.params.lr_warmup_steps
-            * self.params.gradient_accumulation_steps,
-            num_training_steps=max_train_steps
-            * self.params.gradient_accumulation_steps,
-        )
 
         self._print("Preparing for training...")
 
-        (
-            unet,
-            text_encoder,
-            optimizer,
-            loader,
-            lr_scheduler,
-        ) = self.accelerator.prepare(
-            unet, text_encoder, optimizer, loader, lr_scheduler
+        (unet, text_encoder, optimizer, loader) = self.accelerator.prepare(
+            unet, text_encoder, optimizer, loader
         )
 
         steps_per_epoch = math.ceil(
             len(loader) / self.params.gradient_accumulation_steps
         )  # may have changed post-accelerate
         epochs = math.ceil(max_train_steps / steps_per_epoch)
+
+        def linear_with_warmup(
+            skip_steps: int, warmup_steps: int, training_steps: int, current_step: int
+        ):
+            if current_step < skip_steps:
+                return 0.0
+
+            current_step -= skip_steps
+            if current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            return max(
+                0.0,
+                float(training_steps - current_step)
+                / float(max(1, training_steps - warmup_steps)),
+            )
+
+        lr_scheduler = LambdaLR(
+            optimizer,
+            [
+                lambda _: self.params.ti_learning_rate,
+                partial(
+                    linear_with_warmup,
+                    self.params.ti_train_epochs * steps_per_epoch,
+                    0,
+                    max_train_steps * self.params.gradient_accumulation_steps,
+                ),
+                partial(
+                    linear_with_warmup,
+                    self.params.ti_train_epochs * steps_per_epoch,
+                    (
+                        self.params.lr_warmup_steps
+                        * self.params.gradient_accumulation_steps
+                    ),
+                    max_train_steps * self.params.gradient_accumulation_steps,
+                ),
+            ],
+        )
+        lr_scheduler = self.accelerator.prepare(lr_scheduler)
 
         self._print(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
 
@@ -863,8 +888,6 @@ def get_model(
 
     params = params or get_params()
     return Trainer(
-        instance_class=Class(
-            prompt=f"a photo of {params.token} person", data=instance_path
-        ),
+        instance_class=Class(prompt=f"a photo of {params.token}", data=instance_path),
         params=params,
     )
