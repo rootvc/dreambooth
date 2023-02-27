@@ -418,7 +418,7 @@ class Trainer:
         token_embedding = torch.load(
             self.output_dir / "token_embedding.pt", map_location=self.accelerator.device
         )
-        tokenizer, text_encoder = self._init_text(token_embedding)
+        tokenizer, text_encoder = self._init_text(token_embedding[self.params.token])
 
         pipeline = self._pipeline(
             tokenizer=tokenizer,
