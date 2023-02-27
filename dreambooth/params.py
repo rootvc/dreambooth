@@ -91,8 +91,8 @@ class HyperParams(BaseModel):
     # Training
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
-    ti_train_epochs: int = 25
-    train_epochs: int = 100
+    ti_train_epochs: int = 15
+    train_epochs: int = 50
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
@@ -110,7 +110,7 @@ class HyperParams(BaseModel):
 
     # Validation
     validate_after: int = 0  # steps
-    validate_every: int = 5  # epochs
+    validate_every: int = 1  # epochs
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 20

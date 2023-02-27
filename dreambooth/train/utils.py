@@ -385,6 +385,9 @@ class Trainer:
             + self.params.validation_prompt_suffix
         )
         generator = torch.Generator(device=self.accelerator.device)
+        prompts = [prompt] * self.params.validation_samples + [
+            self.instance_class.deterministic_prompt
+        ]
         images = [
             pipeline(
                 prompt,
@@ -392,7 +395,7 @@ class Trainer:
                 num_inference_steps=self.params.validation_steps,
                 generator=generator,
             ).images[0]
-            for _ in range(self.params.validation_samples)
+            for prompt in prompts
         ]
 
         self._log_images(prompt, images, title="validation")
@@ -700,7 +703,9 @@ class Trainer:
             {"lr": self.params.learning_rate, "params": unet.parameters()},
         ]
 
-        for name, param in text_encoder.get_input_embeddings().named_parameters():
+        pps = list(text_encoder.get_input_embeddings().named_parameters())
+        self._print("PPs:", len(pps))
+        for name, param in pps:
             self._print(name, param.requires_grad)
 
         optimizer = optimizer_class(
