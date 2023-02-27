@@ -157,9 +157,8 @@ class DreamBoothDataset(Dataset):
             "instance_prompt_ids": self.tokenizer(
                 self.instance.prompt,
                 truncation=True,
-                padding="max_length",
+                padding="do_not_pad",
                 max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
             ).input_ids,
         }
 
@@ -172,9 +171,8 @@ class DreamBoothDataset(Dataset):
             "prior_prompt_ids": self.tokenizer(
                 self.prior.prompt,
                 truncation=True,
-                padding="max_length",
+                padding="do_not_pad",
                 max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
             ).input_ids,
         }
 
@@ -354,7 +352,7 @@ class Trainer:
         del pipeline
         torch.cuda.empty_cache()
 
-        return Class(_prompt=self.params.prior_prompt, data=self.priors_dir)
+        return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
 
     @_main_process_only
     def _log_images(self, prompt: str, images: Iterable, title: str = "validation"):
@@ -896,6 +894,6 @@ def get_model(
 
     params = params or get_params()
     return Trainer(
-        instance_class=Class(_prompt=params.token, data=instance_path, type_="token"),
+        instance_class=Class(prompt_=params.token, data=instance_path, type_="token"),
         params=params,
     )

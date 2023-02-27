@@ -36,17 +36,17 @@ class Class(BaseModel):
         "a photo of a cool {}",
         "a photo of a small {}",
     ]
-    SUFFIXES: list[str] = ["", "4k", "highres", "high quality", "realisitic"]
+    SUFFIXES: list[str] = ["", "4k", "highres", "high quality", "realistic"]
 
-    _prompt: str
+    prompt_: str
     type_: Literal["prompt", "token"] = "prompt"
     data: Path
 
     @property
     def prompt(self):
         if self.type_ == "prompt":
-            return self._prompt
-        prompt = random.choice(self.IMAGENET_TEMPLATES).format(self._prompt)
+            return self.prompt_
+        prompt = random.choice(self.IMAGENET_TEMPLATES).format(self.prompt_)
         suffix = random.choice(self.SUFFIXES)
         return ", ".join(filter(None, (prompt, suffix)))
 
