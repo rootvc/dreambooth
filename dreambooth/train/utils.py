@@ -534,9 +534,13 @@ class Trainer:
                         idx = torch.arange(len(models["tokenizer"])) != self.token_id(
                             models["tokenizer"]
                         )
-                        models["text_encoder"].get_input_embeddings().weight[
+                        self.accelerator.unwrap_model(
+                            models["text_encoder"]
+                        ).get_input_embeddings().weight[idx] = models[
+                            "input_embeddings"
+                        ][
                             idx
-                        ] = models["input_embeddings"][idx]
+                        ]
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
