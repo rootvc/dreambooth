@@ -258,7 +258,6 @@ class Trainer:
     ):
         pipe = self._spawn(
             DiffusionPipeline,
-            torch_dtype=torch.float16,
             safety_checker=None,
             low_cpu_mem_usage=True,
             local_files_only=True,
@@ -329,6 +328,7 @@ class Trainer:
         pipeline = self._pipeline(
             unet=self._unet(),
             text_encoder=self._text_encoder(),
+            torch_dtype=self.params.dtype,
         )
         pipeline.set_progress_bar_config(disable=not progress_bar)
 
@@ -399,7 +399,9 @@ class Trainer:
         text_encoder = self.accelerator.unwrap_model(
             models["text_encoder"], keep_fp32_wrapper=True
         ).to(self.accelerator.device)
-        pipeline = self._pipeline(unet=unet, text_encoder=text_encoder)
+        pipeline = self._pipeline(
+            unet=unet, text_encoder=text_encoder, torch_dtype=torch.float16
+        )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
@@ -418,7 +420,9 @@ class Trainer:
         )
         tokenizer, text_encoder = self._init_text(token_embedding)
 
-        pipeline = self._pipeline(tokenizer=tokenizer, text_encoder=text_encoder)
+        pipeline = self._pipeline(
+            tokenizer=tokenizer, text_encoder=text_encoder, torch_dtype=torch.float16
+        )
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(
             self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
@@ -442,7 +446,7 @@ class Trainer:
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
-        return self._validation(pipeline)
+        return self._validation(pipeline.to(dtype=self.params.dtype))
 
     def _do_epoch(
         self,
@@ -522,7 +526,7 @@ class Trainer:
                 self.accelerator.backward(loss)
                 if self.accelerator.sync_gradients:
                     params_to_clip = itertools.chain(
-                        models["text_encoder"].parameters()
+                        unet.parameters(), models["text_encoder"].parameters()
                     )
                     self.accelerator.clip_grad_norm_(
                         params_to_clip, self.params.max_grad_norm
@@ -536,13 +540,10 @@ class Trainer:
                         idx = torch.arange(len(models["tokenizer"])) != self.token_id(
                             models["tokenizer"]
                         )
+                        source = models["input_embeddings"][idx]
                         self.accelerator.unwrap_model(
                             models["text_encoder"]
-                        ).get_input_embeddings().weight[idx] = models[
-                            "input_embeddings"
-                        ][
-                            idx
-                        ]
+                        ).get_input_embeddings().weight[idx] = source
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
@@ -652,7 +653,6 @@ class Trainer:
             target_modules=self.TEXT_ENCODER_TARGET_MODULES,
             lora_dropout=self.params.lora_text_dropout,
         )
-        ti_params = list(text_encoder.get_input_embeddings().parameters())
         text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder)
 
         try:
@@ -668,24 +668,19 @@ class Trainer:
             optimizer_class = bnb.optim.AdamW8bit
 
         self._print("Initializing Optimizer...")
-        with torch.no_grad():
-            params = (x.to(torch.float32) for x in ti_params)
-        params = (x.requires_grad_(True) for x in params)
-        # [
-        # {
-        #     "lr": self.params.ti_learning_rate,
-        #     "params": (
+        ti_params = list(text_encoder.get_input_embeddings().parameters())
 
-        #         p.requires_grad_(True).to(self.accelerator.device)
-        #         for p in ti_params
-        #     ),
-        # },
-        # {
-        #     "lr": 0.0,
-        #     "params": list(set(text_encoder.parameters()) - set(ti_params)),
-        # },
-        #     {"lr": 0.0, "params": unet.parameters()},
-        # ]
+        params = [
+            {
+                "lr": self.params.ti_learning_rate,
+                "params": (p.requires_grad_(True) for p in ti_params),
+            },
+            {
+                "lr": 0.0,
+                "params": list(set(text_encoder.parameters()) - set(ti_params)),
+            },
+            {"lr": 0.0, "params": unet.parameters()},
+        ]
 
         optimizer = optimizer_class(
             params,
