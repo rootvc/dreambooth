@@ -26,7 +26,6 @@ from diffusers import (
     DPMSolverMultistepScheduler,
     UNet2DConditionModel,
 )
-from diffusers.optimization import get_constant_schedule, get_scheduler
 from peft import (
     LoraConfig,
     LoraModel,
@@ -91,7 +90,7 @@ class DreamBoothDataset(Dataset):
         )
 
         input_ids = self.tokenizer.pad(
-            {"input_ids": input_ids},
+            {"input_ids": torch.cat(input_ids, dim=0)},
             padding="max_length",
             max_length=self.tokenizer.model_max_length,
             return_tensors="pt",
@@ -166,6 +165,7 @@ class DreamBoothDataset(Dataset):
                 truncation=True,
                 padding="do_not_pad",
                 max_length=self.tokenizer.model_max_length,
+                return_tensors="pt",
             ).input_ids,
         }
 
@@ -180,6 +180,7 @@ class DreamBoothDataset(Dataset):
                 truncation=True,
                 padding="do_not_pad",
                 max_length=self.tokenizer.model_max_length,
+                return_tensors="pt",
             ).input_ids,
         }
 

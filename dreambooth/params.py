@@ -67,7 +67,7 @@ class HyperParams(BaseModel):
 
     # Model
     source_token: str = "person"
-    token: str = "sks"
+    token: str = "<krk>"
     model: Model = Model()
     prior_prompt: str = f"a photo of a {source_token}"
     prior_samples: int = 250
