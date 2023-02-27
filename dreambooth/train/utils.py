@@ -258,7 +258,7 @@ class Trainer:
     ):
         pipe = self._spawn(
             DiffusionPipeline,
-            torch_dtype=self.params.dtype,
+            torch_dtype=torch.float16,
             safety_checker=None,
             low_cpu_mem_usage=True,
             local_files_only=True,
