@@ -712,6 +712,11 @@ class Trainer:
         for name, param in pps:
             self._print(name, param.requires_grad)
 
+        pps2 = list(text_encoder.named_parameters())
+        self._print("PPs2:", len(pps2))
+        for name, param in pps2:
+            self._print(name, param.requires_grad)
+
         optimizer = optimizer_class(
             params,
             betas=self.params.betas,
