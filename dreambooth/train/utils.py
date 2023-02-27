@@ -662,11 +662,14 @@ class Trainer:
 
         self._print("Initializing Optimizer...")
 
-        params = unet.parameters()
+        params = list(
+            p.requires_grad_(True).to(self.accelerator.device) for p in ti_params
+        )
         # [
         # {
         #     "lr": self.params.ti_learning_rate,
         #     "params": (
+
         #         p.requires_grad_(True).to(self.accelerator.device)
         #         for p in ti_params
         #     ),
@@ -756,6 +759,7 @@ class Trainer:
         models = {
             "unet": unet,
             "text_encoder": text_encoder,
+            "tokenizer": tokenizer,
             "vae": self._vae(),
             "noise_scheduler": self._noise_scheduler(),
             "lr_scheduler": lr_scheduler,
