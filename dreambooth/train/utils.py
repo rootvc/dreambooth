@@ -626,7 +626,7 @@ class Trainer:
 
         return (
             tokenizer,
-            text_encoder.to(self.accelerator.device, dtype=self.params.dtype),
+            text_encoder,
         )
 
     def train(self):
@@ -662,8 +662,8 @@ class Trainer:
             optimizer_class = bnb.optim.AdamW8bit
 
         self._print("Initializing Optimizer...")
-
-        params = ti_params
+        with torch.no_grad():
+            params = (x.to(torch.float32) for x in ti_params)
         # [
         # {
         #     "lr": self.params.ti_learning_rate,
