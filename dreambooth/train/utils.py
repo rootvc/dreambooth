@@ -518,7 +518,9 @@ class Trainer:
 
                 self.accelerator.backward(loss)
                 if self.accelerator.sync_gradients:
-                    params_to_clip = itertools.chain(unet.parameters())
+                    params_to_clip = itertools.chain(
+                        models["text_encoder"].parameters()
+                    )
                     self.accelerator.clip_grad_norm_(
                         params_to_clip, self.params.max_grad_norm
                     )
@@ -715,8 +717,6 @@ class Trainer:
 
         self._print("Preparing for training...")
 
-        input_embeddings = text_encoder.get_input_embeddings().weight.data.clone()
-
         (
             unet,
             text_encoder,
@@ -725,6 +725,12 @@ class Trainer:
             lr_scheduler,
         ) = self.accelerator.prepare(
             unet, text_encoder, optimizer, loader, lr_scheduler
+        )
+
+        input_embeddings = (
+            text_encoder.get_input_embeddings()
+            .weight.data.clone()
+            .to(self.accelerator.device, dtype=self.params.dtype)
         )
 
         steps_per_epoch = math.ceil(
