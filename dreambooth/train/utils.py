@@ -98,7 +98,7 @@ class DreamBoothDataset(Dataset):
         ).input_ids
 
         return {
-            "input_ids": torch.cat(input_ids, dim=0),
+            "input_ids": input_ids,
             "pixel_values": torch.stack(pixel_values)
             .to(memory_format=torch.contiguous_format)
             .float(),
