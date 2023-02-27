@@ -278,6 +278,7 @@ class Trainer:
             self._spawn(
                 CLIPTextModel,
                 subfolder="text_encoder",
+                tap=lambda x: x.requires_grad_(False),
             ).to(self.accelerator.device)
         )
 
@@ -622,10 +623,14 @@ class Trainer:
 
         embeds[self.token_id(tokenizer)] = init
 
-        return (tokenizer, text_encoder)
+        return (
+            tokenizer,
+            text_encoder.to(self.accelerator.device, dtype=self.params.dtype),
+        )
 
     def train(self):
         tokenizer, text_encoder = self._init_text()
+        ti_params = list(text_encoder.get_input_embeddings().parameters())
 
         lora_config = LoraConfig(
             r=self.params.lora_rank,
@@ -656,7 +661,7 @@ class Trainer:
             optimizer_class = bnb.optim.AdamW8bit
 
         self._print("Initializing Optimizer...")
-        ti_params = list(text_encoder.get_input_embeddings().parameters())
+
         params = [
             {
                 "lr": self.params.ti_learning_rate,
