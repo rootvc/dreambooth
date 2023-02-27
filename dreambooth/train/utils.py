@@ -486,7 +486,7 @@ class Trainer:
         models["text_encoder"].train()
 
         for batch in loader:
-            with self.accelerator.accumulate(unet):
+            with self.accelerator.accumulate(models["text_encoder"]):
                 # Convert images to latent space
                 latents = (
                     models["vae"]
@@ -560,7 +560,12 @@ class Trainer:
                     .get_input_embeddings()
                     .weight[self.token_id(models["tokenizer"])]
                 )
-                self._print("val.grad", val.grad)
+                self._print(
+                    "val.grad",
+                    self.accelerator.unwrap_model(models["text_encoder"])
+                    .get_input_embeddings()
+                    .weight.grad,
+                )
 
                 if self.accelerator.sync_gradients:
                     params_to_clip = itertools.chain(
