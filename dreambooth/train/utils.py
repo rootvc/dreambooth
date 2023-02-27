@@ -663,7 +663,7 @@ class Trainer:
         self._print("Initializing Optimizer...")
 
         ti_params = list(text_encoder.get_input_embeddings().parameters())
-        params = list(p.requires_grad_(True).float() for p in ti_params)
+        params = list(p.requires_grad_(True).to(dtype=torch.float) for p in ti_params)
         # [
         # {
         #     "lr": self.params.ti_learning_rate,
