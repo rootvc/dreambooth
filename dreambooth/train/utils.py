@@ -662,20 +662,21 @@ class Trainer:
 
         self._print("Initializing Optimizer...")
 
-        params = [
-            {
-                "lr": self.params.ti_learning_rate,
-                "params": (
-                    p.requires_grad_(True).to(self.accelerator.device)
-                    for p in ti_params
-                ),
-            },
-            {
-                "lr": 0.0,
-                "params": list(set(text_encoder.parameters()) - set(ti_params)),
-            },
-            {"lr": 0.0, "params": unet.parameters()},
-        ]
+        params = unet.parameters()
+        # [
+        # {
+        #     "lr": self.params.ti_learning_rate,
+        #     "params": (
+        #         p.requires_grad_(True).to(self.accelerator.device)
+        #         for p in ti_params
+        #     ),
+        # },
+        # {
+        #     "lr": 0.0,
+        #     "params": list(set(text_encoder.parameters()) - set(ti_params)),
+        # },
+        #     {"lr": 0.0, "params": unet.parameters()},
+        # ]
 
         optimizer = optimizer_class(
             params,
