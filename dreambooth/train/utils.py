@@ -378,7 +378,9 @@ class Trainer:
 
     @torch.no_grad()
     def _validation(self, pipeline: DiffusionPipeline) -> list:
-        prompt = self.instance_class.prompt + " " + self.params.validation_prompt_suffix
+        prompt = (
+            self.instance_class.prompt + ", " + self.params.validation_prompt_suffix
+        )
         generator = torch.Generator(device=self.accelerator.device)
         images = [
             pipeline(
