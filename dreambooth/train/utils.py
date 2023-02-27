@@ -748,7 +748,9 @@ class Trainer:
         lr_scheduler = LambdaLR(
             optimizer,
             [
-                lambda _: self.params.ti_learning_rate,
+                lambda step: (
+                    1.0 if step < self.params.ti_train_epochs * steps_per_epoch else 0.0
+                ),
                 partial(
                     linear_with_warmup,
                     self.params.ti_train_epochs * steps_per_epoch,
@@ -802,10 +804,13 @@ class Trainer:
             self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
 
             if epoch < self.params.ti_train_epochs:
+                optimizer.param_groups[0]["lr"] = self.params.ti_learning_rate
                 optimizer.param_groups[1]["lr"] = 0.0
                 optimizer.param_groups[2]["lr"] = 0.0
             else:
                 optimizer.param_groups[0]["lr"] = 0.0
+                optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
+                optimizer.param_groups[0]["lr"] = self.params.learning_rate
                 if epoch == self.params.ti_train_epochs:
                     self._print(f"Finished TI training at epoch {epoch}.")
                     del models["input_embeddings"]
