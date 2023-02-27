@@ -286,15 +286,17 @@ class Trainer:
     def _noise_scheduler(self):
         return self._spawn(DDPMScheduler, subfolder="scheduler")
 
-    def _vae(self):
+    def _vae(self, **kwargs):
         if self.params.model.vae:
             vae = AutoencoderKL.from_pretrained(
                 self.params.model.vae,
+                **kwargs,
             )
         else:
             vae = self._spawn(
                 AutoencoderKL,
                 subfolder="vae",
+                **kwargs,
             )
 
         vae.requires_grad_(False)
@@ -764,7 +766,7 @@ class Trainer:
             "unet": unet,
             "text_encoder": text_encoder,
             "tokenizer": tokenizer,
-            "vae": self._vae(),
+            "vae": self._vae(dtype=self.params.dtype),
             "noise_scheduler": self._noise_scheduler(),
             "lr_scheduler": lr_scheduler,
             "input_embeddings": input_embeddings,
