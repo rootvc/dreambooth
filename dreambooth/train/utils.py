@@ -298,7 +298,7 @@ class Trainer:
             )
 
         vae.requires_grad_(False)
-        return self._compile(vae.to(self.accelerator.device, dtype=self.params.dtype))
+        return self._compile(vae.to(self.accelerator.device))
 
     def _tokenizer(self) -> CLIPTokenizer:
         return self._spawn(
