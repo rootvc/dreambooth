@@ -424,7 +424,11 @@ class Trainer:
             models["text_encoder"], keep_fp32_wrapper=True
         ).to(self.accelerator.device)
         pipeline = self._pipeline(
-            unet=unet, text_encoder=text_encoder, torch_dtype=torch.float16
+            unet=unet,
+            text_encoder=text_encoder,
+            tokenizer=models["tokenizer"],
+            vae=models["vae"],
+            torch_dtype=torch.float16,
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
