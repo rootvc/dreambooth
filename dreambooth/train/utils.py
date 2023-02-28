@@ -425,18 +425,19 @@ class Trainer:
         ).to(self.accelerator.device)
         pipeline = self._pipeline(
             unet=unet,
-            text_encoder=text_encoder,
+            text_encoder=text_encoder.to(dtype=self.params.dtype),
             tokenizer=models["tokenizer"],
             vae=models["vae"],
-            torch_dtype=torch.float16,
+            torch_dtype=self.params.dtype,
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
-        pipeline.set_progress_bar_config(disable=True)
 
+        pipeline.set_progress_bar_config(disable=True)
         self._validation(pipeline)
 
+        text_encoder.to(dtype=torch.float)
         del pipeline
         torch.cuda.empty_cache()
 
