@@ -9,8 +9,7 @@ from contextlib import contextmanager
 from functools import cached_property, lru_cache, partial
 from operator import itemgetter
 from pathlib import Path
-from typing import (Any, Callable, Iterable, Optional, Type, TypeVar, Union,
-                    cast)
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union, cast
 
 import torch
 import torch._dynamo
@@ -21,10 +20,19 @@ import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
-                       DPMSolverMultistepScheduler, UNet2DConditionModel)
-from peft import (LoraConfig, LoraModel, get_peft_model_state_dict,
-                  set_peft_model_state_dict)
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+    DiffusionPipeline,
+    DPMSolverMultistepScheduler,
+    UNet2DConditionModel,
+)
+from peft import (
+    LoraConfig,
+    LoraModel,
+    get_peft_model_state_dict,
+    set_peft_model_state_dict,
+)
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, Dataset
@@ -202,9 +210,11 @@ def to_dtype(new_dtype: torch.dtype):
     def f(*args: torch.nn.Module):
         dtypes = [model.dtype for model in args]
         for model in args:
+            print(f"Converting {model} to {new_dtype}")
             model.to(dtype=new_dtype)
         yield
         for model, dtype in zip(args, dtypes):
+            print(f"Restoring {model} to {dtype}")
             model.to(dtype=dtype)
 
     return f
@@ -423,14 +433,12 @@ class Trainer:
         unet: UNet2DConditionModel,
         models: dict,
     ):
-        unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True).to(
-            self.accelerator.device
-        )
+        unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=True)
         text_encoder = self.accelerator.unwrap_model(
             models["text_encoder"], keep_fp32_wrapper=True
-        ).to(self.accelerator.device)
+        )
 
-        with to_dtype(self.params.dtype)(unet, text_encoder, models["vae"]):
+        with to_dtype(torch.float)(unet, text_encoder, models["vae"]):
             pipeline = self._pipeline(
                 unet=unet,
                 text_encoder=text_encoder,
