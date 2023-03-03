@@ -411,7 +411,7 @@ class Trainer:
         return images
 
     @_main_process_only
-    @torch.inference_mode()
+    @torch.no_grad()
     def _do_validation(
         self,
         unet: UNet2DConditionModel,
