@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union
 import torch
 import torch._dynamo
 import torch.backends.cuda
+import torch.backends.cudnn
 import torch.jit
 import torch.nn.functional as F
 import wandb
@@ -44,6 +45,7 @@ from dreambooth.params import Class, HyperParams, Model
 T = TypeVar("T")
 
 torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.benchmark = True
 
 
 class PromptDataset(Dataset):
@@ -323,6 +325,7 @@ class Trainer:
             )
 
         vae.requires_grad_(False)
+        vae.enable_slicing()
         return self._compile(vae.to(self.accelerator.device))
 
     def _tokenizer(self) -> CLIPTokenizer:
@@ -338,11 +341,23 @@ class Trainer:
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
         ).to(self.accelerator.device)
+
+        unet.set_attention_slice("auto")
+
         try:
-            unet.enable_xformers_memory_efficient_attention()
+            from diffusers.models.cross_attention import AttnProcessor2_0
+
+            unet.set_attn_processor(AttnProcessor2_0())
         except Exception as e:
-            self._print("Cannot enable xformers memory efficient attention")
+            self._print("Cannot set attn processor")
             self._print(e)
+
+            try:
+                unet.enable_xformers_memory_efficient_attention()
+            except Exception as e:
+                self._print("Cannot enable xformers memory efficient attention")
+                self._print(e)
+
         return self._compile(unet)
 
     @torch.inference_mode()
@@ -905,8 +920,8 @@ def get_params() -> HyperParams:
             params.dynamo_backend = None
         case float(n) if n < 24:
             params.batch_size = 1
-            params.gradient_accumulation_steps = 1
-            params.dynamo_backend = None  # "inductor" currently breaks SD
+            params.gradient_accumulation_steps = 2
+            params.dynamo_backend = "inductor"
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1
