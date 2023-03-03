@@ -5,10 +5,12 @@ import json
 import math
 import os
 import tempfile
+from contextlib import contextmanager
 from functools import cached_property, lru_cache, partial
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union, cast
+from typing import (Any, Callable, Iterable, Optional, Type, TypeVar, Union,
+                    cast)
 
 import torch
 import torch._dynamo
@@ -19,19 +21,10 @@ import wandb
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    UNet2DConditionModel,
-)
-from peft import (
-    LoraConfig,
-    LoraModel,
-    get_peft_model_state_dict,
-    set_peft_model_state_dict,
-)
+from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
+                       DPMSolverMultistepScheduler, UNet2DConditionModel)
+from peft import (LoraConfig, LoraModel, get_peft_model_state_dict,
+                  set_peft_model_state_dict)
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, Dataset
@@ -202,6 +195,19 @@ def _main_process_only(f):
         return f(self, *args, **kwargs)
 
     return wrapper
+
+
+def to_dtype(new_dtype: torch.dtype):
+    @contextmanager
+    def f(*args: torch.nn.Module):
+        dtypes = [model.dtype for model in args]
+        for model in args:
+            model.to(dtype=new_dtype)
+        yield
+        for model, dtype in zip(args, dtypes):
+            model.to(dtype=dtype)
+
+    return f
 
 
 def partition(
@@ -423,21 +429,22 @@ class Trainer:
         text_encoder = self.accelerator.unwrap_model(
             models["text_encoder"], keep_fp32_wrapper=True
         ).to(self.accelerator.device)
-        pipeline = self._pipeline(
-            unet=unet.to(dtype=self.params.dtype),
-            text_encoder=text_encoder.to(dtype=self.params.dtype),
-            tokenizer=models["tokenizer"],
-            vae=models["vae"].to(dtype=self.params.dtype),
-            torch_dtype=self.params.dtype,
-        )
-        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
-            pipeline.scheduler.config
-        )
 
-        pipeline.set_progress_bar_config(disable=True)
-        self._validation(pipeline)
+        with to_dtype(self.params.dtype)(unet, text_encoder, models["vae"]):
+            pipeline = self._pipeline(
+                unet=unet,
+                text_encoder=text_encoder,
+                tokenizer=models["tokenizer"],
+                vae=models["vae"],
+                torch_dtype=self.params.dtype,
+            )
+            pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                pipeline.scheduler.config
+            )
 
-        text_encoder.to(dtype=torch.float)
+            pipeline.set_progress_bar_config(disable=True)
+            self._validation(pipeline)
+
         del pipeline
         torch.cuda.empty_cache()
 
