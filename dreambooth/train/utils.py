@@ -467,7 +467,6 @@ class Trainer:
         pipeline = self._pipeline(
             tokenizer=tokenizer,
             text_encoder=text_encoder,
-            torch_dtype=self.params.dtype,
         )
         config = json.loads((self.output_dir / "lora_config.json").read_text())
         state = torch.load(
@@ -477,13 +476,13 @@ class Trainer:
         unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
         pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet).to(
-            self.accelerator.device, dtype=self.params.dtype
+            self.accelerator.device
         )
         set_peft_model_state_dict(pipeline.unet, unet_state)
 
         pipeline.text_encoder = LoraModel(
             LoraConfig(**config["text_peft"]), pipeline.text_encoder
-        ).to(self.accelerator.device, dtype=self.params.dtype)
+        ).to(self.accelerator.device)
         set_peft_model_state_dict(
             pipeline.text_encoder,
             {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
@@ -572,12 +571,6 @@ class Trainer:
 
             self.accelerator.backward(loss)
 
-            val = (
-                self.accelerator.unwrap_model(models["text_encoder"])
-                .get_input_embeddings()
-                .weight[self.token_id(models["tokenizer"])]
-            )
-
             if self.accelerator.sync_gradients:
                 params_to_clip = itertools.chain(
                     unet.parameters(), models["text_encoder"].parameters()
@@ -609,8 +602,6 @@ class Trainer:
                     "ti_lr": models["lr_scheduler"].get_last_lr()[0],
                     "text_lr": models["lr_scheduler"].get_last_lr()[1],
                     "unet_lr": models["lr_scheduler"].get_last_lr()[2],
-                    "val": val.detach(),
-                    "token_id": self.token_id(models["tokenizer"]),
                 },
                 step=self._total_steps,
             )
@@ -872,8 +863,8 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if (
-                self._total_steps > self.params.validate_after
-                and epoch % self.params.validate_every == 0
+                self._total_steps >= self.params.validate_after_steps
+                and epoch % self.params.validate_every_epochs == 0
             ):
                 self.accelerator.wait_for_everyone()
                 self._do_validation(unet, models)
