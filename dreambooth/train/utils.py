@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from functools import cached_property, lru_cache, partial
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union, cast
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union
 
 import torch
 import torch._dynamo
@@ -210,11 +210,11 @@ def to_dtype(new_dtype: torch.dtype):
     def f(*args: torch.nn.Module):
         dtypes = [model.dtype for model in args]
         for model in args:
-            print(f"Converting {model} to {new_dtype}")
+            print(f"Converting {model.__class__.__name__} to {new_dtype}")
             model.to(dtype=new_dtype)
         yield
         for model, dtype in zip(args, dtypes):
-            print(f"Restoring {model} to {dtype}")
+            print(f"Restoring {model.__class__.__name__} to {dtype}")
             model.to(dtype=dtype)
 
     return f
@@ -690,7 +690,6 @@ class Trainer:
 
         tkn_id = self.token_id(tokenizer)
         embeds[tkn_id] = init
-        self._print("token id", tkn_id, init.shape)
 
         return (tokenizer, text_encoder)
 
@@ -743,11 +742,6 @@ class Trainer:
             },
             {"lr": self.params.learning_rate, "params": unet.parameters()},
         ]
-
-        pps = list(text_encoder.get_input_embeddings().named_parameters())
-        self._print("PPs:", len(pps))
-        for name, param in pps:
-            self._print(name, param.requires_grad)
 
         optimizer = optimizer_class(
             params,
@@ -881,6 +875,7 @@ class Trainer:
                 self._total_steps > self.params.validate_after
                 and epoch % self.params.validate_every == 0
             ):
+                self.accelerator.wait_for_everyone()
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()

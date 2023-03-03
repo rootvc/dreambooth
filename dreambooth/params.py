@@ -81,8 +81,8 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-4
-    text_learning_rate: float = 1e-4
+    learning_rate: float = 1e-5
+    text_learning_rate: float = 1e-5
     ti_learning_rate: float = 5e-4
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
@@ -91,8 +91,8 @@ class HyperParams(BaseModel):
     # Training
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
-    ti_train_epochs: int = 25
-    train_epochs: int = 60
+    ti_train_epochs: int = 30
+    train_epochs: int = 70
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
@@ -110,7 +110,7 @@ class HyperParams(BaseModel):
 
     # Validation
     validate_after: int = 0  # steps
-    validate_every: int = 5  # epochs
+    validate_every: int = 15  # epochs
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 20
