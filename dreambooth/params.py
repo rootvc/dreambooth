@@ -78,7 +78,7 @@ class HyperParams(BaseModel):
     prior_prompt: str = f"a photo of a {source_token}"
     prior_samples: int = 250
     prior_class: Optional[Class] = None
-    batch_size: int = 1
+    batch_size: int = 2
 
     # Optimizer
     learning_rate: float = 1e-5

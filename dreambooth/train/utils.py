@@ -492,7 +492,7 @@ class Trainer:
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
-        return self._validation(pipeline.to(torch_dtype=self.params.dtype))
+        return self._validation(pipeline)
 
     def _do_epoch(
         self,
