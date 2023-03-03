@@ -904,7 +904,7 @@ def get_params() -> HyperParams:
             params.gradient_accumulation_steps = 2
             params.dynamo_backend = None
         case float(n) if n < 24:
-            params.batch_size = 1
+            params.batch_size = 2
             params.gradient_accumulation_steps = 1
             params.dynamo_backend = None  # "inductor" currently breaks SD
         case float(n) if n < 32:

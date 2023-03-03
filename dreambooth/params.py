@@ -78,7 +78,7 @@ class HyperParams(BaseModel):
     prior_prompt: str = f"a photo of a {source_token}"
     prior_samples: int = 250
     prior_class: Optional[Class] = None
-    batch_size: int = 2
+    batch_size: int = 1
 
     # Optimizer
     learning_rate: float = 1e-5
@@ -92,7 +92,7 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
     ti_train_epochs: int = 20
-    train_epochs: int = 30
+    train_epochs: int = 40
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
@@ -109,8 +109,8 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 400
-    validate_every_epochs: int = 2
+    validate_after_steps: int = 350
+    validate_every_epochs: int = 5
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 20
