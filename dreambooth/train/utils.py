@@ -348,7 +348,6 @@ class Trainer:
         try:
             from diffusers.models.cross_attention import AttnProcessor2_0
 
-            raise NotImplementedError("AttnProcessor2_0 is not implemented yet")
             unet.set_attn_processor(AttnProcessor2_0())
         except Exception as e:
             self._print("Cannot set attn processor")
@@ -930,9 +929,9 @@ def get_params() -> HyperParams:
             params.gradient_accumulation_steps = 2
             params.dynamo_backend = None
         case float(n) if n < 24:
-            params.batch_size = 1
+            params.batch_size = 2
             params.gradient_accumulation_steps = 1
-            params.dynamo_backend = "inductor"
+            params.dynamo_backend = None  # "inductor" is broken with LoRA
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1
