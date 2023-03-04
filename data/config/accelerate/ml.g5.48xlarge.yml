@@ -7,7 +7,7 @@ deepspeed_config:
   zero3_init_flag: true
   zero3_save_16bit_model: true
   zero_stage: 3
-distributed_type: MULTI_GPU
+distributed_type: DEEPSPEED
 downcast_bf16: "no"
 dynamo_backend: "no"
 fsdp_config: {}
