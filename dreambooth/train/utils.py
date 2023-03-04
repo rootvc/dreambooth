@@ -726,7 +726,9 @@ class Trainer:
                 target_modules=self.UNET_TARGET_MODULES,
                 lora_dropout=self.params.lora_dropout,
             )
-            unet: UNet2DConditionModel = LoraModel(lora_config, self._unet())
+            unet: UNet2DConditionModel = LoraModel(lora_config, self._unet()).to(
+                self.accelerator.device
+            )
 
             lora_text_config = LoraConfig(
                 r=self.params.lora_text_rank,
@@ -734,7 +736,9 @@ class Trainer:
                 target_modules=self.TEXT_ENCODER_TARGET_MODULES,
                 lora_dropout=self.params.lora_text_dropout,
             )
-            text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder)
+            text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder).to(
+                self.accelerator.device
+            )
 
         self._print("Compiling models...")
         unet = self._compile(unet)
