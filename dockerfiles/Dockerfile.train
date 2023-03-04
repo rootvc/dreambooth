@@ -10,8 +10,9 @@ ADD requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre -r requirements.txt
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-  CUDA_EXT=1 pip install --upgrade --pre colossalai-nightly
+RUN git clone https://github.com/hpcaitech/ColossalAI.git && \
+  cd ColossalAI && \
+  CUDA_EXT=1 pip install .
 
 FROM ubuntu:22.04 AS train
 
