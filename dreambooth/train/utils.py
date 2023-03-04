@@ -342,7 +342,7 @@ class Trainer:
             tap=lambda x: x.requires_grad_(False),
         ).to(self.accelerator.device)
 
-        unet.set_attention_slice("auto")
+        # unet.set_attention_slice("auto")
 
         try:
             from diffusers.models.cross_attention import AttnProcessor2_0
@@ -921,7 +921,7 @@ def get_params() -> HyperParams:
         case float(n) if n < 24:
             params.batch_size = 1
             params.gradient_accumulation_steps = 1
-            params.dynamo_backend = None  # "inductor"
+            params.dynamo_backend = "inductor"
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1
