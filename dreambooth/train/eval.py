@@ -3,6 +3,11 @@ from pathlib import Path
 from typing import TypeVar
 
 import torch
+from basicsr.archs.rrdbnet_arch import RRDBNet
+from basicsr.utils import img2tensor, imwrite, tensor2img
+from basicsr.utils.download_util import load_file_from_url
+from basicsr.utils.misc import get_device, gpu_is_available
+from basicsr.utils.realesrgan_utils import RealESRGANer
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
@@ -11,6 +16,8 @@ from diffusers import (
     UNet2DConditionModel,
 )
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
+from facelib.utils.face_restoration_helper import FaceRestoreHelper
+from facelib.utils.misc import is_gray
 from peft import (
     LoraConfig,
     LoraModel,
@@ -141,6 +148,23 @@ class Evaluator:
 
         print("Compiling models...")
         return self._compile(pipeline)
+
+    def _upsampler(self):
+        model = RRDBNet(
+            num_in_ch=3,
+            num_out_ch=3,
+            num_feat=64,
+            num_block=23,
+            num_grow_ch=32,
+            scale=2,
+        )
+        return RealESRGANer(
+            scale=2,
+            model_path=self.params.real_esrgan_path,
+            model=model,
+            pre_pad=0,
+            half=True,
+        )
 
     @torch.inference_mode()
     def gen(self):

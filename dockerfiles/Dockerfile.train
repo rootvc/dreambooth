@@ -14,6 +14,10 @@ RUN git clone https://github.com/hpcaitech/ColossalAI.git && \
   cd ColossalAI && \
   CUDA_EXT=1 pip install .
 
+RUN git clone https://github.com/sczhou/CodeFormer.git && \
+  cd CodeFormer && \
+  python basicsr/setup.py develop --no-deps
+
 FROM ubuntu:22.04 AS train
 
 ENV NVIDIA_VISIBLE_DEVICES all
