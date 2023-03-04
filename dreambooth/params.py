@@ -91,8 +91,8 @@ class HyperParams(BaseModel):
     # Training
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
-    ti_train_epochs: int = 15
-    train_epochs: int = 40
+    ti_train_epochs: int = 10
+    train_epochs: int = 30
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
@@ -109,7 +109,7 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 400
+    validate_after_steps: int = 300
     validate_every_epochs: Optional[int] = 1
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
@@ -126,7 +126,9 @@ class HyperParams(BaseModel):
         "colorful cinematic still with glasses, armor, cyberpunk, with a xenonorph, in alien movie (1986),background made of brain cells, organic, ultrarealistic, leic 30mm",
         "Retro comic style artwork, highly detailed James Bond, comic book cover, symmetrical, vibrant, colorful",
     ]
-    real_esrgan_path: Path = Path("CodeFormer/real_esrgan.pth")
+
+    upscale_factor: int = 2
+    eval_model_path: Path = Path("CodeFormer")
 
     class Config:
         arbitrary_types_allowed = True

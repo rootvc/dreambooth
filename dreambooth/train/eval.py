@@ -2,12 +2,15 @@ import json
 from pathlib import Path
 from typing import TypeVar
 
+import cv2
+import numpy as np
 import torch
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils import img2tensor, imwrite, tensor2img
 from basicsr.utils.download_util import load_file_from_url
 from basicsr.utils.misc import get_device, gpu_is_available
 from basicsr.utils.realesrgan_utils import RealESRGANer
+from basicsr.utils.registry import ARCH_REGISTRY
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
@@ -24,6 +27,7 @@ from peft import (
     get_peft_model_state_dict,
     set_peft_model_state_dict,
 )
+from PIL.Image import Image
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import HyperParams
@@ -41,15 +45,16 @@ class Evaluator:
         self.accelerator = accelerator
         self.model_dir = model_dir
 
-    def _compile(
+    def _compile(self, model: T) -> T:
+        return torch.compile(model, mode="max-autotune")
+
+    def _compile_pipeline(
         self,
         pipeline: StableDiffusionPipeline,
     ) -> StableDiffusionPipeline:
-        pipeline.unet = torch.compile(pipeline.unet, mode="max-autotune")
-        pipeline.vae = torch.compile(pipeline.vae, mode="max-autotune")
-        pipeline.text_encoder = torch.compile(
-            pipeline.text_encoder, mode="max-autotune"
-        )
+        pipeline.unet = self._compile(pipeline.unet)
+        pipeline.vae = self._compile(pipeline.vae)
+        pipeline.text_encoder = self._compile(pipeline.text_encoder)
         return pipeline
 
     def _init_text(self):
@@ -147,7 +152,7 @@ class Evaluator:
         )
 
         print("Compiling models...")
-        return self._compile(pipeline)
+        return self._compile_pipeline(pipeline)
 
     def _upsampler(self):
         model = RRDBNet(
@@ -156,22 +161,51 @@ class Evaluator:
             num_feat=64,
             num_block=23,
             num_grow_ch=32,
-            scale=2,
-        )
+            scale=self.params.upscale_factor,
+        ).to(self.accelerator.device)
         return RealESRGANer(
-            scale=2,
+            scale=self.params.upscale_factor,
             model_path=self.params.real_esrgan_path,
-            model=model,
+            model=self._compile(model.eval()),
             pre_pad=0,
             half=True,
+            device=self.accelerator.device,
         )
+
+    def _restorer(self):
+        model = ARCH_REGISTRY.get("CodeFormer")(
+            dim_embd=512,
+            codebook_size=1024,
+            n_head=8,
+            n_layers=9,
+            connect_list=["32", "64", "128", "256"],
+        ).to(self.accelerator.device)
+        model.load_state_dict(torch.load(self.params.codeformer_path)["params_ema"])
+        return self._compile(model.eval())
+
+    def _face_helper(self) -> FaceRestoreHelper:
+        return FaceRestoreHelper(
+            self.params.upscale_factor,
+            face_size=self.params.model.resolution,
+            det_model="dlib",
+            use_parse=True,
+            device=self.accelerator.device,
+        )
+
+    def _process_image(self, helper: FaceRestoreHelper, pil_image: Image):
+        image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
     @torch.inference_mode()
     def gen(self):
         pipeline = self._load_pipeline()
-        prompts = []
+        prompts = [
+            self.params.eval_template.format(prompt=p) for p in self.params.eval_prompts
+        ]
         images = pipeline(
             prompts,
             negative_prompt=self.params.negative_prompt,
             num_inference_steps=self.params.validation_steps,
         ).images
+
+        upsampler = self._upsampler()
+        restorer = self._restorer()
