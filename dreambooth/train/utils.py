@@ -744,10 +744,6 @@ class Trainer:
         unet = self._compile(unet)
         text_encoder = self._compile(text_encoder)
 
-        (unet, text_encoder) = self.accelerator.prepare(unet, text_encoder)
-
-        self._print("Initializing Optimizer...")
-
         ti_params = [
             p.requires_grad_(True)
             for p in text_encoder.get_input_embeddings().parameters()
@@ -764,6 +760,10 @@ class Trainer:
             },
             {"lr": self.params.learning_rate, "params": unet.parameters()},
         ]
+
+        (unet, text_encoder) = self.accelerator.prepare(unet, text_encoder)
+
+        self._print("Initializing Optimizer...")
 
         optimizer = self.accelerator.optimizer(
             params,

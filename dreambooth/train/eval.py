@@ -1,21 +1,57 @@
 from pathlib import Path
+from typing import TypeVar
 
 import torch
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
+from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
+
+from dreambooth.params import HyperParams
+from dreambooth.train.accelerators.base import BaseAccelerator
+
+T = TypeVar("T", bound=torch.nn.Module)
 
 
 class Evaluator:
-    def __init__(self, model_dir: Path):
+    def __init__(
+        self, accelerator: BaseAccelerator, params: HyperParams, model_dir: Path
+    ):
+        self.params = params
+        self.accelerator = accelerator
         self.model_dir = model_dir
-        self.pipeline = self._load_pipeline()
+
+    def _compile(
+        self,
+        model: T,
+    ) -> T:
+        print(f"Compiling {model.__class__.__name__} with {self.params.dynamo_backend}")
+        return torch.compile(model, mode="max-autotune")
 
     def _load_pipeline(self):
+        tokenizer = AutoTokenizer.from_pretrained(
+            self.params.model.name,
+            revision=self.params.model.revision,
+            subfolder="tokenizer",
+        )
+        assert tokenizer.add_tokens(self.params.token) == 1
+
+        text_encoder = (
+            CLIPTextModel.from_pretrained(
+                self.params.model.name,
+                revision=self.params.model.revision,
+                subfolder="text_encoder",
+            )
+            .requires_grad_(False)
+            .eval()
+        )
+        text_encoder.resize_token_embeddings(len(tokenizer))
+
+        token_id = tokenizer.convert_tokens_to_ids(self.params.token)
+        embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
         token_embedding = torch.load(
-            self.output_dir / "token_embedding.pt", map_location=self.accelerator.device
+            self.model_dir / "token_embedding.pt", map_location=self.accelerator.device
         )
-        tokenizer, text_encoder = self._init_text(
-            token_embedding[self.params.token], compile=True
-        )
+
+        embeds[token_id] = token_embedding[self.params.token]
 
         pipeline = self._pipeline(
             tokenizer=tokenizer,
