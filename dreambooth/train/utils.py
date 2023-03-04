@@ -555,7 +555,9 @@ class Trainer:
             )
 
             # Get the text embedding for conditioning
-            encoder_hidden_states = models["text_encoder"](batch["input_ids"].long())[0]
+            encoder_hidden_states = models["text_encoder"](
+                batch["input_ids"].to(self.accelerator.device, dtype=torch.long)
+            )[0]
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 
@@ -774,6 +776,11 @@ class Trainer:
             {"lr": self.params.learning_rate, "params": unet.parameters()},
         ]
 
+        steps_per_epoch = math.ceil(
+            len(loader) / self.params.gradient_accumulation_steps
+        )
+        max_train_steps = self.params.train_epochs * steps_per_epoch
+
         (loader, unet, text_encoder) = self.accelerator.prepare(
             loader, unet, text_encoder
         )
@@ -788,11 +795,6 @@ class Trainer:
         )
 
         self._print("Preparing for training...")
-
-        steps_per_epoch = math.ceil(
-            len(loader) / self.params.gradient_accumulation_steps
-        )
-        max_train_steps = self.params.train_epochs * steps_per_epoch
 
         optimizer = self.accelerator.prepare(optimizer)
 

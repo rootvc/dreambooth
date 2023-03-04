@@ -140,37 +140,14 @@ class Evaluator:
         )
 
         print("Compiling models...")
-        pipeline = self._compile(pipeline)
-
-        pipeline = self._pipeline(
-            tokenizer=tokenizer,
-            text_encoder=text_encoder,
-        )
-        config = json.loads((self.output_dir / "lora_config.json").read_text())
-        state = torch.load(
-            self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
-        )
-
-        unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
-
-        pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet).to(
-            self.accelerator.device
-        )
-        set_peft_model_state_dict(pipeline.unet, unet_state)
-
-        pipeline.text_encoder = LoraModel(
-            LoraConfig(**config["text_peft"]), pipeline.text_encoder
-        ).to(self.accelerator.device)
-        set_peft_model_state_dict(
-            pipeline.text_encoder,
-            {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
-        )
-
-        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
-            pipeline.scheduler.config
-        )
-        return self._validation(pipeline)
+        return self._compile(pipeline)
 
     @torch.inference_mode()
     def gen(self):
-        pass
+        pipeline = self._load_pipeline()
+        prompts = []
+        images = pipeline(
+            prompts,
+            negative_prompt=self.params.negative_prompt,
+            num_inference_steps=self.params.validation_steps,
+        ).images
