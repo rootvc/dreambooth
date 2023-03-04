@@ -920,7 +920,7 @@ def get_params() -> HyperParams:
             params.dynamo_backend = None
         case float(n) if n < 24:
             params.batch_size = 1
-            params.gradient_accumulation_steps = 2
+            params.gradient_accumulation_steps = 1
             params.dynamo_backend = "inductor"
         case float(n) if n < 32:
             params.batch_size = 4
