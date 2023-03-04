@@ -92,7 +92,7 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
     ti_train_epochs: int = 20
-    train_epochs: int = 41
+    train_epochs: int = 42
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
@@ -109,8 +109,8 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 470
-    validate_every_epochs: int = 1
+    validate_after_steps: int = 500
+    validate_every_epochs: Optional[int] = 1
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 20

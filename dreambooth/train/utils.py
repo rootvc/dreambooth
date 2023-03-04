@@ -888,7 +888,8 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if (
-                self._total_steps >= self.params.validate_after_steps
+                self.params.validate_every_epochs is not None
+                and self._total_steps >= self.params.validate_after_steps
                 and epoch % self.params.validate_every_epochs == 0
             ):
                 self.accelerator.wait_for_everyone()
