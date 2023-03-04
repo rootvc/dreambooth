@@ -104,7 +104,7 @@ class HyperParams(BaseModel):
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 8
+    lora_text_rank: int = 4
     lora_text_alpha: int = 32
     lora_text_dropout: float = 0.1
 
