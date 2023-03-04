@@ -2,6 +2,13 @@ from pathlib import Path
 from typing import TypeVar
 
 import torch
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+    DiffusionPipeline,
+    DPMSolverMultistepScheduler,
+    UNet2DConditionModel,
+)
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
@@ -23,10 +30,10 @@ class Evaluator:
         self,
         model: T,
     ) -> T:
-        print(f"Compiling {model.__class__.__name__} with {self.params.dynamo_backend}")
+        print(f"Compiling {model.__class__.__name__}")
         return torch.compile(model, mode="max-autotune")
 
-    def _load_pipeline(self):
+    def _init_text(self):
         tokenizer = AutoTokenizer.from_pretrained(
             self.params.model.name,
             revision=self.params.model.revision,
@@ -39,7 +46,9 @@ class Evaluator:
                 self.params.model.name,
                 revision=self.params.model.revision,
                 subfolder="text_encoder",
+                dtype=self.params.dtype,
             )
+            .to(self.accelerator.device)
             .requires_grad_(False)
             .eval()
         )
@@ -52,6 +61,46 @@ class Evaluator:
         )
 
         embeds[token_id] = token_embedding[self.params.token]
+
+        return tokenizer, self._compile(text_encoder)
+
+    def _unet(self):
+        unet = (
+            UNet2DConditionModel.from_pretrained(
+                self.params.model.name,
+                revision=self.params.model.revision,
+                subfolder="unet",
+                dtype=self.params.dtype,
+            )
+            .to(self.accelerator.device)
+            .requires_grad_(False)
+            .eval()
+        )
+        return self._compile(unet)
+
+    def _vae(self):
+        vae = (
+            AutoencoderKL.from_pretrained(self.params.model.vae)
+            .to(self.accelerator.device)
+            .requires_grad_(False)
+            .eval()
+        )
+        return self._compile(vae)
+
+    def _load_pipeline(self):
+        tokenizer, text_encoder = self._init_text()
+
+        pipeline = DiffusionPipeline.from_pretrained(
+            self.params.model.name,
+            revision=self.params.model.revision,
+            safety_checker=None,
+            low_cpu_mem_usage=True,
+            local_files_only=True,
+            unet=self._unet(),
+            text_encoder=text_encoder,
+            vae=self._vae(),
+            tokenizer=tokenizer,
+        )
 
         pipeline = self._pipeline(
             tokenizer=tokenizer,
