@@ -51,13 +51,16 @@ class TrainJob:
 
     DEFAULT_MULTI_INSTANCES = [
         IntanceConfig(instance="ml.g5.48xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.p3dn.24xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.p4d.24xlarge", dtype="bf16"),
+    ]
+
+    DEFAULT_BUDGET_MULTI_INSTANCES = [
         IntanceConfig(instance="ml.g5.12xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
         IntanceConfig(instance="ml.p3.8xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.p3.16xlarge", dtype="fp16"),
         IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.p3dn.24xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.p4d.24xlarge", dtype="bf16"),
     ]
 
     DEFAULT_MODERN_SINGLE_INSTANCES = [
@@ -91,8 +94,13 @@ class TrainJob:
         instances = [
             self.DEFAULT_BUDGET_INSTANCES,
             self.DEFAULT_MODERN_SINGLE_INSTANCES,
+            self.DEFAULT_BUDGET_MULTI_INSTANCES,
             self.DEFAULT_MULTI_INSTANCES,
         ]
+        if self.instance_optimizer != InstanceOptimizer.COST:
+            instances.remove(self.DEFAULT_BUDGET_INSTANCES)
+            instances.remove(self.DEFAULT_BUDGET_MULTI_INSTANCES)
+
         match self.instance_optimizer:
             case InstanceOptimizer.COST:
                 return map(
@@ -102,10 +110,10 @@ class TrainJob:
             case InstanceOptimizer.TIME:
                 return map(
                     partial(sorted, reverse=True, key=attrgetter("instance")),
-                    reversed(instances[1:]),
+                    reversed(instances),
                 )
             case InstanceOptimizer.BALANCE:
-                return sum(reversed(instances[1:]), [])
+                return sum(reversed(instances), [])
 
     @property
     def model_params(self) -> dict:

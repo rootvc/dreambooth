@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Any, Callable, Generator, Optional
+from typing import Generator, Optional
 
 import colossalai
 import torch
@@ -7,9 +7,7 @@ import torch.distributed
 from accelerate import Accelerator as HFAccelerator
 from colossalai.context.parallel_mode import ParallelMode
 from colossalai.core import global_context as gpc
-from colossalai.logging import disable_existing_loggers, get_dist_logger
 from colossalai.nn.optimizer import HybridAdam
-from colossalai.nn.optimizer.gemini_optimizer import GeminiAdamOptimizer
 from colossalai.nn.optimizer.zero_optimizer import ZeroOptimizer
 from colossalai.nn.parallel import GeminiDDP
 from colossalai.nn.parallel.utils import get_static_torch_model
