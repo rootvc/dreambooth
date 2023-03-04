@@ -348,6 +348,7 @@ class Trainer:
         try:
             from diffusers.models.cross_attention import AttnProcessor2_0
 
+            raise NotImplementedError("AttnProcessor2_0 is not implemented yet")
             unet.set_attn_processor(AttnProcessor2_0())
         except Exception as e:
             self._print("Cannot set attn processor")
