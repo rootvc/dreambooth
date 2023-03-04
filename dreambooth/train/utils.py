@@ -41,6 +41,7 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
+from dreambooth.train.shared import partition
 
 T = TypeVar("T")
 
@@ -220,13 +221,6 @@ def to_dtype(new_dtype: torch.dtype):
             model.to(dtype=dtype)
 
     return f
-
-
-def partition(
-    d: dict[str, T], pred: Callable[[tuple[str, T]], bool]
-) -> tuple[dict[str, T], dict[str, T]]:
-    t1, t2 = itertools.tee(d.items())
-    return tuple(map(dict, [itertools.filterfalse(pred, t1), filter(pred, t2)]))
 
 
 class Trainer:
@@ -744,34 +738,6 @@ class Trainer:
         unet = self._compile(unet)
         text_encoder = self._compile(text_encoder)
 
-        ti_params = [
-            p.requires_grad_(True)
-            for p in text_encoder.get_input_embeddings().parameters()
-        ]
-
-        params = [
-            {
-                "lr": self.params.ti_learning_rate,
-                "params": ti_params,
-            },
-            {
-                "lr": self.params.text_learning_rate,
-                "params": list(set(text_encoder.parameters()) - set(ti_params)),
-            },
-            {"lr": self.params.learning_rate, "params": unet.parameters()},
-        ]
-
-        (unet, text_encoder) = self.accelerator.prepare(unet, text_encoder)
-
-        self._print("Initializing Optimizer...")
-
-        optimizer = self.accelerator.optimizer(
-            params,
-            betas=self.params.betas,
-            weight_decay=self.params.weight_decay,
-            eps=self.params.epsilon,
-        )
-
         self._print("Loading dataset...")
 
         dataset = DreamBoothDataset(
@@ -790,14 +756,46 @@ class Trainer:
             num_workers=self.params.loading_workers,
         )
 
+        self._print("Preparing params...")
+
+        ti_params = [
+            p.requires_grad_(True)
+            for p in text_encoder.get_input_embeddings().parameters()
+        ]
+
+        params = [
+            {
+                "lr": self.params.ti_learning_rate,
+                "params": ti_params,
+            },
+            {
+                "lr": self.params.text_learning_rate,
+                "params": list(set(text_encoder.parameters()) - set(ti_params)),
+            },
+            {"lr": self.params.learning_rate, "params": unet.parameters()},
+        ]
+
+        (loader, unet, text_encoder) = self.accelerator.prepare(
+            loader, unet, text_encoder
+        )
+
+        self._print("Initializing Optimizer...")
+
+        optimizer = self.accelerator.optimizer(
+            params,
+            betas=self.params.betas,
+            weight_decay=self.params.weight_decay,
+            eps=self.params.epsilon,
+        )
+
+        self._print("Preparing for training...")
+
         steps_per_epoch = math.ceil(
             len(loader) / self.params.gradient_accumulation_steps
         )
         max_train_steps = self.params.train_epochs * steps_per_epoch
 
-        self._print("Preparing for training...")
-
-        (optimizer, loader) = self.accelerator.prepare(optimizer, loader)
+        optimizer = self.accelerator.prepare(optimizer)
 
         steps_per_epoch = math.ceil(
             len(loader) / self.params.gradient_accumulation_steps
