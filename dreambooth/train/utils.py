@@ -287,8 +287,8 @@ class Trainer:
             safety_checker=None,
             low_cpu_mem_usage=True,
             local_files_only=True,
-            unet=self._unet().eval(),
-            text_encoder=self._text_encoder().eval(),
+            unet=self._unet(compile=True).eval(),
+            text_encoder=self._text_encoder(compile=True).eval(),
             vae=vae or self._vae().eval(),
             tokenizer=tokenizer or self._tokenizer(),
             **kwargs,
@@ -299,13 +299,14 @@ class Trainer:
             pipe.text_encoder = text_encoder.eval()
         return pipe.to(self.accelerator.device)
 
-    def _text_encoder(self) -> CLIPTextModel:
+    def _text_encoder(self, compile: bool = False) -> CLIPTextModel:
         return self._compile(
             self._spawn(
                 CLIPTextModel,
                 subfolder="text_encoder",
                 tap=lambda x: x.requires_grad_(False),
-            ).to(self.accelerator.device)
+            ).to(self.accelerator.device),
+            do=compile,
         )
 
     def _noise_scheduler(self):
@@ -325,7 +326,7 @@ class Trainer:
             )
 
         vae.requires_grad_(False)
-        # vae.enable_slicing()
+        vae.enable_slicing()
         return self._compile(vae.to(self.accelerator.device))
 
     def _tokenizer(self) -> CLIPTokenizer:
@@ -335,14 +336,14 @@ class Trainer:
             use_fast=False,
         )
 
-    def _unet(self):
+    def _unet(self, compile: bool = False) -> UNet2DConditionModel:
         unet = self._spawn(
             UNet2DConditionModel,
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
         ).to(self.accelerator.device)
 
-        # unet.set_attention_slice("auto")
+        unet.set_attention_slice("auto")
 
         try:
             from diffusers.models.cross_attention import AttnProcessor2_0
@@ -358,15 +359,15 @@ class Trainer:
                 self._print("Cannot enable xformers memory efficient attention")
                 self._print(e)
 
-        return self._compile(unet)
+        return self._compile(unet, do=compile)
 
     @torch.inference_mode()
     def generate_priors(self, progress_bar: bool = False) -> Class:
         self._print("Generating priors...")
 
         pipeline = self._pipeline(
-            unet=self._unet(),
-            text_encoder=self._text_encoder(),
+            unet=self._unet(compile=True),
+            text_encoder=self._text_encoder(compile=True),
             torch_dtype=self.params.dtype,
         )
         pipeline.set_progress_bar_config(disable=not progress_bar)
@@ -477,7 +478,9 @@ class Trainer:
         token_embedding = torch.load(
             self.output_dir / "token_embedding.pt", map_location=self.accelerator.device
         )
-        tokenizer, text_encoder = self._init_text(token_embedding[self.params.token])
+        tokenizer, text_encoder = self._init_text(
+            token_embedding[self.params.token], compile=True
+        )
 
         pipeline = self._pipeline(
             tokenizer=tokenizer,
@@ -671,18 +674,21 @@ class Trainer:
         self.accelerator.save(state, self.output_dir / "lora_weights.pt")
         (self.output_dir / "lora_config.json").write_text(json.dumps(config))
 
-    def _compile(self, model: torch.nn.Module) -> torch.nn.Module:
-        if self.params.dynamo_backend:
+    def _compile(self, model: T, do: bool = True) -> T:
+        if do and self.params.dynamo_backend:
+            self._print(
+                f"Compiling {model.__class__.__name__} with {self.params.dynamo_backend}"
+            )
             return torch._dynamo.optimize(backend=self.params.dynamo_backend)(model)
         else:
             return model
 
-    def _init_text(self, init: Optional[torch.Tensor] = None):
+    def _init_text(self, init: Optional[torch.Tensor] = None, compile: bool = False):
         tokenizer = self._tokenizer()
         if not tokenizer.add_tokens(self.params.token):
             raise ValueError(f"Token {self.params.token} already in tokenizer")
 
-        text_encoder = self._text_encoder()
+        text_encoder = self._text_encoder(compile=compile)
         text_encoder.resize_token_embeddings(len(tokenizer))
 
         embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
@@ -718,6 +724,12 @@ class Trainer:
         )
         text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder)
 
+        self._print("Compiling models...")
+        unet = self._compile(unet)
+        text_encoder = self._compile(text_encoder)
+
+        self._print("Initializing Optimizer...")
+
         try:
             if self.accelerator.state.deepspeed_plugin:
                 raise RuntimeError("DeepSpeed is not compatible with bitsandbytes.")
@@ -729,8 +741,6 @@ class Trainer:
             optimizer_class = torch.optim.AdamW
         else:
             optimizer_class = bnb.optim.AdamW8bit
-
-        self._print("Initializing Optimizer...")
 
         ti_params = [
             p.requires_grad_(True)
