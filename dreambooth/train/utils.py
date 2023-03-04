@@ -740,6 +740,8 @@ class Trainer:
         unet = self._compile(unet)
         text_encoder = self._compile(text_encoder)
 
+        (unet, text_encoder) = self.accelerator.prepare(unet, text_encoder)
+
         self._print("Initializing Optimizer...")
 
         ti_params = [
@@ -791,9 +793,7 @@ class Trainer:
 
         self._print("Preparing for training...")
 
-        (unet, text_encoder, optimizer, loader) = self.accelerator.prepare(
-            unet, text_encoder, optimizer, loader
-        )
+        (optimizer, loader) = self.accelerator.prepare(optimizer, loader)
 
         steps_per_epoch = math.ceil(
             len(loader) / self.params.gradient_accumulation_steps
