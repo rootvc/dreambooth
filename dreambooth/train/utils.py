@@ -325,7 +325,7 @@ class Trainer:
             )
 
         vae.requires_grad_(False)
-        vae.enable_slicing()
+        # vae.enable_slicing()
         return self._compile(vae.to(self.accelerator.device))
 
     def _tokenizer(self) -> CLIPTokenizer:
