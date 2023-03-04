@@ -23,6 +23,7 @@ Ts = TypeVarTuple("Ts")
 
 class BaseAccelerator(ABC):
     trackers: Iterable[GeneralTracker]
+    state: dict
 
     def __init__(self, params: HyperParams) -> None:
         super().__init__()

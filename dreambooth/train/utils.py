@@ -18,7 +18,6 @@ import torch.backends.cudnn
 import torch.jit
 import torch.nn.functional as F
 import wandb
-from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.tracking import WandBTracker
 from diffusers import (
@@ -42,6 +41,7 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators.base import BaseAccelerator
+from dreambooth.train.accelerators.colossal import ColossalAccelerator
 from dreambooth.train.accelerators.hf import HFAccelerator
 
 T = TypeVar("T")
@@ -245,7 +245,7 @@ class Trainer:
         self.output_dir = Path(tempfile.mkdtemp())
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
-        self.accelerator = HFAccelerator(
+        self.accelerator = ColossalAccelerator(
             params=self.params,
             mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
             log_with=["wandb"],

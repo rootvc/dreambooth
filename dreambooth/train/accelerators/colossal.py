@@ -28,6 +28,7 @@ class ColossalAccelerator(BaseAccelerator):
         self._accelerator = HFAccelerator(**kwargs)
         self._models = []
         self._optimizer = None
+        self.state = {}
 
     @property
     def local_rank(self) -> int:
