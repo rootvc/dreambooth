@@ -92,7 +92,7 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
     ti_train_epochs: int = 20
-    train_epochs: int = 48
+    train_epochs: int = 40
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
@@ -109,12 +109,23 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 490
+    validate_after_steps: int = 480
     validate_every_epochs: Optional[int] = 1
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 20
     negative_prompt: str = "poorly drawn hands, poorly drawn face, mutation, deformed, distorted, crossed eyes, blurry, bad anatomy, bad proportions, extra limbs, cloned face"
+
+    # Eval
+    eval_template: str = f"a photo of a {source_token}, {{prompt}}, perfect face, highly detailed portrait, sharp"
+    eval_prompts: list[str] = [
+        "cartoon anime character, shonen jump",
+        "gorgeous, ((stunning)), tight silver jacket, samadhi loving serene, ((35mm head and shoulders portrait, looking into camera)), intricate, 8k, highly detailed, volumetric lighting, digital painting, intense gaze, sharp focus, ((Alena Aenami)), I merged so completely with Love, and was so fused, that I became Love and Love became me",
+        "impressionist painting, Daniel F Gerhartz, nature",
+        "pencil sketch, 4 k, 8 k, absolute detail, black and white drawing",
+        "colorful cinematic still with glasses, armor, cyberpunk, with a xenonorph, in alien movie (1986),background made of brain cells, organic, ultrarealistic, leic 30mm",
+        "Retro comic style artwork, highly detailed James Bond, comic book cover, symmetrical, vibrant, colorful",
+    ]
 
     class Config:
         arbitrary_types_allowed = True

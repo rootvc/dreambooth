@@ -630,6 +630,15 @@ class Trainer:
                 step=self._total_steps,
             )
 
+            if self.exceeded_max_steps():
+                break
+
+    def exceeded_max_steps(self):
+        return (
+            self.params.validate_every_epochs is None
+            and self._total_steps > self.params.validate_after_steps
+        )
+
     @_main_process_only
     def _init_trackers(self):
         self.accelerator.init_trackers(
@@ -890,6 +899,8 @@ class Trainer:
                     torch.cuda.empty_cache()
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
+            if self.exceeded_max_steps():
+                break
             if (
                 self.params.validate_every_epochs is not None
                 and self._total_steps >= self.params.validate_after_steps
