@@ -40,9 +40,7 @@ from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import Class, HyperParams, Model
-from dreambooth.train.accelerators.base import BaseAccelerator
-from dreambooth.train.accelerators.colossal import ColossalAccelerator
-from dreambooth.train.accelerators.hf import HFAccelerator
+from dreambooth.train.accelerators import BaseAccelerator
 
 T = TypeVar("T")
 
@@ -245,7 +243,15 @@ class Trainer:
         self.output_dir = Path(tempfile.mkdtemp())
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
-        self.accelerator = ColossalAccelerator(
+        try:
+            from dreambooth.train.accelerators.colossal import (
+                ColossalAccelerator as Accelerator,
+            )
+        except Exception:
+            print("ColossalAI not installed, using default Accelerator")
+            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
+
+        self.accelerator = Accelerator(
             params=self.params,
             mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
             log_with=["wandb"],

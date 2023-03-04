@@ -114,7 +114,7 @@ class HyperParams(BaseModel):
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
     validation_steps: int = 20
-    negative_prompt: str = "poorly drawn hands, poorly drawn face, mutation, deformed, distorted, blurry, bad anatomy, bad proportions, extra limbs, cloned face"
+    negative_prompt: str = "poorly drawn hands, poorly drawn face, mutation, deformed, distorted, crossed eyes, blurry, bad anatomy, bad proportions, extra limbs, cloned face"
 
     class Config:
         arbitrary_types_allowed = True
