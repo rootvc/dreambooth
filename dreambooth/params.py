@@ -92,7 +92,7 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
     ti_train_epochs: int = 20
-    train_epochs: int = 43
+    train_epochs: int = 44
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
     prior_loss_weight: float = 1.0
@@ -104,7 +104,7 @@ class HyperParams(BaseModel):
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 4
+    lora_text_rank: int = 8
     lora_text_alpha: int = 32
     lora_text_dropout: float = 0.1
 
