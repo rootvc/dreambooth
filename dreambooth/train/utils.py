@@ -25,6 +25,7 @@ from diffusers import (
     DDPMScheduler,
     DiffusionPipeline,
     DPMSolverMultistepScheduler,
+    StableDiffusionPipeline,
     UNet2DConditionModel,
 )
 from peft import (
@@ -424,27 +425,25 @@ class Trainer:
             )
 
     @torch.no_grad()
-    def _validation(self, pipeline: DiffusionPipeline) -> list:
+    def _validation(self, pipeline: StableDiffusionPipeline) -> list:
         prompt = (
             self.instance_class.deterministic_prompt
             + ", "
             + self.params.validation_prompt_suffix
         )
         generator = torch.Generator(device=self.accelerator.device)
-        prompts = [prompt] * self.params.validation_samples + [
-            self.instance_class.deterministic_prompt
-        ]
-        images = [
-            pipeline(
-                prompt,
-                negative_prompt=self.params.negative_prompt,
-                num_inference_steps=self.params.validation_steps,
-                generator=generator,
-            ).images[0]
-            for prompt in prompts
-        ]
 
-        self._log_images(prompts, images, title="validation")
+        images = pipeline(
+            prompt,
+            negative_prompt=self.params.negative_prompt,
+            num_inference_steps=self.params.validation_steps,
+            num_images_per_prompt=self.params.validation_samples,
+            generator=generator,
+        ).images
+
+        self._log_images(
+            [prompt] * self.params.validation_samples, images, title="validation"
+        )
         return images
 
     @_main_process_only
@@ -556,7 +555,7 @@ class Trainer:
             )
 
             # Get the text embedding for conditioning
-            encoder_hidden_states = models["text_encoder"](batch["input_ids"])[0]
+            encoder_hidden_states = models["text_encoder"](batch["input_ids"].long())[0]
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
 

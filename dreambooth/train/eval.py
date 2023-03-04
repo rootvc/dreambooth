@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import TypeVar
 
@@ -10,6 +11,12 @@ from diffusers import (
     UNet2DConditionModel,
 )
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
+from peft import (
+    LoraConfig,
+    LoraModel,
+    get_peft_model_state_dict,
+    set_peft_model_state_dict,
+)
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import HyperParams
@@ -29,10 +36,14 @@ class Evaluator:
 
     def _compile(
         self,
-        model: T,
-    ) -> T:
-        print(f"Compiling {model.__class__.__name__}")
-        return torch.compile(model, mode="max-autotune")
+        pipeline: StableDiffusionPipeline,
+    ) -> StableDiffusionPipeline:
+        pipeline.unet = torch.compile(pipeline.unet, mode="max-autotune")
+        pipeline.vae = torch.compile(pipeline.vae, mode="max-autotune")
+        pipeline.text_encoder = torch.compile(
+            pipeline.text_encoder, mode="max-autotune"
+        )
+        return pipeline
 
     def _init_text(self):
         tokenizer = AutoTokenizer.from_pretrained(
@@ -63,7 +74,7 @@ class Evaluator:
 
         embeds[token_id] = token_embedding[self.params.token]
 
-        return tokenizer, self._compile(text_encoder)
+        return tokenizer, text_encoder
 
     def _unet(self):
         unet = (
@@ -77,7 +88,7 @@ class Evaluator:
             .requires_grad_(False)
             .eval()
         )
-        return self._compile(unet)
+        return unet
 
     def _vae(self):
         vae = (
@@ -86,12 +97,29 @@ class Evaluator:
             .requires_grad_(False)
             .eval()
         )
-        return self._compile(vae)
+        return vae
+
+    def _pipeline(self) -> StableDiffusionPipeline:
+        tokenizer, text_encoder = self._init_text()
+        return DiffusionPipeline.from_pretrained(
+            self.params.model.name,
+            revision=self.params.model.revision,
+            safety_checker=None,
+            low_cpu_mem_usage=True,
+            local_files_only=True,
+            unet=self._unet(),
+            text_encoder=text_encoder,
+            vae=self._vae(),
+            tokenizer=tokenizer,
+        )
 
     def _load_pipeline(self):
-        tokenizer, text_encoder = self._init_text()
-        unet = self._unet()
+        pipeline = self._pipeline()
 
+        config = json.loads((self.model_dir / "lora_config.json").read_text())
+        state = torch.load(
+            self.model_dir / "lora_weights.pt", map_location=self.accelerator.device
+        )
         unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
         pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet).to(
@@ -107,17 +135,12 @@ class Evaluator:
             {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
         )
 
-        pipeline = DiffusionPipeline.from_pretrained(
-            self.params.model.name,
-            revision=self.params.model.revision,
-            safety_checker=None,
-            low_cpu_mem_usage=True,
-            local_files_only=True,
-            unet=self._unet(),
-            text_encoder=text_encoder,
-            vae=self._vae(),
-            tokenizer=tokenizer,
+        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+            pipeline.scheduler.config
         )
+
+        print("Compiling models...")
+        pipeline = self._compile(pipeline)
 
         pipeline = self._pipeline(
             tokenizer=tokenizer,
