@@ -41,6 +41,8 @@ from torchvision import transforms
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import Class, HyperParams, Model
+from dreambooth.train.accelerators.base import BaseAccelerator
+from dreambooth.train.accelerators.hf import HFAccelerator
 
 T = TypeVar("T")
 
@@ -233,6 +235,8 @@ class Trainer:
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
 
+    accelerator: BaseAccelerator
+
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
         self.params = params
@@ -241,7 +245,8 @@ class Trainer:
         self.output_dir = Path(tempfile.mkdtemp())
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
-        self.accelerator = Accelerator(
+        self.accelerator = HFAccelerator(
+            params=self.params,
             mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
             log_with=["wandb"],
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
@@ -706,41 +711,30 @@ class Trainer:
         return (tokenizer, text_encoder)
 
     def train(self):
-        tokenizer, text_encoder = self._init_text()
+        with self.accelerator.init():
+            tokenizer, text_encoder = self._init_text()
 
-        lora_config = LoraConfig(
-            r=self.params.lora_rank,
-            lora_alpha=self.params.lora_alpha,
-            target_modules=self.UNET_TARGET_MODULES,
-            lora_dropout=self.params.lora_dropout,
-        )
-        unet: UNet2DConditionModel = LoraModel(lora_config, self._unet())
+            lora_config = LoraConfig(
+                r=self.params.lora_rank,
+                lora_alpha=self.params.lora_alpha,
+                target_modules=self.UNET_TARGET_MODULES,
+                lora_dropout=self.params.lora_dropout,
+            )
+            unet: UNet2DConditionModel = LoraModel(lora_config, self._unet())
 
-        lora_text_config = LoraConfig(
-            r=self.params.lora_text_rank,
-            lora_alpha=self.params.lora_text_alpha,
-            target_modules=self.TEXT_ENCODER_TARGET_MODULES,
-            lora_dropout=self.params.lora_text_dropout,
-        )
-        text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder)
+            lora_text_config = LoraConfig(
+                r=self.params.lora_text_rank,
+                lora_alpha=self.params.lora_text_alpha,
+                target_modules=self.TEXT_ENCODER_TARGET_MODULES,
+                lora_dropout=self.params.lora_text_dropout,
+            )
+            text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder)
 
         self._print("Compiling models...")
         unet = self._compile(unet)
         text_encoder = self._compile(text_encoder)
 
         self._print("Initializing Optimizer...")
-
-        try:
-            if self.accelerator.state.deepspeed_plugin:
-                raise RuntimeError("DeepSpeed is not compatible with bitsandbytes.")
-
-            import bitsandbytes as bnb
-        except Exception as e:
-            self._print(e)
-            self._print("Could not import bitsandbytes, using AdamW")
-            optimizer_class = torch.optim.AdamW
-        else:
-            optimizer_class = bnb.optim.AdamW8bit
 
         ti_params = [
             p.requires_grad_(True)
@@ -759,7 +753,7 @@ class Trainer:
             {"lr": self.params.learning_rate, "params": unet.parameters()},
         ]
 
-        optimizer = optimizer_class(
+        optimizer = self.accelerator.optimizer(
             params,
             betas=self.params.betas,
             weight_decay=self.params.weight_decay,
@@ -846,7 +840,7 @@ class Trainer:
         self._print(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
 
         if self.accelerator.is_main_process:
-            self.accelerator.init_trackers("dreambooth", config=self.params.dict())
+            self._init_trackers()
 
         self._log_images(
             self.instance_class.prompt,
