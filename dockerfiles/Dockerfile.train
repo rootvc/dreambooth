@@ -10,6 +10,9 @@ ADD requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre -r requirements.txt
 
+RUN --mount=type=cache,target=/root/.cache/pip \
+  CUDA_EXT=1 pip install --upgrade --pre colossalai-nightly
+
 FROM ubuntu:22.04 AS train
 
 ENV NVIDIA_VISIBLE_DEVICES all
