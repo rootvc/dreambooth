@@ -20,14 +20,9 @@ import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    StableDiffusionPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
+                       DPMSolverMultistepScheduler, StableDiffusionPipeline,
+                       UNet2DConditionModel)
 from peft import LoraConfig, LoraModel, get_peft_model_state_dict
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
@@ -227,12 +222,12 @@ class Trainer:
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
         try:
-            from dreambooth.train.accelerators.colossal import (
-                ColossalAccelerator as Accelerator,
-            )
+            from dreambooth.train.accelerators.colossal import \
+                ColossalAccelerator as Accelerator
         except Exception:
             print("ColossalAI not installed, using default Accelerator")
-            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
+            from dreambooth.train.accelerators.hf import \
+                HFAccelerator as Accelerator
 
         self.accelerator = Accelerator(
             params=self.params,
@@ -281,16 +276,12 @@ class Trainer:
             safety_checker=None,
             low_cpu_mem_usage=True,
             local_files_only=True,
-            unet=self._unet(compile=True).eval(),
-            text_encoder=self._text_encoder(compile=True).eval(),
-            vae=vae or self._vae().eval(),
             tokenizer=tokenizer or self._tokenizer(),
             **kwargs,
         )
-        if unet:
-            pipe.unet = unet.eval()
-        if text_encoder:
-            pipe.text_encoder = text_encoder.eval()
+        pipe.vae = vae or self._vae().eval()
+        pipe.unet = unet.eval() or self._unet(compile=True).eval()
+        pipe.text_encoder = text_encoder.eval() or self._text_encoder(compile=True).eval()
         return pipe.to(self.accelerator.device)
 
     def _text_encoder(self, compile: bool = False) -> CLIPTextModel:
