@@ -90,14 +90,14 @@ class HyperParams(BaseModel):
 
     # Training
     # TI: 10, TE: 45, S: 415
-    # TI: 15, TE: 45, S: XXX
+    # TI: 15, TE: 45, S: 350
     # TI: 20, TE: 45, S: XXX
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
-    ti_train_epochs: int = 15
+    ti_train_epochs: int = 20
     train_epochs: int = 45
     lr_scheduler: str = "linear"
-    lr_warmup_steps: int = 300
+    lr_warmup_steps: int = 100
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
 
@@ -112,7 +112,7 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 300
+    validate_after_steps: int = 200
     validate_every_epochs: Optional[int] = 1
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
