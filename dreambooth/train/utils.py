@@ -1,5 +1,5 @@
-import functools
 import hashlib
+import importlib
 import itertools
 import json
 import math
@@ -20,9 +20,15 @@ import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
-                       DPMSolverMultistepScheduler, StableDiffusionPipeline,
-                       UNet2DConditionModel)
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+    DiffusionPipeline,
+    DPMSolverMultistepScheduler,
+    StableDiffusionPipeline,
+    UNet2DConditionModel,
+    pipelines,
+)
 from peft import LoraConfig, LoraModel, get_peft_model_state_dict
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
@@ -208,6 +214,19 @@ def to_dtype(new_dtype: torch.dtype):
     return f
 
 
+@contextmanager
+def patch_allowed_pipeline_classes():
+    from torch._dynamo.eval_frame import OptimizedModule
+
+    pipelines.pipeline_utils.LOADABLE_CLASSES["transformers"]["OptimizedModule"] = [
+        "save_pretrained",
+        "from_pretrained",
+    ]
+    setattr(importlib.import_module("transformers"), "OptimizedModule", OptimizedModule)
+    yield
+    del pipelines.pipeline_utils.LOADABLE_CLASSES["transformers"]["OptimizedModule"]
+
+
 class Trainer:
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
@@ -222,12 +241,12 @@ class Trainer:
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
         try:
-            from dreambooth.train.accelerators.colossal import \
-                ColossalAccelerator as Accelerator
+            from dreambooth.train.accelerators.colossal import (
+                ColossalAccelerator as Accelerator,
+            )
         except Exception:
             print("ColossalAI not installed, using default Accelerator")
-            from dreambooth.train.accelerators.hf import \
-                HFAccelerator as Accelerator
+            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
 
         self.accelerator = Accelerator(
             params=self.params,
@@ -271,17 +290,21 @@ class Trainer:
         tokenizer: Optional[CLIPTokenizer] = None,
         **kwargs,
     ):
-        pipe = self._spawn(
-            DiffusionPipeline,
-            safety_checker=None,
-            low_cpu_mem_usage=True,
-            local_files_only=True,
-            tokenizer=tokenizer or self._tokenizer(),
-            **kwargs,
-        )
-        pipe.vae = vae or self._vae().eval()
-        pipe.unet = unet.eval() or self._unet(compile=True).eval()
-        pipe.text_encoder = text_encoder.eval() or self._text_encoder(compile=True).eval()
+        with patch_allowed_pipeline_classes():
+            pipe = self._spawn(
+                DiffusionPipeline,
+                safety_checker=None,
+                low_cpu_mem_usage=True,
+                local_files_only=True,
+                vae=vae or self._vae().eval(),
+                unet=unet.eval() or self._unet(compile=True).eval(),
+                text_encoder=(
+                    text_encoder.eval() or self._text_encoder(compile=True).eval()
+                ),
+                tokenizer=tokenizer or self._tokenizer(),
+                **kwargs,
+            )
+
         return pipe.to(self.accelerator.device)
 
     def _text_encoder(self, compile: bool = False) -> CLIPTextModel:
