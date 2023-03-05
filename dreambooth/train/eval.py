@@ -1,3 +1,4 @@
+import itertools
 import json
 import re
 from functools import partial
@@ -254,13 +255,16 @@ class Evaluator:
     def _gen_images(self) -> Iterable[tuple[str, Image]]:
         pipeline = self._load_pipeline()
         loader = DataLoader(
-            PromptDataset(self.params), batch_size=self.params.batch_size
+            PromptDataset(self.params),
+            batch_size=self.params.batch_size,
+            collate_fn=itertools.chain.from_iterable,
         )
         loader = self.accelerator.prepare(loader)
 
+        print(f"Generating images with {len(loader)} batches...")
         all_images = []
-        for prompts in loader:
-            self._print(prompts)
+        for i, prompts in enumerate(loader):
+            print(f"Batch {i * torch.cuda.device_count()}/{len(loader)}")
             images = pipeline(
                 prompts,
                 negative_prompt=self.params.negative_prompt,
