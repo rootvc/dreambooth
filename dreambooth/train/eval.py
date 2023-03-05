@@ -261,13 +261,13 @@ class Evaluator:
         )
         loader = self.accelerator.prepare(loader)
 
-        print(f"Generating images with {len(loader)} batches...")
+        self._print(f"Generating images with {len(loader)} batches...")
         all_images = []
         for i, prompts in enumerate(loader):
-            print(f"Batch {i * torch.cuda.device_count()}/{len(loader)}")
+            self._print(f"Batch {i * torch.cuda.device_count()}/{len(loader)}")
             images = pipeline(
                 prompts,
-                negative_prompt=self.params.negative_prompt,
+                negative_prompt=[self.params.negative_prompt] * len(prompts),
                 num_inference_steps=self.params.validation_steps,
             ).images
             all_images.extend(zip(prompts, images))

@@ -94,8 +94,8 @@ def main():
         model.accelerator.wait_for_everyone()
         model.train()
     except Exception:
-        model.accelerator.end_training()
         if env.is_main:
+            model.accelerator.end_training()
             raise
     finally:
         model.accelerator.wait_for_everyone()
