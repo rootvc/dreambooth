@@ -46,6 +46,8 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
 torch._dynamo.config.suppress_errors = True
 
+BROKEN_COMPILE_CLASSES = {"AutoencoderKL"}
+
 
 class PromptDataset(Dataset):
     def __init__(self, prompt: str, n: int):
@@ -638,6 +640,8 @@ class Trainer:
         wandb.save(str(self.params.model_output_path / "*"), policy="end")
 
     def _compile(self, model: T, do: bool = True) -> T:
+        if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
+            return model
         if do and self.params.dynamo_backend:
             self._print(f"Compiling {model.__class__.__name__}...")
             return torch.compile(
