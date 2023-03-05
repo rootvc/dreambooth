@@ -120,7 +120,7 @@ class HyperParams(BaseModel):
     eval_template: str = f"a photo of a {source_token}, {{prompt}}, perfect face, highly detailed portrait, sharp"
     eval_prompts: list[str] = [
         "cartoon anime character, shonen jump",
-        "gorgeous, ((stunning)), tight silver jacket, samadhi loving serene, ((35mm head and shoulders portrait, looking into camera)), intricate, 8k, highly detailed, volumetric lighting, digital painting, intense gaze, sharp focus, ((Alena Aenami))",
+        "gorgeous, ((stunning)), tight silver jacket, samadhi loving serene, ((35mm head and shoulders portrait, looking into camera)), intricate, 8k, volumetric lighting, digital painting, intense gaze, ((Alena Aenami))",
         "impressionist painting, Daniel F Gerhartz, nature",
         "pencil sketch, 4 k, 8 k, absolute detail, black and white drawing",
         "colorful cinematic still with glasses, armor, cyberpunk, with a xenonorph, in alien movie (1986),background made of brain cells, organic, ultrarealistic, leic 30mm",

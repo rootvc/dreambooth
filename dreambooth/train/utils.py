@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union
 
 import torch
 import torch._dynamo
+import torch._dynamo.config
 import torch.backends.cuda
 import torch.backends.cudnn
 import torch.jit
@@ -43,6 +44,7 @@ T = TypeVar("T")
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
+torch._dynamo.config.suppress_errors = True
 
 
 class PromptDataset(Dataset):
@@ -637,10 +639,10 @@ class Trainer:
 
     def _compile(self, model: T, do: bool = True) -> T:
         if do and self.params.dynamo_backend:
-            self._print(
-                f"Compiling {model.__class__.__name__} with {self.params.dynamo_backend}"
+            self._print(f"Compiling {model.__class__.__name__}...")
+            return torch.compile(
+                model, backend=self.params.dynamo_backend, mode="max-autotune"
             )
-            return torch._dynamo.optimize(backend=self.params.dynamo_backend)(model)
         else:
             return model
 
@@ -896,15 +898,12 @@ def get_params() -> HyperParams:
         case float(n) if n < 24:
             params.batch_size = 1
             params.gradient_accumulation_steps = 1
-            params.dynamo_backend = None  # "inductor" is broken with LoRA
         case float(n) if n < 32:
             params.batch_size = 4
             params.gradient_accumulation_steps = 1
-            params.dynamo_backend = "cudagraphs"
         case float(n):
             params.batch_size = 8 * torch.cuda.device_count()
             params.gradient_accumulation_steps = 1
-            params.dynamo_backend = "cudagraphs"
 
     match torch.cuda.device_count():
         case int(n) if n > 1:
