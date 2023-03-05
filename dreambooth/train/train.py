@@ -25,18 +25,18 @@ class Params(TypedDict):
 
 def _unpack_model(env: environment.Environment, name: str):
     model_data = Path(env.channel_input_dirs["model"])
-    model_dir = tempfile.mkdtemp()
+    model_dir = Path("models") / name
 
     if not env.is_main:
         return model_dir
 
-    model_file = model_data / Path(name).with_suffix(".tpxz")
+    os.makedirs(model_dir, exist_ok=True)
     with tempfile.NamedTemporaryFile() as f:
         subprocess.check_call(
             [
                 "pixz",
                 "-d",
-                model_file,
+                model_data / Path(name).with_suffix(".tpxz"),
                 f.name,
             ]
         )
@@ -86,6 +86,7 @@ def main():
     model = get_model(**params)
 
     try:
+        model.accelerator.wait_for_everyone()
         model.train()
     finally:
         model.accelerator.wait_for_everyone()
