@@ -86,7 +86,6 @@ def main():
     model = get_model(**params)
 
     try:
-        model.accelerator.wait_for_everyone()
         model.train()
     finally:
         model.accelerator.wait_for_everyone()

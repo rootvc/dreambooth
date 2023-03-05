@@ -12,7 +12,7 @@ from typing import (
 )
 
 import torch
-from accelerate.tracking import GeneralTracker
+from accelerate.tracking import GeneralTracker, WandBTracker
 from typing_extensions import TypeVarTuple, Unpack
 
 from dreambooth.params import HyperParams
@@ -28,6 +28,10 @@ class BaseAccelerator(ABC):
     def __init__(self, params: HyperParams) -> None:
         super().__init__()
         self._params = params
+
+    @property
+    def wandb_tracker(self) -> WandBTracker:
+        return next(t for t in self.trackers if isinstance(t, WandBTracker))
 
     @overload
     @abstractmethod

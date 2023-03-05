@@ -84,6 +84,7 @@ class TrainJob:
     ):
         self.id = id
         self.instance_optimizer = optimizer
+        self.check_output()
         self.check_priors()
         self.check_model(StableDiffusionPipeline, **self.model_params)
         if self.vae_params:
@@ -213,6 +214,11 @@ class TrainJob:
         path.touch(exist_ok=True)
         print(f"Cache path: {path.parent}")
 
+    def check_output(self):
+        bucket = CloudPath(self.BUCKET)
+        path = bucket / "output" / self.id / ".keep"
+        path.touch(exist_ok=True)
+
     async def _run(self, config: IntanceConfig):
         self.check_cache(config)
         repo = Repo().remotes.origin
@@ -260,6 +266,12 @@ class TrainJob:
                     file_system_type="FSxLustre",
                     directory_path="/i5ntrbev/models",
                     file_system_access_mode="ro",
+                ),
+                "output": FileSystemInput(
+                    file_system_id="fs-05309550451001f05",
+                    file_system_type="FSxLustre",
+                    directory_path="/i5ntrbev/output",
+                    file_system_access_mode="rw",
                 ),
                 "cache": FileSystemInput(
                     file_system_id="fs-05309550451001f05",

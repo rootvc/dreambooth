@@ -7,6 +7,7 @@ from typing import Iterable, TypeVar
 import cv2
 import numpy as np
 import torch
+import wandb
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils import img2tensor, tensor2img
 from basicsr.utils.realesrgan_utils import RealESRGANer
@@ -284,7 +285,12 @@ class Evaluator:
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
 
+        log = []
         for prompt, image in images:
             restored = restore(image)
             slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
-            cv2.imwrite(str(output_dir / f"{slug}.png"), restored)
+            path = str(output_dir / f"{slug}.png")
+            cv2.imwrite(path, restored)
+            log.append(wandb.Image(path, caption=prompt))
+
+        self.accelerator.wandb_tracker.log({"output": log})

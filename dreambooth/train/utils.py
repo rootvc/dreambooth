@@ -19,7 +19,6 @@ import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from accelerate.tracking import WandBTracker
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
@@ -412,17 +411,14 @@ class Trainer:
         if not isinstance(prompts, list):
             prompts = [prompts] * len(images)
 
-        for tracker in self.accelerator.trackers:
-            if not isinstance(tracker, WandBTracker):
-                continue
-            tracker.log(
-                {
-                    title: [
-                        wandb.Image(image, caption=f"{i}: {prompts[i]}")
-                        for i, image in enumerate(images)
-                    ]
-                }
-            )
+        self.accelerator.wandb_tracker.log(
+            {
+                title: [
+                    wandb.Image(image, caption=f"{i}: {prompts[i]}")
+                    for i, image in enumerate(images)
+                ]
+            }
+        )
 
     @torch.no_grad()
     def _validation(self, pipeline: StableDiffusionPipeline) -> list:
@@ -688,6 +684,8 @@ class Trainer:
 
         self.accelerator.save(state, self.output_dir / "lora_weights.pt")
         (self.output_dir / "lora_config.json").write_text(json.dumps(config))
+
+        wandb.save(str(self.output_dir / "*"))
 
     def _compile(self, model: T, do: bool = True) -> T:
         if do and self.params.dynamo_backend:
