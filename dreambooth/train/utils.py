@@ -27,7 +27,6 @@ from diffusers import (
     DPMSolverMultistepScheduler,
     StableDiffusionPipeline,
     UNet2DConditionModel,
-    pipelines,
 )
 from peft import LoraConfig, LoraModel, get_peft_model_state_dict
 from PIL import Image
@@ -39,7 +38,7 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
 from dreambooth.train.eval import Evaluator
-from dreambooth.train.shared import main_process_only
+from dreambooth.train.shared import main_process_only, patch_allowed_pipeline_classes
 
 T = TypeVar("T")
 
@@ -212,19 +211,6 @@ def to_dtype(new_dtype: torch.dtype):
             model.to(dtype=dtype)
 
     return f
-
-
-@contextmanager
-def patch_allowed_pipeline_classes():
-    from torch._dynamo.eval_frame import OptimizedModule
-
-    pipelines.pipeline_utils.LOADABLE_CLASSES["transformers"]["OptimizedModule"] = [
-        "save_pretrained",
-        "from_pretrained",
-    ]
-    setattr(importlib.import_module("transformers"), "OptimizedModule", OptimizedModule)
-    yield
-    del pipelines.pipeline_utils.LOADABLE_CLASSES["transformers"]["OptimizedModule"]
 
 
 class Trainer:

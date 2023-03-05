@@ -115,7 +115,9 @@ class Evaluator:
 
     def _vae(self):
         vae = (
-            AutoencoderKL.from_pretrained(self.params.model.vae)
+            AutoencoderKL.from_pretrained(
+                self.params.model.vae, torch_dtype=self.params.dtype
+            )
             .to(self.accelerator.device)
             .requires_grad_(False)
             .eval()
