@@ -1,6 +1,7 @@
 transformers>=4.26.1
 accelerate>=0.16.0
-pydantic>=1.10.4
 diffusers>=0.14.0
 wandb>=0.13.10
-dlib>=19.24.0
+pydantic
+dlib
+scipy
