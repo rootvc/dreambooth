@@ -128,6 +128,7 @@ class HyperParams(BaseModel):
     ]
 
     upscale_factor: int = 2
+    fidelity_weight: float = 0.5
     eval_model_path: Path = Path("CodeFormer")
 
     class Config:

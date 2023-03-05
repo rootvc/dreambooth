@@ -1,6 +1,8 @@
 import json
+import re
+from functools import partial
 from pathlib import Path
-from typing import TypeVar
+from typing import Iterable, TypeVar
 
 import cv2
 import numpy as np
@@ -28,6 +30,7 @@ from peft import (
     set_peft_model_state_dict,
 )
 from PIL.Image import Image
+from torchvision.transforms.functional import normalize
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import HyperParams
@@ -165,7 +168,7 @@ class Evaluator:
         ).to(self.accelerator.device)
         return RealESRGANer(
             scale=self.params.upscale_factor,
-            model_path=self.params.real_esrgan_path,
+            model_path="weights/realesrgan/RealESRGAN_x2plus.pth",
             model=self._compile(model.eval()),
             pre_pad=0,
             half=True,
@@ -180,23 +183,69 @@ class Evaluator:
             n_layers=9,
             connect_list=["32", "64", "128", "256"],
         ).to(self.accelerator.device)
-        model.load_state_dict(torch.load(self.params.codeformer_path)["params_ema"])
+        model.load_state_dict(
+            torch.load("weights/codeformer/codeformer.pth")["params_ema"]
+        )
         return self._compile(model.eval())
 
+    def _face_helper_singleton(self) -> FaceRestoreHelper:
+        if not hasattr(self, "__face_helper"):
+            self.__face_helper = FaceRestoreHelper(
+                self.params.upscale_factor,
+                face_size=self.params.model.resolution,
+                det_model="dlib",
+                use_parse=True,
+                device=self.accelerator.device,
+            )
+        return self.__face_helper
+
     def _face_helper(self) -> FaceRestoreHelper:
-        return FaceRestoreHelper(
-            self.params.upscale_factor,
-            face_size=self.params.model.resolution,
-            det_model="dlib",
-            use_parse=True,
-            device=self.accelerator.device,
+        helper = self._face_helper_singleton()
+        helper.clean_all()
+        return helper
+
+    def _convert_image(self, pil_image: Image) -> np.ndarray:
+        return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+    def _extract_face(
+        self, helper: FaceRestoreHelper, image: np.ndarray
+    ) -> torch.Tensor:
+        helper.read_image(image)
+        if helper.get_face_landmarks_5(only_keep_largest=True) != 1:
+            raise ValueError("No face detected")
+        helper.align_warp_face()
+        face = helper.cropped_faces[0]
+
+        face_t: torch.Tensor = img2tensor(face / 255.0, bgr2rgb=True, float32=True)
+        normalize(face_t, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], inplace=True)
+        return face_t.unsqueeze(0).to(self.accelerator.device)
+
+    def _restore_face(
+        self,
+        restorer: torch.nn.Module,
+        helper: FaceRestoreHelper,
+        cropped: torch.Tensor,
+    ):
+        output = restorer(cropped, w=self.params.fidelity_weight, adain=True)[0]
+        restored = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
+        helper.add_restored_face(restored, cropped)
+
+        del output
+        torch.cuda.empty_cache()
+
+    def _paste_face(
+        self,
+        upsampler: RealESRGANer,
+        helper: FaceRestoreHelper,
+        image: np.ndarray,
+    ):
+        background = upsampler.enhance(image, outscale=self.params.upscale_factor)[0]
+        helper.get_inverse_affine()
+        return helper.paste_faces_to_input_image(
+            upsample_img=background, face_upsampler=upsampler
         )
 
-    def _process_image(self, helper: FaceRestoreHelper, pil_image: Image):
-        image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-
-    @torch.inference_mode()
-    def gen(self):
+    def _gen_images(self) -> Iterable[tuple[str, Image]]:
         pipeline = self._load_pipeline()
         prompts = [
             self.params.eval_template.format(prompt=p) for p in self.params.eval_prompts
@@ -207,5 +256,28 @@ class Evaluator:
             num_inference_steps=self.params.validation_steps,
         ).images
 
-        upsampler = self._upsampler()
-        restorer = self._restorer()
+        return zip(prompts, images)
+
+    def _process_image(
+        self,
+        restorer: torch.nn.Module,
+        upsampler: RealESRGANer,
+        pil_image: Image,
+    ):
+        helper = self._face_helper()
+        image = self._convert_image(pil_image)
+        face = self._extract_face(helper, image)
+        self._restore_face(restorer, helper, face)
+        return self._paste_face(upsampler, helper, image)
+
+    @torch.inference_mode()
+    def generate(self, output_dir: Path):
+        images = self._gen_images()
+
+        upsampler, restorer = self._upsampler(), self._restorer()
+        restore = partial(self._process_image, restorer, upsampler)
+
+        for prompt, image in images:
+            restored = restore(image)
+            slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
+            cv2.imwrite(str(output_dir / f"{slug}.png"), restored)

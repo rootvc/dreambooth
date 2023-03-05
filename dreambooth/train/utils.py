@@ -861,7 +861,7 @@ class Trainer:
             self._init_trackers()
 
         self._log_images(
-            self.instance_class.prompt,
+            self.instance_class.deterministic_prompt,
             map(str, self.instance_class.data.iterdir()),
             title="data",
         )
