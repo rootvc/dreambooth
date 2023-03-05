@@ -72,6 +72,8 @@ def sagemaker_params(env: environment.Environment) -> Params:
 
 
 def standalone_params(env: environment.Environment):
+    # import boto
+    # download input data, and upload output at end (both to S3)
     params = get_params()
     example_data = Path(__file__).parent.parent / "data" / "example"
     return {"instance_path": example_data, "params": params}

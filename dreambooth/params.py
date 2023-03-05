@@ -91,11 +91,11 @@ class HyperParams(BaseModel):
     # Training
     # TI: 10, TE: 45, W: 300, S: 415
     # TI: 15, TE: 45, W: 300, S: 350
-    # TI: 15, TE: 35, W: 150, S: XXX
+    # TI: 15, TE: 35, W: 150, S: 360
     # TI: 20, TE: 45, W: 100, S: 440
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
-    ti_train_epochs: int = 15
+    ti_train_epochs: int = 12
     train_epochs: int = 35
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 150
