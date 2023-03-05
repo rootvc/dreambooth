@@ -277,7 +277,7 @@ class Evaluator:
         return self._paste_face(upsampler, helper, image)
 
     @torch.inference_mode()
-    def generate(self, output_dir: Path):
+    def generate(self):
         images = self._gen_images()
         self.accelerator.wait_for_everyone()
         torch.cuda.empty_cache()
@@ -289,7 +289,7 @@ class Evaluator:
         for prompt, image in images:
             restored = restore(image)
             slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
-            path = str(output_dir / f"{slug}.png")
+            path = str(self.params.output_path / f"{slug}.png")
             cv2.imwrite(path, restored)
             log.append(wandb.Image(path, caption=prompt))
 

@@ -270,7 +270,7 @@ class TrainJob:
                 "output": FileSystemInput(
                     file_system_id="fs-05309550451001f05",
                     file_system_type="FSxLustre",
-                    directory_path="/i5ntrbev/output",
+                    directory_path=f"/i5ntrbev/output/{self.id}",
                     file_system_access_mode="rw",
                 ),
                 "cache": FileSystemInput(
