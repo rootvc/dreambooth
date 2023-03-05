@@ -31,7 +31,7 @@ def patch_allowed_pipeline_classes():
     LIBS = ["diffusers", "transformers"]
 
     for lib in LIBS:
-        setattr(pipelines, lib, object())
+        setattr(pipelines, lib, importlib.import_module(lib))
 
     yield
 
