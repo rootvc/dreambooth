@@ -133,11 +133,13 @@ class Evaluator:
         )
         unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
-        unet = LoraModel(LoraConfig(**config["unet_peft"]), unet).to(device)
+        unet = LoraModel(LoraConfig(**config["unet_peft"]), unet).to(
+            device, dtype=self.params.dtype
+        )
         set_peft_model_state_dict(unet, unet_state)
 
         text_encoder = LoraModel(LoraConfig(**config["text_peft"]), text_encoder).to(
-            device
+            device, dtype=self.params.dtype
         )
         set_peft_model_state_dict(
             text_encoder,
@@ -155,6 +157,7 @@ class Evaluator:
                 text_encoder=self._compile(text_encoder),
                 vae=self._compile(vae),
                 tokenizer=tokenizer,
+                torch_dtype=self.params.dtype,
             )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
