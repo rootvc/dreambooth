@@ -62,7 +62,7 @@ def sagemaker_params(env: environment.Environment) -> Params:
         params.model.vae = _unpack_model(env, params.model.vae)
     params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
     params.image_output_path = output_data
-    params.model_output_path = env.model_dir
+    params.model_output_path = Path(env.model_dir)
 
     if env.is_main:
         shutil.copytree(cache_data, os.environ["CACHE_DIR"], dirs_exist_ok=True)

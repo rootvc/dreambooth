@@ -838,7 +838,10 @@ class Trainer:
             ),
         }
         for epoch in range(epochs):
-            self.logger.warning(f"Epoch {epoch + 1}/{epochs}", main_process_only=True)
+            self.logger.warning(
+                f"Epoch {epoch + 1}/{epochs} (Step {self._total_steps})",
+                main_process_only=True,
+            )
 
             if epoch < self.params.ti_train_epochs:
                 optimizer.param_groups[0]["lr"] = self.params.ti_learning_rate

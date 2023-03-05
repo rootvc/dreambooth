@@ -109,7 +109,7 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 380
+    validate_after_steps: int = 50  # 380
     validate_every_epochs: Optional[int] = None
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
