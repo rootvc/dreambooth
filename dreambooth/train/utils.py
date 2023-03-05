@@ -37,6 +37,7 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
 from dreambooth.train.eval import Evaluator
+from dreambooth.train.shared import main_process_only
 
 T = TypeVar("T")
 
@@ -193,16 +194,6 @@ def hash_image(image: Image.Image) -> str:
     return hash_bytes(image.tobytes())
 
 
-def _main_process_only(f):
-    @functools.wraps(f)
-    def wrapper(self: "Trainer", *args, **kwargs):
-        if not self.accelerator.is_main_process:
-            return
-        return f(self, *args, **kwargs)
-
-    return wrapper
-
-
 def to_dtype(new_dtype: torch.dtype):
     @contextmanager
     def f(*args: torch.nn.Module):
@@ -254,7 +245,7 @@ class Trainer:
 
         self._total_steps = 0
 
-    @_main_process_only
+    @main_process_only
     def _print(self, *args, **kwargs):
         print(*args, **kwargs)
 
@@ -394,7 +385,7 @@ class Trainer:
 
         return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
 
-    @_main_process_only
+    @main_process_only
     def _log_images(
         self,
         prompts: Union[str, list[str]],
@@ -436,7 +427,7 @@ class Trainer:
         )
         return images
 
-    @_main_process_only
+    @main_process_only
     @torch.no_grad()
     def _do_validation(
         self,
@@ -590,7 +581,7 @@ class Trainer:
             and self._total_steps > self.params.validate_after_steps
         )
 
-    @_main_process_only
+    @main_process_only
     def _init_trackers(self):
         self.accelerator.init_trackers(
             "dreambooth",
@@ -603,7 +594,7 @@ class Trainer:
             ).dict(),
         )
 
-    @_main_process_only
+    @main_process_only
     def _persist(
         self,
         unet: UNet2DConditionModel,

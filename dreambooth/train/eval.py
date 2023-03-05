@@ -1,7 +1,6 @@
 import json
 import re
 from functools import partial
-from pathlib import Path
 from typing import Iterable, TypeVar
 
 import cv2
@@ -28,7 +27,7 @@ from transformers import AutoTokenizer, CLIPTextModel
 
 from dreambooth.params import HyperParams
 from dreambooth.train.accelerators.base import BaseAccelerator
-from dreambooth.train.shared import partition
+from dreambooth.train.shared import main_process_only, partition
 
 T = TypeVar("T", bound=torch.nn.Module)
 
@@ -49,7 +48,12 @@ class Evaluator:
         self.params = params
         self.accelerator = accelerator
 
+    @main_process_only
+    def _print(self, *args, **kwargs):
+        print(*args, **kwargs)
+
     def _compile(self, model: T) -> T:
+        self._print(f"Compiling {model.__class__.__name__}")
         return torch.compile(model, mode="max-autotune")
 
     def _compile_pipeline(
@@ -160,7 +164,6 @@ class Evaluator:
             pipeline.scheduler.config
         )
 
-        print("Compiling models...")
         return self._compile_pipeline(pipeline)
 
     def _upsampler(self):
@@ -280,10 +283,12 @@ class Evaluator:
 
     @torch.inference_mode()
     def generate(self):
+        self._print("Generating images...")
         images = self._gen_images()
         self.accelerator.wait_for_everyone()
         torch.cuda.empty_cache()
 
+        self._print("Restoring faces...")
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
 

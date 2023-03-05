@@ -95,6 +95,7 @@ def main():
         model.train()
     except Exception:
         model.accelerator.end_training()
+        raise
     finally:
         model.accelerator.wait_for_everyone()
         if env.is_main and env.channel_input_dirs:
