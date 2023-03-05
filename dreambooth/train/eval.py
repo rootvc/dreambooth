@@ -41,7 +41,7 @@ class PromptDataset(Dataset):
         return len(self.params.eval_prompts)
 
     def __getitem__(self, i: int):
-        [self.params.eval_template.format(prompt=self.params.eval_prompts[i])]
+        return [self.params.eval_template.format(prompt=self.params.eval_prompts[i])]
 
 
 class Evaluator:
