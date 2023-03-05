@@ -89,10 +89,6 @@ class HyperParams(BaseModel):
     epsilon: float = 1e-8
 
     # Training
-    # TI: 10, TE: 45, W: 300, S: 415
-    # TI: 15, TE: 45, W: 300, S: 350
-    # TI: 15, TE: 35, W: 150, S: 360
-    # TI: 20, TE: 45, W: 100, S: 440
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
     ti_train_epochs: int = 12
@@ -113,12 +109,12 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 250
-    validate_every_epochs: Optional[int] = 1
+    validate_after_steps: int = 380
+    validate_every_epochs: Optional[int] = None
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
-    validation_steps: int = 20
-    negative_prompt: str = "poorly drawn hands, poorly drawn face, mutation, deformed, distorted, crossed eyes, blurry, bad anatomy, bad proportions, extra limbs, cloned face"
+    validation_steps: int = 50
+    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
 
     # Eval
     eval_template: str = f"a photo of a {source_token}, {{prompt}}, perfect face, highly detailed portrait, sharp"

@@ -74,7 +74,7 @@ class Evaluator:
                 self.params.model.name,
                 revision=self.params.model.revision,
                 subfolder="text_encoder",
-                dtype=self.params.dtype,
+                torch_dtype=self.params.dtype,
             )
             .to(self.accelerator.device)
             .requires_grad_(False)
@@ -99,7 +99,7 @@ class Evaluator:
                 self.params.model.name,
                 revision=self.params.model.revision,
                 subfolder="unet",
-                dtype=self.params.dtype,
+                torch_dtype=self.params.dtype,
             )
             .to(self.accelerator.device)
             .requires_grad_(False)
