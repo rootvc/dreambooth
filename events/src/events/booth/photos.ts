@@ -15,10 +15,10 @@ export default defineFunction(
   async ({
     tools: { run, send },
     event: {
-      data: { email, blob },
+      data: { phone, blob },
     },
   }) => {
-    const id = await run("calculate ID", () => hash({ email }));
+    const id = await run("calculate ID", () => hash({ phone }));
     const seq = await run(
       "increment sequence",
       async () => await redis.incr(`dataset/${id}`)
@@ -36,12 +36,12 @@ export default defineFunction(
       );
     });
 
-    if (seq === EXPECTED_COUNT) {
-      await run(
-        "delete sequence",
-        async () => await redis.del(`dataset/${id}`)
-      );
-      await send("dreambooth/train.start", { id, key });
+    if (seq !== EXPECTED_COUNT) {
+      return;
     }
+    await run("delete sequence", async () => await redis.del(`dataset/${id}`));
+    await run("store ts", async () => await redis.set(`ts/${id}`, Date.now()));
+    await send("dreambooth/train.start", { id });
+    await send("dreambooth/sms.notify", { phone, key: "STARTED" });
   }
 );
