@@ -257,7 +257,7 @@ class Evaluator:
         loader = DataLoader(
             PromptDataset(self.params),
             batch_size=self.params.batch_size,
-            collate_fn=itertools.chain.from_iterable,
+            collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
         )
         loader = self.accelerator.prepare(loader)
 
