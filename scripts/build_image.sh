@@ -41,6 +41,6 @@ docker build \
   -f dockerfiles/Dockerfile.sagemaker . \
   -t 630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest
 
-pull_build_push Dockerfile dreambooth
+# pull_build_push Dockerfile dreambooth
 
 docker system prune -f

@@ -1,6 +1,0 @@
-Collecting opencv-python-headless
-  Downloading opencv_python_headless-4.7.0.72-cp37-abi3-macosx_11_0_arm64.whl (32.6 MB)
-     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 32.6/32.6 MB 6.8 MB/s eta 0:00:00
-Requirement already satisfied: numpy>=1.21.2 in /Users/yasyf/.virtualenvs/dreambooth-serverless/lib/python3.10/site-packages (from opencv-python-headless) (1.24.2)
-Installing collected packages: opencv-python-headless
-Successfully installed opencv-python-headless-4.7.0.72
