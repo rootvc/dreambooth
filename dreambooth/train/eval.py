@@ -8,30 +8,21 @@ import cv2
 import numpy as np
 import torch
 from basicsr.archs.rrdbnet_arch import RRDBNet
-from basicsr.utils import img2tensor, imwrite, tensor2img
-from basicsr.utils.download_util import load_file_from_url
-from basicsr.utils.misc import get_device, gpu_is_available
+from basicsr.utils import img2tensor, tensor2img
 from basicsr.utils.realesrgan_utils import RealESRGANer
 from basicsr.utils.registry import ARCH_REGISTRY
 from diffusers import (
     AutoencoderKL,
-    DDPMScheduler,
     DiffusionPipeline,
     DPMSolverMultistepScheduler,
     UNet2DConditionModel,
 )
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
 from facelib.utils.face_restoration_helper import FaceRestoreHelper
-from facelib.utils.misc import is_gray
-from peft import (
-    LoraConfig,
-    LoraModel,
-    get_peft_model_state_dict,
-    set_peft_model_state_dict,
-)
+from peft import LoraConfig, LoraModel, set_peft_model_state_dict
 from PIL.Image import Image
 from torchvision.transforms.functional import normalize
-from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
+from transformers import AutoTokenizer, CLIPTextModel
 
 from dreambooth.params import HyperParams
 from dreambooth.train.accelerators.base import BaseAccelerator

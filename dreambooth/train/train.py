@@ -41,6 +41,12 @@ def _unpack_model(env: environment.Environment, name: str):
     return model_dir
 
 
+def _unpack_eval_models(env: environment.Environment):
+    params = get_params()
+    models = Path(env.channel_input_dirs["model"]) / params.eval_model_path
+    os.symlink(models, "./weights", target_is_directory=True)
+
+
 def sagemaker_params(env: environment.Environment) -> Params:
     train_data = Path(env.channel_input_dirs["train"])
     prior_data = Path(env.channel_input_dirs["prior"])
@@ -50,6 +56,8 @@ def sagemaker_params(env: environment.Environment) -> Params:
     if params.model.vae:
         params.model.vae = _unpack_model(env, params.model.vae)
     params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
+
+    _unpack_eval_models(env)
 
     return {"instance_path": train_data, "params": params}
 
