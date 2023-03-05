@@ -19,9 +19,14 @@ import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
-                       DPMSolverMultistepScheduler, StableDiffusionPipeline,
-                       UNet2DConditionModel)
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+    DiffusionPipeline,
+    DPMSolverMultistepScheduler,
+    StableDiffusionPipeline,
+    UNet2DConditionModel,
+)
 from peft import LoraConfig, LoraModel, get_peft_model_state_dict
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
@@ -227,12 +232,12 @@ class Trainer:
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
         try:
-            from dreambooth.train.accelerators.colossal import \
-                ColossalAccelerator as Accelerator
+            from dreambooth.train.accelerators.colossal import (
+                ColossalAccelerator as Accelerator,
+            )
         except Exception:
             print("ColossalAI not installed, using default Accelerator")
-            from dreambooth.train.accelerators.hf import \
-                HFAccelerator as Accelerator
+            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
 
         self.accelerator = Accelerator(
             params=self.params,
@@ -850,7 +855,9 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
+                self._do_validation(unet, models)
                 break
+
             if (
                 self.params.validate_every_epochs is not None
                 and self._total_steps >= self.params.validate_after_steps
