@@ -40,11 +40,7 @@ class PromptDataset(Dataset):
         return len(self.params.eval_prompts)
 
     def __getitem__(self, i: int):
-        return {
-            "prompt": self.params.eval_template.format(
-                prompt=self.params.eval_prompts[i]
-            )
-        }
+        [self.params.eval_template.format(prompt=self.params.eval_prompts[i])]
 
 
 class Evaluator:
@@ -237,9 +233,6 @@ class Evaluator:
         restored = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
         helper.add_restored_face(restored, cropped)
 
-        del output
-        torch.cuda.empty_cache()
-
     def _paste_face(
         self,
         upsampler: RealESRGANer,
@@ -254,16 +247,21 @@ class Evaluator:
 
     def _gen_images(self) -> Iterable[tuple[str, Image]]:
         pipeline = self._load_pipeline()
-        prompts = [
-            self.params.eval_template.format(prompt=p) for p in self.params.eval_prompts
-        ]
-        images = pipeline(
-            prompts,
-            negative_prompt=self.params.negative_prompt,
-            num_inference_steps=self.params.validation_steps,
-        ).images
+        loader = DataLoader(
+            PromptDataset(self.params), batch_size=self.params.batch_size
+        )
+        loader = self.accelerator.prepare(loader)
 
-        return zip(prompts, images)
+        all_images = []
+        for prompts in loader:
+            images = pipeline(
+                prompts,
+                negative_prompt=self.params.negative_prompt,
+                num_inference_steps=self.params.validation_steps,
+            ).images
+            all_images.extend(zip(prompts, images))
+
+        return all_images
 
     def _process_image(
         self,
@@ -280,6 +278,8 @@ class Evaluator:
     @torch.inference_mode()
     def generate(self, output_dir: Path):
         images = self._gen_images()
+        self.accelerator.wait_for_everyone()
+        torch.cuda.empty_cache()
 
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
