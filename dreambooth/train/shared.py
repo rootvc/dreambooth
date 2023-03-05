@@ -1,7 +1,7 @@
 import functools
 import importlib
 import itertools
-import warnings
+import logging
 from contextlib import contextmanager
 from typing import Callable, TypeVar
 
@@ -34,9 +34,11 @@ def patch_allowed_pipeline_classes():
     for lib in LIBS:
         setattr(pipelines, lib, importlib.import_module(lib))
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+    logging.disable()
+    try:
         yield
+    finally:
+        logging.disable(logging.NOTSET)
 
     for lib in LIBS:
         delattr(pipelines, lib)
