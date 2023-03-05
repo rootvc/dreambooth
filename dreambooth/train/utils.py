@@ -642,7 +642,7 @@ class Trainer:
             json.dumps(config)
         )
 
-        wandb.save(str(self.params.model_output_path / "*"))
+        wandb.save(str(self.params.model_output_path / "*"), policy="end")
 
     def _compile(self, model: T, do: bool = True) -> T:
         if do and self.params.dynamo_backend:

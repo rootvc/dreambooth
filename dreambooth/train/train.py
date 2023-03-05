@@ -93,6 +93,8 @@ def main():
     try:
         model.accelerator.wait_for_everyone()
         model.train()
+    except Exception:
+        model.accelerator.end_training()
     finally:
         model.accelerator.wait_for_everyone()
         if env.is_main and env.channel_input_dirs:

@@ -66,6 +66,7 @@ class Evaluator:
             self.params.model.name,
             revision=self.params.model.revision,
             subfolder="tokenizer",
+            use_fast=False,
         )
         assert tokenizer.add_tokens(self.params.token) == 1
 
