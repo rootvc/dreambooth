@@ -28,7 +28,11 @@ from transformers import AutoTokenizer, CLIPTextModel
 
 from dreambooth.params import HyperParams
 from dreambooth.train.accelerators.base import BaseAccelerator
-from dreambooth.train.shared import main_process_only, partition
+from dreambooth.train.shared import (
+    main_process_only,
+    partition,
+    patch_allowed_pipeline_classes,
+)
 
 T = TypeVar("T", bound=torch.nn.Module)
 
@@ -56,15 +60,6 @@ class Evaluator:
     def _compile(self, model: T) -> T:
         self._print(f"Compiling {model.__class__.__name__}")
         return torch.compile(model, mode="max-autotune")
-
-    def _compile_pipeline(
-        self,
-        pipeline: StableDiffusionPipeline,
-    ) -> StableDiffusionPipeline:
-        pipeline.unet = self._compile(pipeline.unet)
-        pipeline.vae = self._compile(pipeline.vae)
-        pipeline.text_encoder = self._compile(pipeline.text_encoder)
-        return pipeline
 
     def _init_text(self):
         tokenizer = AutoTokenizer.from_pretrained(
@@ -124,50 +119,48 @@ class Evaluator:
         )
         return vae
 
-    def _pipeline(self) -> StableDiffusionPipeline:
+    def _load_pipeline(self) -> StableDiffusionPipeline:
         tokenizer, text_encoder = self._init_text()
-        return DiffusionPipeline.from_pretrained(
-            self.params.model.name,
-            revision=self.params.model.revision,
-            safety_checker=None,
-            low_cpu_mem_usage=True,
-            local_files_only=True,
-            unet=self._unet(),
-            text_encoder=text_encoder,
-            vae=self._vae(),
-            tokenizer=tokenizer,
-        )
-
-    def _load_pipeline(self):
-        pipeline = self._pipeline()
+        unet, vae = self._unet(), self._vae()
+        device = self.accelerator.device
 
         config = json.loads(
             (self.params.model_output_path / "lora_config.json").read_text()
         )
         state = torch.load(
             self.params.model_output_path / "lora_weights.pt",
-            map_location=self.accelerator.device,
+            map_location=device,
         )
         unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
-        pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet).to(
-            self.accelerator.device
-        )
-        set_peft_model_state_dict(pipeline.unet, unet_state)
+        unet = LoraModel(LoraConfig(**config["unet_peft"]), unet).to(device)
+        set_peft_model_state_dict(unet, unet_state)
 
-        pipeline.text_encoder = LoraModel(
-            LoraConfig(**config["text_peft"]), pipeline.text_encoder
-        ).to(self.accelerator.device)
+        text_encoder = LoraModel(LoraConfig(**config["text_peft"]), text_encoder).to(
+            device
+        )
         set_peft_model_state_dict(
-            pipeline.text_encoder,
+            text_encoder,
             {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
         )
 
+        with patch_allowed_pipeline_classes():
+            pipeline = DiffusionPipeline.from_pretrained(
+                self.params.model.name,
+                revision=self.params.model.revision,
+                safety_checker=None,
+                low_cpu_mem_usage=True,
+                local_files_only=True,
+                unet=self._compile(unet),
+                text_encoder=self._compile(text_encoder),
+                vae=self._compile(vae),
+                tokenizer=tokenizer,
+            )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
 
-        return self._compile_pipeline(pipeline)
+        return pipeline
 
     def _upsampler(self):
         model = RRDBNet(

@@ -27,20 +27,24 @@ def main_process_only(f):
 @contextmanager
 def patch_allowed_pipeline_classes():
     from diffusers import pipelines
-    from peft.tuners.lora import LoraModel
-    from torch._dynamo.eval_frame import OptimizedModule
 
-    pipelines.pipeline_utils.LOADABLE_CLASSES["transformers"]["OptimizedModule"] = [
-        "save_pretrained",
-        "from_pretrained",
+    PATCHES = [
+        ("diffusers", "peft.tuners.lora", "LoraModel"),
+        ("transformers", "peft.tuners.lora", "LoraModel"),
+        ("transformers", "torch._dynamo.eval_frame", "OptimizedModule"),
     ]
-    setattr(importlib.import_module("transformers"), "OptimizedModule", OptimizedModule)
 
-    pipelines.pipeline_utils.LOADABLE_CLASSES["transformers"]["LoraModel"] = [
-        "save_pretrained",
-        "from_pretrained",
-    ]
-    setattr(importlib.import_module("transformers"), "OptimizedModule", LoraModel)
+    for (lib, mod, klass) in PATCHES:
+        pipelines.pipeline_utils.LOADABLE_CLASSES[lib][klass] = [
+            "save_pretrained",
+            "from_pretrained",
+        ]
+        setattr(
+            importlib.import_module(lib),
+            klass,
+            getattr(importlib.import_module(mod), klass),
+        )
 
     yield
-    del pipelines.pipeline_utils.LOADABLE_CLASSES["transformers"]["OptimizedModule"]
+    for (lib, _, klass) in PATCHES:
+        del pipelines.pipeline_utils.LOADABLE_CLASSES[lib][klass]
