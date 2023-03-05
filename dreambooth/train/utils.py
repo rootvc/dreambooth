@@ -19,20 +19,10 @@ import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    StableDiffusionPipeline,
-    UNet2DConditionModel,
-)
-from peft import (
-    LoraConfig,
-    LoraModel,
-    get_peft_model_state_dict,
-    set_peft_model_state_dict,
-)
+from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
+                       DPMSolverMultistepScheduler, StableDiffusionPipeline,
+                       UNet2DConditionModel)
+from peft import LoraConfig, LoraModel, get_peft_model_state_dict
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, Dataset
@@ -41,7 +31,7 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
-from dreambooth.train.shared import partition
+from dreambooth.train.eval import Evaluator
 
 T = TypeVar("T")
 
@@ -234,16 +224,15 @@ class Trainer:
         self.params = params
 
         self.priors_dir = Path(tempfile.mkdtemp())
-        self.output_dir = Path(tempfile.mkdtemp())
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
         try:
-            from dreambooth.train.accelerators.colossal import (
-                ColossalAccelerator as Accelerator,
-            )
+            from dreambooth.train.accelerators.colossal import \
+                ColossalAccelerator as Accelerator
         except Exception:
             print("ColossalAI not installed, using default Accelerator")
-            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
+            from dreambooth.train.accelerators.hf import \
+                HFAccelerator as Accelerator
 
         self.accelerator = Accelerator(
             params=self.params,
@@ -472,45 +461,6 @@ class Trainer:
         del pipeline
         torch.cuda.empty_cache()
 
-    @_main_process_only
-    @torch.inference_mode()
-    def _do_final_validation(self):
-        token_embedding = torch.load(
-            self.output_dir / "token_embedding.pt", map_location=self.accelerator.device
-        )
-        tokenizer, text_encoder = self._init_text(
-            token_embedding[self.params.token], compile=True
-        )
-
-        pipeline = self._pipeline(
-            tokenizer=tokenizer,
-            text_encoder=text_encoder,
-        )
-        config = json.loads((self.output_dir / "lora_config.json").read_text())
-        state = torch.load(
-            self.output_dir / "lora_weights.pt", map_location=self.accelerator.device
-        )
-
-        unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
-
-        pipeline.unet = LoraModel(LoraConfig(**config["unet_peft"]), pipeline.unet).to(
-            self.accelerator.device
-        )
-        set_peft_model_state_dict(pipeline.unet, unet_state)
-
-        pipeline.text_encoder = LoraModel(
-            LoraConfig(**config["text_peft"]), pipeline.text_encoder
-        ).to(self.accelerator.device)
-        set_peft_model_state_dict(
-            pipeline.text_encoder,
-            {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
-        )
-
-        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
-            pipeline.scheduler.config
-        )
-        return self._validation(pipeline)
-
     def _do_epoch(
         self,
         epoch: int,
@@ -679,13 +629,15 @@ class Trainer:
         ]
         self.accelerator.save(
             {self.params.token: token_embedding},
-            self.output_dir / "token_embedding.pt",
+            self.params.model_output_path / "token_embedding.pt",
         )
 
-        self.accelerator.save(state, self.output_dir / "lora_weights.pt")
-        (self.output_dir / "lora_config.json").write_text(json.dumps(config))
+        self.accelerator.save(state, self.params.model_output_path / "lora_weights.pt")
+        (self.params.model_output_path / "lora_config.json").write_text(
+            json.dumps(config)
+        )
 
-        wandb.save(str(self.output_dir / "*"))
+        wandb.save(str(self.params.model_output_path / "*"))
 
     def _compile(self, model: T, do: bool = True) -> T:
         if do and self.params.dynamo_backend:
@@ -913,9 +865,8 @@ class Trainer:
             self.accelerator.unwrap_model(text_encoder, keep_fp32_wrapper=False),
             tokenizer,
         )
-        images = self._do_final_validation()
+        Evaluator(self.accelerator, self.params).generate()
         self.accelerator.end_training()
-        return images
 
 
 def get_mem() -> float:

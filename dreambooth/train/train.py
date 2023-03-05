@@ -61,7 +61,8 @@ def sagemaker_params(env: environment.Environment) -> Params:
     if params.model.vae:
         params.model.vae = _unpack_model(env, params.model.vae)
     params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
-    params.output_path = output_data
+    params.image_output_path = output_data
+    params.model_output_path = env.model_dir
 
     if env.is_main:
         shutil.copytree(cache_data, os.environ["CACHE_DIR"], dirs_exist_ok=True)
@@ -93,7 +94,6 @@ def main():
     finally:
         model.accelerator.wait_for_everyone()
         if env.is_main and env.channel_input_dirs:
-            shutil.copytree(model.output_dir, env.model_dir, dirs_exist_ok=True)
             shutil.copytree(
                 os.environ["CACHE_DIR"],
                 env.channel_input_dirs["cache"],

@@ -45,12 +45,9 @@ class PromptDataset(Dataset):
 
 
 class Evaluator:
-    def __init__(
-        self, accelerator: BaseAccelerator, params: HyperParams, model_dir: Path
-    ):
+    def __init__(self, accelerator: BaseAccelerator, params: HyperParams):
         self.params = params
         self.accelerator = accelerator
-        self.model_dir = model_dir
 
     def _compile(self, model: T) -> T:
         return torch.compile(model, mode="max-autotune")
@@ -88,7 +85,8 @@ class Evaluator:
         token_id = tokenizer.convert_tokens_to_ids(self.params.token)
         embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
         token_embedding = torch.load(
-            self.model_dir / "token_embedding.pt", map_location=self.accelerator.device
+            self.params.model_output_path / "token_embedding.pt",
+            map_location=self.accelerator.device,
         )
 
         embeds[token_id] = token_embedding[self.params.token]
@@ -135,9 +133,12 @@ class Evaluator:
     def _load_pipeline(self):
         pipeline = self._pipeline()
 
-        config = json.loads((self.model_dir / "lora_config.json").read_text())
+        config = json.loads(
+            (self.params.model_output_path / "lora_config.json").read_text()
+        )
         state = torch.load(
-            self.model_dir / "lora_weights.pt", map_location=self.accelerator.device
+            self.params.model_output_path / "lora_weights.pt",
+            map_location=self.accelerator.device,
         )
         unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
 
@@ -289,7 +290,7 @@ class Evaluator:
         for prompt, image in images:
             restored = restore(image)
             slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
-            path = str(self.params.output_path / f"{slug}.png")
+            path = str(self.params.image_output_path / f"{slug}.png")
             cv2.imwrite(path, restored)
             log.append(wandb.Image(path, caption=prompt))
 
