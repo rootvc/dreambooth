@@ -28,23 +28,12 @@ def main_process_only(f):
 def patch_allowed_pipeline_classes():
     from diffusers import pipelines
 
-    PATCHES = [
-        ("diffusers", "peft.tuners.lora", "LoraModel"),
-        ("transformers", "peft.tuners.lora", "LoraModel"),
-        ("transformers", "torch._dynamo.eval_frame", "OptimizedModule"),
-    ]
+    LIBS = ["diffusers", "transformers"]
 
-    for (lib, mod, klass) in PATCHES:
-        pipelines.pipeline_utils.LOADABLE_CLASSES[lib][klass] = [
-            "save_pretrained",
-            "from_pretrained",
-        ]
-        setattr(
-            importlib.import_module(lib),
-            klass,
-            getattr(importlib.import_module(mod), klass),
-        )
+    for lib in LIBS:
+        setattr(pipelines, lib, object())
 
     yield
-    for (lib, _, klass) in PATCHES:
-        del pipelines.pipeline_utils.LOADABLE_CLASSES[lib][klass]
+
+    for lib in LIBS:
+        delattr(pipelines, lib)
