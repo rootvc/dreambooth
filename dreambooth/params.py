@@ -89,9 +89,12 @@ class HyperParams(BaseModel):
     epsilon: float = 1e-8
 
     # Training
+    # TI: 10, TE: 45, S: 415
+    # TI: 15, TE: 45, S: XXX
+    # TI: 20, TE: 45, S: XXX
     dynamo_backend: Optional[str] = "inductor"
     loading_workers: int = 4
-    ti_train_epochs: int = 10
+    ti_train_epochs: int = 15
     train_epochs: int = 45
     lr_scheduler: str = "linear"
     lr_warmup_steps: int = 300
