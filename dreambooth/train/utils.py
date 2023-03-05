@@ -46,7 +46,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
 torch._dynamo.config.suppress_errors = True
 
-BROKEN_COMPILE_CLASSES = {"AutoencoderKL"}
+BROKEN_COMPILE_CLASSES = {"AutoencoderKL", "LoraModel"}
 
 
 class PromptDataset(Dataset):
