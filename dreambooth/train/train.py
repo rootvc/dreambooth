@@ -1,3 +1,4 @@
+import functools
 import os
 import shutil
 import subprocess
@@ -6,6 +7,7 @@ import warnings
 from pathlib import Path
 from typing import TypedDict
 
+import torch.distributed
 from sagemaker_training import environment
 
 from dreambooth.params import Class
@@ -26,6 +28,9 @@ class Params(TypedDict):
 def _unpack_model(env: environment.Environment, name: str):
     model_data = Path(env.channel_input_dirs["model"])
     model_dir = tempfile.mkdtemp()
+
+    if torch.distributed.get_rank() > 0:
+        return model_dir
 
     model_file = model_data / Path(name).with_suffix(".tpxz")
     with tempfile.NamedTemporaryFile() as f:
@@ -50,6 +55,7 @@ def _unpack_eval_models(env: environment.Environment):
 def sagemaker_params(env: environment.Environment) -> Params:
     train_data = Path(env.channel_input_dirs["train"])
     prior_data = Path(env.channel_input_dirs["prior"])
+    cache_data = Path(env.channel_input_dirs["cache"])
     params = get_params()
 
     params.model.name = _unpack_model(env, params.model.name)
@@ -57,7 +63,9 @@ def sagemaker_params(env: environment.Environment) -> Params:
         params.model.vae = _unpack_model(env, params.model.vae)
     params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
 
-    _unpack_eval_models(env)
+    if torch.distributed.get_rank() == 0:
+        shutil.copytree(cache_data, os.environ["CACHE_DIR"], dirs_exist_ok=True)
+        _unpack_eval_models(env)
 
     return {"instance_path": train_data, "params": params}
 
@@ -71,9 +79,6 @@ def standalone_params(env: environment.Environment):
 def main():
     env = environment.Environment()
     if env.channel_input_dirs:
-        shutil.copytree(
-            env.channel_input_dirs["cache"], os.environ["CACHE_DIR"], dirs_exist_ok=True
-        )
         params = sagemaker_params(env)
     else:
         params = standalone_params(env)
@@ -81,9 +86,11 @@ def main():
     model = get_model(**params)
 
     try:
+        model.accelerator.wait_for_everyone()
         model.train()
     finally:
-        if env.channel_input_dirs:
+        model.accelerator.wait_for_everyone()
+        if torch.distributed.get_rank() == 0 and env.channel_input_dirs:
             shutil.copytree(model.output_dir, env.model_dir, dirs_exist_ok=True)
             shutil.copytree(
                 os.environ["CACHE_DIR"],

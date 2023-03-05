@@ -21,6 +21,7 @@ from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
 from facelib.utils.face_restoration_helper import FaceRestoreHelper
 from peft import LoraConfig, LoraModel, set_peft_model_state_dict
 from PIL.Image import Image
+from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import normalize
 from transformers import AutoTokenizer, CLIPTextModel
 
@@ -29,6 +30,21 @@ from dreambooth.train.accelerators.base import BaseAccelerator
 from dreambooth.train.shared import partition
 
 T = TypeVar("T", bound=torch.nn.Module)
+
+
+class PromptDataset(Dataset):
+    def __init__(self, params: HyperParams):
+        self.params = params
+
+    def __len__(self):
+        return len(self.params.eval_prompts)
+
+    def __getitem__(self, i: int):
+        return {
+            "prompt": self.params.eval_template.format(
+                prompt=self.params.eval_prompts[i]
+            )
+        }
 
 
 class Evaluator:
