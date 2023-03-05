@@ -260,6 +260,7 @@ class Evaluator:
 
         all_images = []
         for prompts in loader:
+            self._print(prompts)
             images = pipeline(
                 prompts,
                 negative_prompt=self.params.negative_prompt,
