@@ -5,8 +5,14 @@ ENV TRITON_CACHE_DIR $CACHE_DIR/triton
 ENV TORCHINDUCTOR_CACHE_DIR $CACHE_DIR/torchinductor
 ENV PYTORCH_KERNEL_CACHE_PATH $CACHE_DIR/torch
 ENV TORCHINDUCTOR_SEARCH_AUTOTUNE_CACHE 1
+ENV NCCL_ASYNC_ERROR_HANDLING 1
 
 RUN mkdir -p $CACHE_DIR
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  apt-get update && \
+  apt-get install -y rsync && \
+  rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --no-cache-dir sagemaker-training

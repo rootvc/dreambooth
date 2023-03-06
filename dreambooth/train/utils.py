@@ -6,6 +6,7 @@ import math
 import os
 import tempfile
 from contextlib import contextmanager
+from datetime import timedelta
 from functools import cached_property, lru_cache, partial
 from operator import itemgetter
 from pathlib import Path
@@ -21,6 +22,7 @@ import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
+from accelerate.utils import InitProcessGroupKwargs
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
@@ -245,6 +247,7 @@ class Trainer:
             mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
             log_with=["wandb"],
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
+            kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(minutes=5))],
         )
         self.logger = get_logger(__name__)
         self.logger.warning(self.accelerator.state, main_process_only=False)
@@ -846,6 +849,7 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
+                self._do_validation(unet, models)
                 break
 
             if (

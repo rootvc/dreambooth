@@ -1,6 +1,8 @@
 import itertools
 import json
 import re
+import shutil
+from datetime import timedelta
 from functools import partial
 from pathlib import Path
 from typing import Optional, TypeVar
@@ -324,8 +326,9 @@ class Evaluator:
 
         original_path = self.params.image_output_path / "original"
         restored_path = self.params.image_output_path / "restored"
-        original_path.mkdir(exist_ok=True)
-        restored_path.mkdir(exist_ok=True)
+        for path in (original_path, restored_path):
+            shutil.rmtree(path, ignore_errors=True)
+            path.mkdir(exist_ok=True)
 
         dprint(f"Saving {len(images)} images...")
         for prompt, image in images:
@@ -340,6 +343,6 @@ class Evaluator:
             cv2.imwrite(path, restored)
 
         dprint("Waiting for upload...")
-        self.accelerator.wait_for_everyone()
+        torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
         self._upload_images()
         dprint("Done!")
