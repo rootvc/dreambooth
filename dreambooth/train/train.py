@@ -49,14 +49,6 @@ def _unpack_eval_models(env: environment.Environment):
     params = get_params()
     models = Path(env.channel_input_dirs["model"]) / params.eval_model_path
     os.symlink(models, "weights", target_is_directory=True)
-    import subprocess
-
-    print("HERE", models, models.exists())
-    subprocess.run(["pwd"])
-    subprocess.run(["ls", "-la", models])
-    subprocess.run(["ls", "-la"])
-    subprocess.run(["ls", "-la", "./weights/"])
-    subprocess.run(["ls", "-la", "./weights/realesrgan"])
 
 
 def _setup_global_cache(env):

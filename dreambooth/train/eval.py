@@ -173,16 +173,18 @@ class Evaluator:
             num_grow_ch=32,
             scale=self.params.upscale_factor,
         ).to(self.accelerator.device)
-        path = Path("./weights/realesrgan/RealESRGAN_x2plus.pth")
-        print(path, path.absolute())
-        return RealESRGANer(
+        upsampler = RealESRGANer(
             scale=self.params.upscale_factor,
-            model_path=str(path.absolute()),
-            model=compile_model(model.eval()),
+            model_path=str(
+                Path("./weights/realesrgan/RealESRGAN_x2plus.pth").absolute()
+            ),
+            model=model.eval(),
             pre_pad=0,
             half=True,
             device=self.accelerator.device,
         )
+        upsampler.model = compile_model(upsampler.model)
+        return upsampler
 
     def _restorer(self):
         model = ARCH_REGISTRY.get("CodeFormer")(
@@ -193,7 +195,7 @@ class Evaluator:
             connect_list=["32", "64", "128", "256"],
         ).to(self.accelerator.device)
         model.load_state_dict(
-            torch.load("weights/codeformer/codeformer.pth")["params_ema"]
+            torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
         return compile_model(model.eval())
 
