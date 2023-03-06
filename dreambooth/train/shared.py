@@ -52,7 +52,7 @@ def is_main():
     return torch.distributed.get_rank() == 0
 
 
-def compile_model(model: M, do: bool = True, ignore: set[str] = set()) -> M:
+def compile_model(model: M, do: bool = True, ignore: set[str] = set(), **kwargs) -> M:
     BROKEN_COMPILE_CLASSES = set()
 
     if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
@@ -62,7 +62,7 @@ def compile_model(model: M, do: bool = True, ignore: set[str] = set()) -> M:
     if do:
         if is_main():
             print(f"Compiling {model.__class__.__name__}...")
-        return torch.compile(model, mode="max-autotune")
+        return torch.compile(model, mode="max-autotune", **kwargs)
     else:
         return model
 

@@ -3,7 +3,7 @@ import json
 import re
 from functools import partial
 from pathlib import Path
-from typing import Iterable, TypeVar
+from typing import Iterable, Optional, TypeVar
 
 import cv2
 import numpy as np
@@ -152,7 +152,7 @@ class Evaluator:
                 safety_checker=None,
                 low_cpu_mem_usage=True,
                 local_files_only=True,
-                unet=compile_model(unet),
+                unet=unet,
                 text_encoder=compile_model(text_encoder),
                 vae=compile_model(vae),
                 tokenizer=tokenizer,
@@ -197,7 +197,7 @@ class Evaluator:
         model.load_state_dict(
             torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
-        return compile_model(model.eval())
+        return compile_model(model.eval(), dynamic=True)
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):
@@ -249,7 +249,7 @@ class Evaluator:
         upsampler: RealESRGANer,
         helper: FaceRestoreHelper,
         image: np.ndarray,
-    ):
+    ) -> np.ndarray:
         background = upsampler.enhance(image, outscale=self.params.upscale_factor)[0]
         helper.get_inverse_affine()
         return helper.paste_faces_to_input_image(
@@ -283,12 +283,16 @@ class Evaluator:
         restorer: torch.nn.Module,
         upsampler: RealESRGANer,
         pil_image: Image,
-    ):
-        helper = self._face_helper()
-        image = self._convert_image(pil_image)
-        face = self._extract_face(helper, image)
-        self._restore_face(restorer, helper, face)
-        return self._paste_face(upsampler, helper, image)
+    ) -> Optional[np.ndarray]:
+        try:
+            helper = self._face_helper()
+            image = self._convert_image(pil_image)
+            face = self._extract_face(helper, image)
+            self._restore_face(restorer, helper, face)
+            return self._paste_face(upsampler, helper, image)
+        except Exception as e:
+            self._print(f"Error: {e}")
+            return None
 
     @torch.inference_mode()
     def generate(self):
@@ -303,7 +307,8 @@ class Evaluator:
 
         log = []
         for prompt, image in images:
-            restored = restore(image)
+            if not (restored := restore(image)):
+                continue
             slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
             path = str(self.params.image_output_path / f"{slug}.png")
             cv2.imwrite(path, restored)
