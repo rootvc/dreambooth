@@ -173,7 +173,7 @@ class Evaluator:
         ).to(self.accelerator.device)
         return RealESRGANer(
             scale=self.params.upscale_factor,
-            model_path="weights/realesrgan/RealESRGAN_x2plus.pth",
+            model_path="./weights/realesrgan/RealESRGAN_x2plus.pth",
             model=compile_model(model.eval()),
             pre_pad=0,
             half=True,

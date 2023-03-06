@@ -9,6 +9,7 @@ import torch
 import torch.distributed
 
 T = TypeVar("T")
+M = TypeVar("M", bound=torch.nn.Module)
 
 
 def partition(
@@ -51,10 +52,12 @@ def is_main():
     return torch.distributed.get_rank() == 0
 
 
-def compile_model(model: T, do: bool = True, ignore: set[str] = set()) -> T:
-    BROKEN_COMPILE_CLASSES = {"AutoencoderKL"} | ignore
+def compile_model(model: M, do: bool = True, ignore: set[str] = set()) -> M:
+    BROKEN_COMPILE_CLASSES = set()
 
     if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
+        return model
+    elif model.__class__.__name__ in ignore and model.training:
         return model
     if do:
         if is_main():
