@@ -11,6 +11,7 @@ from typing import TypedDict
 from sagemaker_training import environment
 
 from dreambooth.params import Class
+from dreambooth.train.shared import dprint
 from dreambooth.train.utils import HyperParams, get_model, get_params
 
 IGNORE_MODS = ["_functorch", "fmha", "torchvision", "tempfile"]
@@ -74,13 +75,21 @@ def _persist_global_cache():
     local_cache = cache_dir / "local_cache"
     global_cache = cache_dir / "global_cache"
 
+    dprint("Persisting local cache...")
+    if not local_cache.exists():
+        dprint("No local cache found, skipping...")
+        return
+
     dinfo = torch.cuda.get_device_properties(torch.cuda.current_device()).name
     vinfo = torch.version.cuda
 
+    dprint("Reading local cache...")
     local_cache_data = json.loads(local_cache.read_text())
     global_cache_data = {dinfo: {vinfo: local_cache_data}}
 
+    dprint("Writing global cache...")
     global_cache.write_text(json.dumps(global_cache_data))
+    dprint("Removing local cache...")
     local_cache.unlink()
 
 
@@ -124,29 +133,34 @@ def main():
         params = standalone_params(env)
 
     model = get_model(**params)
+    model.accelerator.wait_for_everyone()
 
     try:
-        model.accelerator.wait_for_everyone()
         model.train()
         model.eval()
-    except Exception:
+    finally:
         if env.is_main:
             model.accelerator.end_training()
-        else:
-            sys.tracebacklimit = 0
-        raise
-    finally:
-        model.accelerator.wait_for_everyone()
         if env.is_main and env.channel_input_dirs:
+            dprint("Persisting global cache...")
             _persist_global_cache()
-            shutil.copytree(
-                os.environ["CACHE_DIR"],
-                env.channel_input_dirs["cache"],
-                dirs_exist_ok=True,
+            dprint("Copying cache back to S3...")
+            subprocess.run(
+                [
+                    "rsync",
+                    "-ahSD",
+                    "--no-whole-file",
+                    "--no-compress",
+                    "--progress",
+                    "--inplace",
+                    os.environ["CACHE_DIR"],
+                    env.channel_input_dirs["cache"],
+                ]
             )
-            (
-                Path(env.channel_input_dirs["cache"]) / "torchinductor" / "local_cache"
-            ).unlink()
+
+        dprint("Exiting!")
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":

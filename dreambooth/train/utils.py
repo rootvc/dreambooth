@@ -16,6 +16,7 @@ import torch._dynamo
 import torch._dynamo.config
 import torch.backends.cuda
 import torch.backends.cudnn
+import torch.distributed
 import torch.jit
 import torch.nn.functional as F
 import wandb
@@ -39,6 +40,7 @@ from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
 from dreambooth.train.eval import Evaluator
 from dreambooth.train.shared import (
+    dprint,
     main_process_only,
     make_compile_model,
     patch_allowed_pipeline_classes,
@@ -253,10 +255,6 @@ class Trainer:
 
         self._total_steps = 0
 
-    @main_process_only
-    def _print(self, *args, **kwargs):
-        print(*args, **kwargs)
-
     @lru_cache(maxsize=1)
     def token_id(self, tokenizer: CLIPTokenizer):
         return tokenizer.convert_tokens_to_ids(self.params.token)
@@ -348,20 +346,20 @@ class Trainer:
 
             unet.set_attn_processor(AttnProcessor2_0())
         except Exception as e:
-            self._print("Cannot set attn processor")
-            self._print(e)
+            dprint("Cannot set attn processor")
+            dprint(e)
 
             try:
                 unet.enable_xformers_memory_efficient_attention()
             except Exception as e:
-                self._print("Cannot enable xformers memory efficient attention")
-                self._print(e)
+                dprint("Cannot enable xformers memory efficient attention")
+                dprint(e)
 
         return compile_model(unet, do=compile)
 
     @torch.inference_mode()
     def generate_priors(self, progress_bar: bool = False) -> Class:
-        self._print("Generating priors...")
+        dprint("Generating priors...")
 
         pipeline = self._pipeline(
             unet=self._unet(compile=True),
@@ -689,11 +687,11 @@ class Trainer:
                 self.accelerator.device
             )
 
-        self._print("Compiling models...")
+        dprint("Compiling models...")
         unet = compile_model(unet)
         text_encoder = compile_model(text_encoder)
 
-        self._print("Loading dataset...")
+        dprint("Loading dataset...")
 
         dataset = DreamBoothDataset(
             instance=self.instance_class,
@@ -711,7 +709,7 @@ class Trainer:
             num_workers=self.params.loading_workers,
         )
 
-        self._print("Preparing params...")
+        dprint("Preparing params...")
 
         ti_params = [
             p.requires_grad_(True)
@@ -739,7 +737,7 @@ class Trainer:
             loader, unet, text_encoder
         )
 
-        self._print("Initializing Optimizer...")
+        dprint("Initializing Optimizer...")
 
         optimizer = self.accelerator.optimizer(
             params,
@@ -748,7 +746,7 @@ class Trainer:
             eps=self.params.epsilon,
         )
 
-        self._print("Preparing for training...")
+        dprint("Preparing for training...")
 
         optimizer = self.accelerator.prepare(optimizer)
 
@@ -800,7 +798,7 @@ class Trainer:
         )
         lr_scheduler = self.accelerator.prepare(lr_scheduler)
 
-        self._print(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
+        dprint(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
 
         if self.accelerator.is_main_process:
             self._init_trackers()
@@ -811,7 +809,7 @@ class Trainer:
             title="data",
         )
 
-        self._print("Starting training...")
+        dprint("Starting training...")
 
         models = {
             "unet": unet,
@@ -842,13 +840,12 @@ class Trainer:
                 optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
                 optimizer.param_groups[0]["lr"] = self.params.learning_rate
                 if epoch == self.params.ti_train_epochs:
-                    self._print(f"Finished TI training at epoch {epoch}.")
+                    dprint(f"Finished TI training at epoch {epoch}.")
                     del models["input_embeddings"]
                     torch.cuda.empty_cache()
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
-                self._do_validation(unet, models)
                 break
 
             if (
@@ -860,7 +857,7 @@ class Trainer:
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()
-        self._print("Saving model...")
+        dprint("Saving model...")
         self._persist(
             self.accelerator.unwrap_model(unet, keep_fp32_wrapper=False),
             self.accelerator.unwrap_model(text_encoder, keep_fp32_wrapper=False),
@@ -869,13 +866,11 @@ class Trainer:
 
     def eval(self):
         self.accelerator.wait_for_everyone()
-        self._print("Running GC...")
+        dprint("Running GC...")
         gc.collect()
         torch.cuda.empty_cache()
 
         Evaluator(self.accelerator, self.params).generate()
-        self.accelerator.wait_for_everyone()
-        self.accelerator.end_training()
 
 
 def get_mem() -> float:

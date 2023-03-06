@@ -69,3 +69,7 @@ def compile_model(model: M, do: bool = True, ignore: set[str] = set(), **kwargs)
 
 def make_compile_model(ignore: set[str]):
     return functools.partial(compile_model, ignore=ignore)
+
+
+def dprint(*args, **kwargs):
+    print(f"[{torch.distributed.get_rank()}]", *args, **kwargs)

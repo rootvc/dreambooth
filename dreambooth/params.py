@@ -109,7 +109,7 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 20  # 380
+    validate_after_steps: int = 380
     validate_every_epochs: Optional[int] = None
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
@@ -117,7 +117,7 @@ class HyperParams(BaseModel):
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
 
     # Eval
-    eval_template: str = f"a photo of a {source_token}, {{prompt}}, perfect face, highly detailed portrait, sharp"
+    eval_template: str = f"a photo of a {token}, {{prompt}}, perfect face, highly detailed portrait, sharp"
     eval_prompts: list[str] = [
         "cartoon anime character, shonen jump",
         "gorgeous, ((stunning)), tight silver jacket, samadhi loving serene, ((35mm head and shoulders portrait, looking into camera)), intricate, 8k, volumetric lighting, digital painting, intense gaze, ((Alena Aenami))",

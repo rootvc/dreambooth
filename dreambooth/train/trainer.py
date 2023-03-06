@@ -46,7 +46,7 @@ class TrainJob:
     BUCKET_ALIAS = (
         "s3://rootvc-photobooth-ac-ijsnw37rpoofofjypoen8a9oarxgyusw2b-s3alias"
     )
-    MAX_RUN = 60 * 60 * 1
+    MAX_RUN = 60 * 20
     MAX_WAIT = 60 * 10
 
     DEFAULT_MULTI_INSTANCES = [
@@ -100,7 +100,6 @@ class TrainJob:
         ]
         if self.instance_optimizer != InstanceOptimizer.COST:
             instances.remove(self.DEFAULT_BUDGET_INSTANCES)
-            instances.remove(self.DEFAULT_BUDGET_MULTI_INSTANCES)
 
         match self.instance_optimizer:
             case InstanceOptimizer.COST:

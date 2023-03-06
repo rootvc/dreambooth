@@ -3,7 +3,7 @@ import json
 import re
 from functools import partial
 from pathlib import Path
-from typing import Iterable, Optional, TypeVar
+from typing import Optional, TypeVar
 
 import cv2
 import numpy as np
@@ -32,6 +32,7 @@ from dreambooth.params import HyperParams
 from dreambooth.train.accelerators.base import BaseAccelerator
 from dreambooth.train.shared import (
     compile_model,
+    dprint,
     main_process_only,
     partition,
     patch_allowed_pipeline_classes,
@@ -55,9 +56,6 @@ class Evaluator:
     def __init__(self, accelerator: BaseAccelerator, params: HyperParams):
         self.params = params
         self.accelerator = accelerator
-
-    def _print(self, *args, **kwargs):
-        print(f"[{torch.distributed.get_rank()}]", *args, **kwargs)
 
     def _init_text(self):
         tokenizer = AutoTokenizer.from_pretrained(
@@ -232,11 +230,21 @@ class Evaluator:
         cropped: np.ndarray,
         cropped_t: torch.Tensor,
     ):
-        output = restorer(cropped_t, w=self.params.fidelity_weight, adain=True)[0]
+        dprint("Output")
+        try:
+            output = restorer(cropped_t, w=self.params.fidelity_weight, adain=True)[0]
+        except Exception as e:
+            dprint("Error")
+            dprint(e)
+            raise e
+        dprint("Restored")
         restored = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
+        dprint("Heloer")
         helper.add_restored_face(restored, cropped)
 
+        dprint("Del")
         del output
+        dprint("Empty")
         torch.cuda.empty_cache()
 
     def _paste_face(
@@ -251,7 +259,7 @@ class Evaluator:
             upsample_img=background, face_upsampler=upsampler
         )
 
-    def _gen_images(self) -> Iterable[tuple[str, Image]]:
+    def _gen_images(self) -> list[tuple[str, Image]]:
         pipeline = self._load_pipeline()
         loader = DataLoader(
             PromptDataset(self.params),
@@ -260,10 +268,10 @@ class Evaluator:
         )
         loader = self.accelerator.prepare(loader)
 
-        self._print(f"Generating images with {len(loader)} batches...")
+        dprint(f"Generating images with {len(loader)} batches...")
         all_images = []
         for i, prompts in enumerate(loader):
-            self._print(f"Batch {i * torch.cuda.device_count()}/{len(loader)}")
+            dprint(f"Batch {i * torch.cuda.device_count()}/{len(loader)}")
             images = pipeline(
                 prompts,
                 negative_prompt=[self.params.negative_prompt] * len(prompts),
@@ -280,12 +288,16 @@ class Evaluator:
         pil_image: Image,
     ) -> Optional[np.ndarray]:
         helper = self._face_helper()
+        dprint("Converting image...")
         image = self._convert_image(pil_image)
+        dprint("Extracting face...")
         try:
             face, face_t = self._extract_face(helper, image)
         except ValueError:
             return None
+        dprint("Restoring face...")
         self._restore_face(restorer, helper, face, face_t)
+        dprint("Pasting face...")
         return self._paste_face(upsampler, helper, image)
 
     @main_process_only
@@ -302,12 +314,11 @@ class Evaluator:
 
     @torch.inference_mode()
     def generate(self):
-        self._print("Generating images...")
+        dprint("Generating images...")
         images = self._gen_images()
-        self.accelerator.wait_for_everyone()
         torch.cuda.empty_cache()
 
-        self._print("Restoring faces...")
+        dprint("Compiling face models...")
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
 
@@ -316,16 +327,19 @@ class Evaluator:
         original_path.mkdir(exist_ok=True)
         restored_path.mkdir(exist_ok=True)
 
+        dprint(f"Saving {len(images)} images...")
         for prompt, image in images:
+            dprint(prompt)
             slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
             image.save(original_path / f"{slug}.png")
 
+            dprint("Restoring...")
             if (restored := restore(image)) is None:
                 continue
             path = str(restored_path / f"{slug}.png")
             cv2.imwrite(path, restored)
 
-        self._print("Waiting for upload...")
+        dprint("Waiting for upload...")
         self.accelerator.wait_for_everyone()
         self._upload_images()
-        self._print("Done!")
+        dprint("Done!")
