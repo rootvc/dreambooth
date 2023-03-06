@@ -290,14 +290,15 @@ class Evaluator:
 
     @main_process_only
     def _upload_images(self):
-        self.accelerator.wandb_tracker.log(
-            {
-                "output": [
-                    wandb.Image(str(p), caption=p.stem)
-                    for p in self.params.image_output_path.glob("*.png")
-                ]
-            }
-        )
+        for key in ("original", "restored"):
+            self.accelerator.wandb_tracker.log(
+                {
+                    key: [
+                        wandb.Image(str(p), caption=p.stem)
+                        for p in (self.params.image_output_path / key).glob("*.png")
+                    ]
+                }
+            )
 
     @torch.inference_mode()
     def generate(self):
@@ -310,11 +311,18 @@ class Evaluator:
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
 
+        original_path = self.params.image_output_path / "original"
+        restored_path = self.params.image_output_path / "restored"
+        original_path.mkdir(exist_ok=True)
+        restored_path.mkdir(exist_ok=True)
+
         for prompt, image in images:
+            slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
+            image.save(original_path / f"{slug}.png")
+
             if (restored := restore(image)) is None:
                 continue
-            slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
-            path = str(self.params.image_output_path / f"{slug}.png")
+            path = str(restored_path / f"{slug}.png")
             cv2.imwrite(path, restored)
 
         self._print("Waiting for upload...")

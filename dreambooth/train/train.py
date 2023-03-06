@@ -81,6 +81,7 @@ def _persist_global_cache():
     global_cache_data = {dinfo: {vinfo: local_cache_data}}
 
     global_cache.write_text(json.dumps(global_cache_data))
+    local_cache.unlink()
 
 
 def sagemaker_params(env: environment.Environment) -> Params:
@@ -143,6 +144,9 @@ def main():
                 env.channel_input_dirs["cache"],
                 dirs_exist_ok=True,
             )
+            (
+                Path(env.channel_input_dirs["cache"]) / "torchinductor" / "local_cache"
+            ).unlink()
 
 
 if __name__ == "__main__":
