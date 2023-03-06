@@ -48,11 +48,6 @@ def _unpack_eval_models(env: environment.Environment):
     params = get_params()
     models = Path(env.channel_input_dirs["model"]) / params.eval_model_path
     os.symlink(models, "weights", target_is_directory=True)
-    print(os.getcwd())
-    print(os.listdir("."))
-    import subprocess
-
-    subprocess.run(["ls", "-la", "./weights"])
 
 
 def sagemaker_params(env: environment.Environment) -> Params:

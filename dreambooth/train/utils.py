@@ -1,5 +1,4 @@
 import hashlib
-import importlib
 import itertools
 import json
 import math
@@ -20,14 +19,9 @@ import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    StableDiffusionPipeline,
-    UNet2DConditionModel,
-)
+from diffusers import (AutoencoderKL, DDPMScheduler, DiffusionPipeline,
+                       DPMSolverMultistepScheduler, StableDiffusionPipeline,
+                       UNet2DConditionModel)
 from peft import LoraConfig, LoraModel, get_peft_model_state_dict
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
@@ -38,15 +32,14 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
 from dreambooth.train.eval import Evaluator
-from dreambooth.train.shared import main_process_only, patch_allowed_pipeline_classes
+from dreambooth.train.shared import (compile_model, main_process_only,
+                                     patch_allowed_pipeline_classes)
 
 T = TypeVar("T")
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
 torch._dynamo.config.suppress_errors = True
-
-BROKEN_COMPILE_CLASSES = {"AutoencoderKL", "LoraModel"}
 
 
 class PromptDataset(Dataset):
@@ -227,12 +220,12 @@ class Trainer:
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
 
         try:
-            from dreambooth.train.accelerators.colossal import (
-                ColossalAccelerator as Accelerator,
-            )
+            from dreambooth.train.accelerators.colossal import \
+                ColossalAccelerator as Accelerator
         except Exception:
             print("ColossalAI not installed, using default Accelerator")
-            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
+            from dreambooth.train.accelerators.hf import \
+                HFAccelerator as Accelerator
 
         self.accelerator = Accelerator(
             params=self.params,
@@ -294,7 +287,7 @@ class Trainer:
         return pipe.to(self.accelerator.device)
 
     def _text_encoder(self, compile: bool = False) -> CLIPTextModel:
-        return self._compile(
+        return compile_model(
             self._spawn(
                 CLIPTextModel,
                 subfolder="text_encoder",
@@ -321,7 +314,7 @@ class Trainer:
 
         vae.requires_grad_(False)
         vae.enable_slicing()
-        return self._compile(vae.to(self.accelerator.device))
+        return compile_model(vae.to(self.accelerator.device))
 
     def _tokenizer(self) -> CLIPTokenizer:
         return self._spawn(
@@ -353,7 +346,7 @@ class Trainer:
                 self._print("Cannot enable xformers memory efficient attention")
                 self._print(e)
 
-        return self._compile(unet, do=compile)
+        return compile_model(unet, do=compile)
 
     @torch.inference_mode()
     def generate_priors(self, progress_bar: bool = False) -> Class:
@@ -639,17 +632,6 @@ class Trainer:
 
         wandb.save(str(self.params.model_output_path / "*"), policy="end")
 
-    def _compile(self, model: T, do: bool = True) -> T:
-        if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
-            return model
-        if do and self.params.dynamo_backend:
-            self._print(f"Compiling {model.__class__.__name__}...")
-            return torch.compile(
-                model, backend=self.params.dynamo_backend, mode="max-autotune"
-            )
-        else:
-            return model
-
     def _init_text(self, init: Optional[torch.Tensor] = None, compile: bool = False):
         tokenizer = self._tokenizer()
         if not tokenizer.add_tokens(self.params.token):
@@ -697,8 +679,8 @@ class Trainer:
             )
 
         self._print("Compiling models...")
-        unet = self._compile(unet)
-        text_encoder = self._compile(text_encoder)
+        unet = compile_model(unet)
+        text_encoder = compile_model(text_encoder)
 
         self._print("Loading dataset...")
 
@@ -872,7 +854,9 @@ class Trainer:
             self.accelerator.unwrap_model(text_encoder, keep_fp32_wrapper=False),
             tokenizer,
         )
+        torch.cuda.empty_cache()
         Evaluator(self.accelerator, self.params).generate()
+        self.accelerator.wait_for_everyone()
         self.accelerator.end_training()
 
 

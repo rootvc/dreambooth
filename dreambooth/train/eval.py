@@ -29,6 +29,7 @@ from transformers import AutoTokenizer, CLIPTextModel
 from dreambooth.params import HyperParams
 from dreambooth.train.accelerators.base import BaseAccelerator
 from dreambooth.train.shared import (
+    compile_model,
     main_process_only,
     partition,
     patch_allowed_pipeline_classes,
@@ -56,10 +57,6 @@ class Evaluator:
     @main_process_only
     def _print(self, *args, **kwargs):
         print(*args, **kwargs)
-
-    def _compile(self, model: T) -> T:
-        self._print(f"Compiling {model.__class__.__name__}")
-        return torch.compile(model, mode="max-autotune")
 
     def _init_text(self):
         tokenizer = AutoTokenizer.from_pretrained(
@@ -153,9 +150,9 @@ class Evaluator:
                 safety_checker=None,
                 low_cpu_mem_usage=True,
                 local_files_only=True,
-                unet=self._compile(unet),
-                text_encoder=self._compile(text_encoder),
-                vae=self._compile(vae),
+                unet=compile_model(unet),
+                text_encoder=compile_model(text_encoder),
+                vae=compile_model(vae),
                 tokenizer=tokenizer,
                 torch_dtype=self.params.dtype,
             )
@@ -177,7 +174,7 @@ class Evaluator:
         return RealESRGANer(
             scale=self.params.upscale_factor,
             model_path="weights/realesrgan/RealESRGAN_x2plus.pth",
-            model=self._compile(model.eval()),
+            model=compile_model(model.eval()),
             pre_pad=0,
             half=True,
             device=self.accelerator.device,
@@ -194,7 +191,7 @@ class Evaluator:
         model.load_state_dict(
             torch.load("weights/codeformer/codeformer.pth")["params_ema"]
         )
-        return self._compile(model.eval())
+        return compile_model(model.eval())
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):
@@ -237,6 +234,9 @@ class Evaluator:
         output = restorer(cropped, w=self.params.fidelity_weight, adain=True)[0]
         restored = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
         helper.add_restored_face(restored, cropped)
+
+        del output
+        torch.cuda.empty_cache()
 
     def _paste_face(
         self,

@@ -5,6 +5,9 @@ import logging
 from contextlib import contextmanager
 from typing import Callable, TypeVar
 
+import torch
+import torch.distributed
+
 T = TypeVar("T")
 
 
@@ -42,3 +45,20 @@ def patch_allowed_pipeline_classes():
 
     for lib in LIBS:
         delattr(pipelines, lib)
+
+
+def is_main():
+    return torch.distributed.get_rank() == 0
+
+
+def compile_model(model: T, do: bool = True) -> T:
+    BROKEN_COMPILE_CLASSES = {"AutoencoderKL"}
+
+    if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
+        return model
+    if do:
+        if is_main():
+            print(f"Compiling {model.__class__.__name__}...")
+        return torch.compile(model, mode="max-autotune")
+    else:
+        return model
