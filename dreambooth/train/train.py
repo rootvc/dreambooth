@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -50,6 +51,31 @@ def _unpack_eval_models(env: environment.Environment):
     os.symlink(models, "weights", target_is_directory=True)
 
 
+def _setup_global_cache(env):
+    import torch._inductor.config
+
+    torch._inductor.config.global_cache_path = (
+        Path(os.environ["TORCHINDUCTOR_CACHE_DIR"]) / "global_cache"
+    )
+
+
+def _persist_global_cache():
+    import torch
+    import torch.version
+
+    cache_dir = Path(os.environ["TORCHINDUCTOR_CACHE_DIR"])
+    local_cache = cache_dir / "local_cache"
+    global_cache = cache_dir / "global_cache"
+
+    dinfo = torch.cuda.get_device_properties(torch.cuda.current_device()).name
+    vinfo = torch.version.cuda
+
+    local_cache_data = json.loads(local_cache.read_text())
+    global_cache_data = {dinfo: {vinfo: local_cache_data}}
+
+    global_cache.write_text(json.dumps(global_cache_data))
+
+
 def sagemaker_params(env: environment.Environment) -> Params:
     train_data = Path(env.channel_input_dirs["train"])
     prior_data = Path(env.channel_input_dirs["prior"])
@@ -67,6 +93,7 @@ def sagemaker_params(env: environment.Environment) -> Params:
     if env.is_main:
         shutil.copytree(cache_data, os.environ["CACHE_DIR"], dirs_exist_ok=True)
         _unpack_eval_models(env)
+        _setup_global_cache(env)
 
     return {"instance_path": train_data, "params": params}
 
@@ -100,6 +127,7 @@ def main():
     finally:
         model.accelerator.wait_for_everyone()
         if env.is_main and env.channel_input_dirs:
+            _persist_global_cache()
             shutil.copytree(
                 os.environ["CACHE_DIR"],
                 env.channel_input_dirs["cache"],
