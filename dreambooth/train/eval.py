@@ -8,6 +8,7 @@ from typing import Iterable, Optional, TypeVar
 import cv2
 import numpy as np
 import torch
+import torch.distributed
 import wandb
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils import img2tensor, tensor2img
@@ -55,9 +56,8 @@ class Evaluator:
         self.params = params
         self.accelerator = accelerator
 
-    @main_process_only
     def _print(self, *args, **kwargs):
-        print(*args, **kwargs)
+        print(f"[{torch.distributed.get_rank()}]", *args, **kwargs)
 
     def _init_text(self):
         tokenizer = AutoTokenizer.from_pretrained(
@@ -197,7 +197,7 @@ class Evaluator:
         model.load_state_dict(
             torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
-        return compile_model(model.eval(), dynamic=True)
+        return model.eval()
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):
@@ -284,15 +284,25 @@ class Evaluator:
         upsampler: RealESRGANer,
         pil_image: Image,
     ) -> Optional[np.ndarray]:
+        helper = self._face_helper()
+        image = self._convert_image(pil_image)
         try:
-            helper = self._face_helper()
-            image = self._convert_image(pil_image)
             face = self._extract_face(helper, image)
-            self._restore_face(restorer, helper, face)
-            return self._paste_face(upsampler, helper, image)
-        except Exception as e:
-            self._print(f"Error: {e}")
+        except ValueError:
             return None
+        self._restore_face(restorer, helper, face)
+        return self._paste_face(upsampler, helper, image)
+
+    @main_process_only
+    def _upload_images(self):
+        self.accelerator.wandb_tracker.log(
+            {
+                "output": [
+                    wandb.Image(str(p))
+                    for p in self.params.image_output_path.glob("*.png")
+                ]
+            }
+        )
 
     @torch.inference_mode()
     def generate(self):
@@ -305,13 +315,12 @@ class Evaluator:
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
 
-        log = []
         for prompt, image in images:
             if not (restored := restore(image)):
                 continue
             slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
             path = str(self.params.image_output_path / f"{slug}.png")
             cv2.imwrite(path, restored)
-            log.append(wandb.Image(path, caption=prompt))
 
-        self.accelerator.wandb_tracker.log({"output": log})
+        self._upload_images()
+        self._print("Done!")

@@ -46,9 +46,15 @@ def _unpack_model(env: environment.Environment, name: str):
 
 
 def _unpack_eval_models(env: environment.Environment):
+    import facelib.utils.misc
+
     params = get_params()
     models = Path(env.channel_input_dirs["model"]) / params.eval_model_path
+    facelib_path = Path(facelib.utils.misc.ROOT_DIR) / "weights"
+
     os.symlink(models, "weights", target_is_directory=True)
+    shutil.rmtree(facelib_path, ignore_errors=True)
+    os.symlink(models, facelib_path, target_is_directory=True)
 
 
 def _setup_global_cache(env):
@@ -124,7 +130,7 @@ def main():
     except Exception:
         if env.is_main:
             model.accelerator.end_training()
-            raise
+        raise
     finally:
         model.accelerator.wait_for_everyone()
         if env.is_main and env.channel_input_dirs:

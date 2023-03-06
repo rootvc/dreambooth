@@ -860,6 +860,7 @@ class Trainer:
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()
+        self._print("Saving model...")
         self._persist(
             self.accelerator.unwrap_model(unet, keep_fp32_wrapper=False),
             self.accelerator.unwrap_model(text_encoder, keep_fp32_wrapper=False),
@@ -868,6 +869,7 @@ class Trainer:
 
     def eval(self):
         self.accelerator.wait_for_everyone()
+        self._print("Running GC...")
         gc.collect()
         torch.cuda.empty_cache()
 
