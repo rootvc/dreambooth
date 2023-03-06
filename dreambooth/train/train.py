@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -130,6 +131,8 @@ def main():
     except Exception:
         if env.is_main:
             model.accelerator.end_training()
+        else:
+            sys.tracebacklimit = 0
         raise
     finally:
         model.accelerator.wait_for_everyone()

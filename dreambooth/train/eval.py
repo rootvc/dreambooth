@@ -165,14 +165,9 @@ class Evaluator:
         return pipeline
 
     def _upsampler(self):
-        model = RRDBNet(
-            num_in_ch=3,
-            num_out_ch=3,
-            num_feat=64,
-            num_block=23,
-            num_grow_ch=32,
-            scale=self.params.upscale_factor,
-        ).to(self.accelerator.device)
+        model = RRDBNet(num_in_ch=3, num_out_ch=3, scale=self.params.upscale_factor).to(
+            self.accelerator.device
+        )
         upsampler = RealESRGANer(
             scale=self.params.upscale_factor,
             model_path=str(
@@ -187,23 +182,16 @@ class Evaluator:
         return upsampler
 
     def _restorer(self):
-        model = ARCH_REGISTRY.get("CodeFormer")(
-            dim_embd=512,
-            codebook_size=1024,
-            n_head=8,
-            n_layers=9,
-            connect_list=["32", "64", "128", "256"],
-        ).to(self.accelerator.device)
+        model = ARCH_REGISTRY.get("CodeFormer")().to(self.accelerator.device)
         model.load_state_dict(
             torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
-        return model.eval()
+        return compile_model(model.eval())
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):
             self.__face_helper = FaceRestoreHelper(
                 self.params.upscale_factor,
-                face_size=self.params.model.resolution,
                 det_model="dlib",
                 use_parse=True,
                 device=self.accelerator.device,
@@ -220,24 +208,31 @@ class Evaluator:
 
     def _extract_face(
         self, helper: FaceRestoreHelper, image: np.ndarray
-    ) -> torch.Tensor:
+    ) -> tuple[np.ndarray, torch.Tensor]:
         helper.read_image(image)
-        if helper.get_face_landmarks_5(only_keep_largest=True) != 1:
+        if (
+            helper.get_face_landmarks_5(
+                only_keep_largest=True,
+                resize=int(self.params.model.resolution * 1.25),
+            )
+            != 1
+        ):
             raise ValueError("No face detected")
         helper.align_warp_face()
         face = helper.cropped_faces[0]
 
         face_t: torch.Tensor = img2tensor(face / 255.0, bgr2rgb=True, float32=True)
         normalize(face_t, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], inplace=True)
-        return face_t.unsqueeze(0).to(self.accelerator.device)
+        return (face, face_t.unsqueeze(0).to(self.accelerator.device))
 
     def _restore_face(
         self,
         restorer: torch.nn.Module,
         helper: FaceRestoreHelper,
-        cropped: torch.Tensor,
+        cropped: np.ndarray,
+        cropped_t: torch.Tensor,
     ):
-        output = restorer(cropped, w=self.params.fidelity_weight, adain=True)[0]
+        output = restorer(cropped_t, w=self.params.fidelity_weight, adain=True)[0]
         restored = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
         helper.add_restored_face(restored, cropped)
 
@@ -287,10 +282,10 @@ class Evaluator:
         helper = self._face_helper()
         image = self._convert_image(pil_image)
         try:
-            face = self._extract_face(helper, image)
+            face, face_t = self._extract_face(helper, image)
         except ValueError:
             return None
-        self._restore_face(restorer, helper, face)
+        self._restore_face(restorer, helper, face, face_t)
         return self._paste_face(upsampler, helper, image)
 
     @main_process_only
@@ -298,7 +293,7 @@ class Evaluator:
         self.accelerator.wandb_tracker.log(
             {
                 "output": [
-                    wandb.Image(str(p))
+                    wandb.Image(str(p), caption=p.stem)
                     for p in self.params.image_output_path.glob("*.png")
                 ]
             }
@@ -316,11 +311,13 @@ class Evaluator:
         restore = partial(self._process_image, restorer, upsampler)
 
         for prompt, image in images:
-            if not (restored := restore(image)):
+            if (restored := restore(image)) is None:
                 continue
             slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
             path = str(self.params.image_output_path / f"{slug}.png")
             cv2.imwrite(path, restored)
 
+        self._print("Waiting for upload...")
+        self.accelerator.wait_for_everyone()
         self._upload_images()
         self._print("Done!")
