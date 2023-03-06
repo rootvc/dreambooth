@@ -49,6 +49,14 @@ def _unpack_eval_models(env: environment.Environment):
     params = get_params()
     models = Path(env.channel_input_dirs["model"]) / params.eval_model_path
     os.symlink(models, "weights", target_is_directory=True)
+    import subprocess
+
+    print("HERE", models, models.exists())
+    subprocess.run(["pwd"])
+    subprocess.run(["ls", "-la", models])
+    subprocess.run(["ls", "-la"])
+    subprocess.run(["ls", "-la", "./weights/"])
+    subprocess.run(["ls", "-la", "./weights/realesrgan"])
 
 
 def _setup_global_cache(env):
@@ -90,10 +98,10 @@ def sagemaker_params(env: environment.Environment) -> Params:
     params.image_output_path = output_data
     params.model_output_path = Path(env.model_dir)
 
+    _setup_global_cache(env)
     if env.is_main:
         shutil.copytree(cache_data, os.environ["CACHE_DIR"], dirs_exist_ok=True)
         _unpack_eval_models(env)
-        _setup_global_cache(env)
 
     return {"instance_path": train_data, "params": params}
 
@@ -120,6 +128,7 @@ def main():
     try:
         model.accelerator.wait_for_everyone()
         model.train()
+        model.eval()
     except Exception:
         if env.is_main:
             model.accelerator.end_training()

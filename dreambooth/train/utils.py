@@ -1,3 +1,4 @@
+import gc
 import hashlib
 import itertools
 import json
@@ -864,7 +865,12 @@ class Trainer:
             self.accelerator.unwrap_model(text_encoder, keep_fp32_wrapper=False),
             tokenizer,
         )
+
+    def eval(self):
+        self.accelerator.wait_for_everyone()
+        gc.collect()
         torch.cuda.empty_cache()
+
         Evaluator(self.accelerator, self.params).generate()
         self.accelerator.wait_for_everyone()
         self.accelerator.end_training()

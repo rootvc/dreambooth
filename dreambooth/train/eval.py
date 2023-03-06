@@ -2,6 +2,7 @@ import itertools
 import json
 import re
 from functools import partial
+from pathlib import Path
 from typing import Iterable, TypeVar
 
 import cv2
@@ -114,6 +115,7 @@ class Evaluator:
             .requires_grad_(False)
             .eval()
         )
+        vae.enable_slicing()
         return vae
 
     def _load_pipeline(self) -> StableDiffusionPipeline:
@@ -171,9 +173,11 @@ class Evaluator:
             num_grow_ch=32,
             scale=self.params.upscale_factor,
         ).to(self.accelerator.device)
+        path = Path("./weights/realesrgan/RealESRGAN_x2plus.pth")
+        print(path, path.absolute())
         return RealESRGANer(
             scale=self.params.upscale_factor,
-            model_path="./weights/realesrgan/RealESRGAN_x2plus.pth",
+            model_path=str(path.absolute()),
             model=compile_model(model.eval()),
             pre_pad=0,
             half=True,
