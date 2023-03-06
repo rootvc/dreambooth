@@ -151,7 +151,7 @@ def main():
                     "-ahSD",
                     "--no-whole-file",
                     "--no-compress",
-                    "--progress",
+                    "--info=progress2",
                     "--inplace",
                     os.environ["CACHE_DIR"],
                     env.channel_input_dirs["cache"],

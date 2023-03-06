@@ -109,7 +109,7 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 380
+    validate_after_steps: int = 20  # 380
     validate_every_epochs: Optional[int] = None
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
@@ -117,14 +117,14 @@ class HyperParams(BaseModel):
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
 
     # Eval
-    eval_template: str = f"a photo of a {token}, {{prompt}}, perfect face, highly detailed portrait, sharp"
     eval_prompts: list[str] = [
-        "cartoon anime character, shonen jump",
-        "gorgeous, ((stunning)), tight silver jacket, samadhi loving serene, ((35mm head and shoulders portrait, looking into camera)), intricate, 8k, volumetric lighting, digital painting, intense gaze, ((Alena Aenami))",
-        "impressionist painting, Daniel F Gerhartz, nature",
-        "pencil sketch, 4 k, 8 k, absolute detail, black and white drawing",
-        "colorful cinematic still with glasses, armor, cyberpunk, with a xenonorph, in alien movie (1986),background made of brain cells, organic, ultrarealistic, leic 30mm",
-        "Retro comic style artwork, highly detailed James Bond, comic book cover, symmetrical, vibrant, colorful",
+        f"a photo of a {token} in a cowboy costume, with a wild west scene in the background",
+        f"closeup portrait painting of a {token} as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, photorealistic, octane render, 8 k, unreal engine. art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand, looking towards the camera.",
+        f"closeup portrait of a {token} as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
+        f"closeup portrait of a {token} as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
+        f"closeup portrait of a {token} as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
+        f"closeup portrait of a {token} as a jedi with a lightsaber, highly detailed, science fiction, star wars concept art, intricate details, bright colors, golden hour, art by marko djurdjevic, greg rutkowski, wlop, fredperry, digital painting, rossdraws.",
+        f"closeup portrait of a {token} as a ninja, wearing a black hood and suit, stealthy movements, dark night background, shadows and mist, detailed and realistic, art by kazuya yamashita, yuya kanzaki, yang zhizhuo, digital painting, photorealism, 8k resolution.",
     ]
 
     upscale_factor: int = 2

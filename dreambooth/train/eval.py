@@ -51,7 +51,7 @@ class PromptDataset(Dataset):
         return len(self.params.eval_prompts)
 
     def __getitem__(self, i: int):
-        return [self.params.eval_template.format(prompt=self.params.eval_prompts[i])]
+        return self.params.eval_prompts[i]
 
 
 class Evaluator:
@@ -93,6 +93,8 @@ class Evaluator:
         return tokenizer, text_encoder
 
     def _unet(self):
+        from diffusers.models.cross_attention import AttnProcessor2_0
+
         unet = (
             UNet2DConditionModel.from_pretrained(
                 self.params.model.name,
@@ -104,6 +106,8 @@ class Evaluator:
             .requires_grad_(False)
             .eval()
         )
+        unet.set_attention_slice("auto")
+        unet.set_attn_processor(AttnProcessor2_0())
         return unet
 
     def _vae(self):
@@ -178,7 +182,7 @@ class Evaluator:
             half=True,
             device=self.accelerator.device,
         )
-        upsampler.model = compile_model(upsampler.model)
+        upsampler.model = compile_model(upsampler.model, do=False)
         return upsampler
 
     def _restorer(self):
@@ -186,7 +190,7 @@ class Evaluator:
         model.load_state_dict(
             torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
-        return compile_model(model.eval())
+        return compile_model(model.eval(), do=False)
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):

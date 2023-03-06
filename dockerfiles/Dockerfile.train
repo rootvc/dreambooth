@@ -2,9 +2,74 @@
 
 FROM rootventures/pytorch:latest AS build
 
+WORKDIR /
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  apt-get update && \
+  apt-get install -y build-essential cmake pkg-config wget unzip && \
+  apt-get install -y libjpeg-dev libtiff-dev libpng-dev libswscale-dev && \
+  apt-get install -y libatlas-base-dev gfortran && \
+  rm -rf /var/lib/apt/lists/*
+
 ADD environment.txt environment.txt
 RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy \
   --file environment.txt
+
+RUN --mount=type=cache,target=/opt/ccache \
+  wget https://github.com/opencv/opencv/archive/refs/tags/4.7.0.zip -O opencv.zip && \
+  wget https://github.com/opencv/opencv_contrib/archive/refs/tags/4.7.0.zip -O opencv_contrib.zip && \
+  unzip opencv.zip && \
+  unzip opencv_contrib.zip && \
+  rm opencv.zip && \
+  cd opencv-4.7.0 && \
+  mkdir build && \
+  cd build && \
+  export python_exec=`which python` && \
+  export python_prefix=`python -c "import sys; print(sys.prefix)"` && \
+  export include_dir=`python -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())"` && \
+  export library=`python -c "import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBDIR'))"` && \
+  cmake \
+  -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib-4.7.0/modules \
+  -D CMAKE_BUILD_TYPE=RELEASE \
+  -D CMAKE_INSTALL_PREFIX=$python_prefix \
+  -D WITH_TBB=ON \
+  -D WITH_CUDA=ON \
+  -D WITH_CUDNN=ON \
+  -D OPENCV_DNN_CUDA=ON \
+  -D ENABLE_FAST_MATH=1 \
+  -D CUDA_FAST_MATH=1 \
+  -D WITH_CUBLAS=1 \
+  -D BUILD_opencv_python3=ON \
+  -D BUILD_opencv_python2=OFF \
+  -D BUILD_opencv_apps=OFF \
+  -D BUILD_TESTS=OFF \
+  -D BUILD_PERF_TESTS=OFF \
+  -D BUILD_JAVA=OFF \
+  -D BUILD_FAT_JAVA_LIB=OFF \
+  -D INSTALL_PYTHON_EXAMPLES=OFF \
+  -D PYTHON_EXECUTABLE=$python_exec \
+  -D PYTHON_DEFAULT_EXECUTABLE=$python_exec \
+  -D PYTHON_INCLUDE_DIRS=$include_dir \
+  -D PYTHON_LIBRARY=$library \
+  -D BUILD_EXAMPLES=OFF \
+  -D BUILD_SHARED_LIBS=ON \
+  -D CUDA_ARCH_BIN=${TORCH_CUDA_ARCH_LIST} \
+  -D WITH_GTK=OFF \
+  -D WITH_FFMPEG=OFF \
+  -D WITH_QT=OFF \
+  -D WITH_V4L=OFF \
+  -D WITH_JASPER=OFF \
+  -D WITH_GSTREAMER=OFF \
+  -D INSTALL_PYTHON_EXAMPLES=OFF \
+  -D INSTALL_C_EXAMPLES=OFF \
+  -D BUILD_EXAMPLES=OFF \
+  -D BUILD_DOCS=OFF \
+  -D OPENCV_ENABLE_NONFREE=ON \
+  .. && \
+  make -j"$(nproc)" && \
+  make install && \
+  rm -rf /opencv-4.7.0 && \
+  rm -rf /opencv_contrib-4.7.0
 
 ADD requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \

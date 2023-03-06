@@ -1,3 +1,2 @@
 # bitsandbytes>=0.36.0,!=0.37.*
-opencv-python-headless>=4.7.0
 git+https://github.com/huggingface/peft.git@main#egg=peft

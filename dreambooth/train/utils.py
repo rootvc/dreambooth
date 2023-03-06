@@ -849,7 +849,6 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
-                self._do_validation(unet, models)
                 break
 
             if (
