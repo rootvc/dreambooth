@@ -51,8 +51,8 @@ def is_main():
     return torch.distributed.get_rank() == 0
 
 
-def compile_model(model: T, do: bool = True) -> T:
-    BROKEN_COMPILE_CLASSES = {"AutoencoderKL"}
+def compile_model(model: T, do: bool = True, ignore: set[str] = set()) -> T:
+    BROKEN_COMPILE_CLASSES = {"AutoencoderKL"} | ignore
 
     if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
         return model
@@ -62,3 +62,7 @@ def compile_model(model: T, do: bool = True) -> T:
         return torch.compile(model, mode="max-autotune")
     else:
         return model
+
+
+def make_compile_model(ignore: set[str]):
+    return functools.partial(compile_model, ignore=ignore)
