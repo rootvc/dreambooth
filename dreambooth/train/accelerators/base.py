@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import (
-    Any,
-    Callable,
     Generator,
     Iterable,
     Optional,
@@ -35,16 +33,18 @@ class BaseAccelerator(ABC):
 
     @overload
     @abstractmethod
-    def prepare(self, model: T) -> T:
+    def prepare(self, model: T, **kwargs) -> T:
         pass
 
     @overload
     @abstractmethod
-    def prepare(self, model: T, *models: Unpack[Ts]) -> tuple[T, Unpack[Ts]]:
+    def prepare(self, model: T, *models: Unpack[Ts], **kwargs) -> tuple[T, Unpack[Ts]]:
         pass
 
     @abstractmethod
-    def prepare(self, model: T, *models: Unpack[Ts]) -> Union[T, tuple[T, Unpack[Ts]]]:
+    def prepare(
+        self, model: T, *models: Unpack[Ts], **kwargs
+    ) -> Union[T, tuple[T, Unpack[Ts]]]:
         pass
 
     @contextmanager
@@ -111,4 +111,8 @@ class BaseAccelerator(ABC):
 
     @abstractmethod
     def save(self, obj, f):
+        pass
+
+    @abstractmethod
+    def free_memory(self):
         pass

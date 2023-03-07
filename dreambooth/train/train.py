@@ -12,7 +12,7 @@ from sagemaker_training import environment
 
 from dreambooth.params import Class
 from dreambooth.train.shared import dprint
-from dreambooth.train.utils import HyperParams, get_model, get_params
+from dreambooth.train.utils import HyperParams, get_model, get_params, hash_bytes
 
 IGNORE_MODS = ["_functorch", "fmha", "torchvision", "tempfile"]
 IGNORE_RE = r"|".join([rf"(.*)\.{mod}\.(.*)" for mod in IGNORE_MODS])
@@ -85,10 +85,15 @@ def _persist_global_cache():
 
     dprint("Reading local cache...")
     local_cache_data = json.loads(local_cache.read_text())
-    global_cache_data = {dinfo: {vinfo: local_cache_data}}
+    if global_cache.exists():
+        global_cache_data = json.loads(global_cache.read_text())
+    else:
+        global_cache_data = {}
+    global_cache_data[dinfo][vinfo] = local_cache_data
 
     dprint("Writing global cache...")
     global_cache.write_text(json.dumps(global_cache_data))
+
     dprint("Removing local cache...")
     local_cache.unlink()
 
@@ -115,12 +120,55 @@ def sagemaker_params(env: environment.Environment) -> Params:
     return {"instance_path": train_data, "params": params}
 
 
+def sagemaker_cleanup(env: environment.Environment):
+    dprint("Persisting global cache...")
+    _persist_global_cache()
+    dprint("Copying cache back to S3...")
+    subprocess.run(
+        [
+            "rsync",
+            "-ahSD",
+            "--no-whole-file",
+            "--no-compress",
+            "--stats",
+            "--inplace",
+            f"{os.environ['CACHE_DIR']}/",
+            env.channel_input_dirs["cache"],
+        ]
+    )
+
+
 def standalone_params(env: environment.Environment):
-    # import boto
-    # download input data, and upload output at end (both to S3)
+    from cloudpathlib import CloudPath
+
+    train_data = Path(env.channel_input_dirs["train"])
+    prior_data = Path(env.channel_input_dirs["prior"])
+    output_data = Path(env.channel_input_dirs["output"])
+
+    id = os.environ["DREAMBOOTH_ID"]
+    bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
+
+    (bucket / "dataset" / id).download_to(train_data)
+    if not prior_data.exists():
+        hash = hash_bytes(HyperParams().prior_prompt.encode())
+        (bucket / "priors" / hash).download_to(prior_data)
+
     params = get_params()
-    example_data = Path(__file__).parent.parent / "data" / "example"
-    return {"instance_path": example_data, "params": params}
+    params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
+    params.image_output_path = output_data
+    params.model_output_path = Path(env.model_dir)
+
+    return {"instance_path": train_data, "params": params}
+
+
+def standalone_cleanup(env: environment.Environment):
+    from cloudpathlib import CloudPath
+
+    id = os.environ["DREAMBOOTH_ID"]
+    bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
+
+    (bucket / "output" / id).upload_from(env.channel_input_dirs["output"])
+    (bucket / "output" / id / "model").upload_from(env.model_dir)
 
 
 def main():
@@ -129,34 +177,23 @@ def main():
 
     if env.channel_input_dirs:
         params = sagemaker_params(env)
-    else:
+        cleanup_fn = sagemaker_cleanup
+    elif id is not None:
         params = standalone_params(env)
+        cleanup_fn = standalone_cleanup
+    else:
+        raise ValueError("No input data provided!")
 
     model = get_model(**params)
     model.accelerator.wait_for_everyone()
 
     try:
-        model.train()
-        model.eval()
+        pipeline = model.train()
+        model.eval(pipeline)
     finally:
         if env.is_main:
             model.accelerator.end_training()
-        if env.is_main and env.channel_input_dirs:
-            dprint("Persisting global cache...")
-            _persist_global_cache()
-            dprint("Copying cache back to S3...")
-            subprocess.run(
-                [
-                    "rsync",
-                    "-ahSD",
-                    "--no-whole-file",
-                    "--no-compress",
-                    "--info=progress2",
-                    "--inplace",
-                    os.environ["CACHE_DIR"],
-                    env.channel_input_dirs["cache"],
-                ]
-            )
+            cleanup_fn(env)
 
         dprint("Exiting!")
 

@@ -1,6 +1,5 @@
+import hashlib
 import itertools
-import json
-import re
 import shutil
 from datetime import timedelta
 from functools import partial
@@ -16,19 +15,11 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils import img2tensor, tensor2img
 from basicsr.utils.realesrgan_utils import RealESRGANer
 from basicsr.utils.registry import ARCH_REGISTRY
-from diffusers import (
-    AutoencoderKL,
-    DiffusionPipeline,
-    DPMSolverMultistepScheduler,
-    UNet2DConditionModel,
-)
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
 from facelib.utils.face_restoration_helper import FaceRestoreHelper
-from peft import LoraConfig, LoraModel, set_peft_model_state_dict
 from PIL.Image import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import normalize
-from transformers import AutoTokenizer, CLIPTextModel
 
 from dreambooth.params import HyperParams
 from dreambooth.train.accelerators.base import BaseAccelerator
@@ -36,8 +27,6 @@ from dreambooth.train.shared import (
     compile_model,
     dprint,
     main_process_only,
-    partition,
-    patch_allowed_pipeline_classes,
 )
 
 T = TypeVar("T", bound=torch.nn.Module)
@@ -51,122 +40,22 @@ class PromptDataset(Dataset):
         return len(self.params.eval_prompts)
 
     def __getitem__(self, i: int):
-        return self.params.eval_prompts[i]
+        return [self.params.eval_prompts[i]]
 
 
 class Evaluator:
-    def __init__(self, accelerator: BaseAccelerator, params: HyperParams):
+    def __init__(
+        self,
+        accelerator: BaseAccelerator,
+        params: HyperParams,
+        pipeline: StableDiffusionPipeline,
+    ):
         self.params = params
         self.accelerator = accelerator
+        self.pipeline = pipeline
 
-    def _init_text(self):
-        tokenizer = AutoTokenizer.from_pretrained(
-            self.params.model.name,
-            revision=self.params.model.revision,
-            subfolder="tokenizer",
-            use_fast=False,
-        )
-        assert tokenizer.add_tokens(self.params.token) == 1
-
-        text_encoder = (
-            CLIPTextModel.from_pretrained(
-                self.params.model.name,
-                revision=self.params.model.revision,
-                subfolder="text_encoder",
-                torch_dtype=self.params.dtype,
-            )
-            .to(self.accelerator.device)
-            .requires_grad_(False)
-            .eval()
-        )
-        text_encoder.resize_token_embeddings(len(tokenizer))
-
-        token_id = tokenizer.convert_tokens_to_ids(self.params.token)
-        embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
-        token_embedding = torch.load(
-            self.params.model_output_path / "token_embedding.pt",
-            map_location=self.accelerator.device,
-        )
-
-        embeds[token_id] = token_embedding[self.params.token]
-
-        return tokenizer, text_encoder
-
-    def _unet(self):
-        from diffusers.models.cross_attention import AttnProcessor2_0
-
-        unet = (
-            UNet2DConditionModel.from_pretrained(
-                self.params.model.name,
-                revision=self.params.model.revision,
-                subfolder="unet",
-                torch_dtype=self.params.dtype,
-            )
-            .to(self.accelerator.device)
-            .requires_grad_(False)
-            .eval()
-        )
-        unet.set_attention_slice("auto")
-        unet.set_attn_processor(AttnProcessor2_0())
-        return unet
-
-    def _vae(self):
-        vae = (
-            AutoencoderKL.from_pretrained(
-                self.params.model.vae, torch_dtype=self.params.dtype
-            )
-            .to(self.accelerator.device)
-            .requires_grad_(False)
-            .eval()
-        )
-        vae.enable_slicing()
-        return vae
-
-    def _load_pipeline(self) -> StableDiffusionPipeline:
-        tokenizer, text_encoder = self._init_text()
-        unet, vae = self._unet(), self._vae()
-        device = self.accelerator.device
-
-        config = json.loads(
-            (self.params.model_output_path / "lora_config.json").read_text()
-        )
-        state = torch.load(
-            self.params.model_output_path / "lora_weights.pt",
-            map_location=device,
-        )
-        unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
-
-        unet = LoraModel(LoraConfig(**config["unet_peft"]), unet).to(
-            device, dtype=self.params.dtype
-        )
-        set_peft_model_state_dict(unet, unet_state)
-
-        text_encoder = LoraModel(LoraConfig(**config["text_peft"]), text_encoder).to(
-            device, dtype=self.params.dtype
-        )
-        set_peft_model_state_dict(
-            text_encoder,
-            {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
-        )
-
-        with patch_allowed_pipeline_classes():
-            pipeline = DiffusionPipeline.from_pretrained(
-                self.params.model.name,
-                revision=self.params.model.revision,
-                safety_checker=None,
-                low_cpu_mem_usage=True,
-                local_files_only=True,
-                unet=unet,
-                text_encoder=compile_model(text_encoder),
-                vae=compile_model(vae),
-                tokenizer=tokenizer,
-                torch_dtype=self.params.dtype,
-            )
-        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
-            pipeline.scheduler.config
-        )
-
-        return pipeline
+    def compile(self, model: torch.nn.Module, **kwargs):
+        return compile_model(model, backend=self.params.dynamo_backend, **kwargs)
 
     def _upsampler(self):
         model = RRDBNet(num_in_ch=3, num_out_ch=3, scale=self.params.upscale_factor).to(
@@ -182,7 +71,7 @@ class Evaluator:
             half=True,
             device=self.accelerator.device,
         )
-        upsampler.model = compile_model(upsampler.model, do=False)
+        upsampler.model = self.compile(upsampler.model)
         return upsampler
 
     def _restorer(self):
@@ -190,7 +79,7 @@ class Evaluator:
         model.load_state_dict(
             torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
-        return compile_model(model.eval(), do=False)
+        return self.compile(model.eval())
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):
@@ -236,21 +125,11 @@ class Evaluator:
         cropped: np.ndarray,
         cropped_t: torch.Tensor,
     ):
-        dprint("Output")
-        try:
-            output = restorer(cropped_t, w=self.params.fidelity_weight, adain=True)[0]
-        except Exception as e:
-            dprint("Error")
-            dprint(e)
-            raise e
-        dprint("Restored")
+        output = restorer(cropped_t, w=self.params.fidelity_weight, adain=True)[0]
         restored = tensor2img(output, rgb2bgr=True, min_max=(-1, 1))
-        dprint("Heloer")
         helper.add_restored_face(restored, cropped)
 
-        dprint("Del")
         del output
-        dprint("Empty")
         torch.cuda.empty_cache()
 
     def _paste_face(
@@ -266,10 +145,8 @@ class Evaluator:
         )
 
     def _gen_images(self) -> list[tuple[str, Image]]:
-        pipeline = self._load_pipeline()
         loader = DataLoader(
             PromptDataset(self.params),
-            batch_size=self.params.batch_size,
             collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
         )
         loader = self.accelerator.prepare(loader)
@@ -278,9 +155,10 @@ class Evaluator:
         all_images = []
         for i, prompts in enumerate(loader):
             dprint(f"Batch {i * torch.cuda.device_count()}/{len(loader)}")
-            images = pipeline(
-                prompts,
-                negative_prompt=[self.params.negative_prompt] * len(prompts),
+            assert len(prompts) == 1
+            images = self.pipeline(
+                prompts[0],
+                negative_prompt=self.params.negative_prompt,
                 num_inference_steps=self.params.validation_steps,
             ).images
             all_images.extend(zip(prompts, images))
@@ -312,32 +190,48 @@ class Evaluator:
             self.accelerator.wandb_tracker.log(
                 {
                     key: [
-                        wandb.Image(str(p), caption=p.stem)
+                        wandb.Image(
+                            str(p),
+                            caption=(self.params.image_output_path / "prompt" / p.stem)
+                            .with_suffix(".txt")
+                            .read_text(),
+                        )
                         for p in (self.params.image_output_path / key).glob("*.png")
                     ]
                 }
             )
 
+    def _paths(self):
+        paths = [
+            self.params.image_output_path / "prompt",
+            self.params.image_output_path / "original",
+            self.params.image_output_path / "restored",
+        ]
+        if self.accelerator.is_main_process:
+            for path in paths:
+                shutil.rmtree(path, ignore_errors=True)
+                path.mkdir(exist_ok=True)
+        return paths
+
     @torch.inference_mode()
     def generate(self):
         dprint("Generating images...")
         images = self._gen_images()
-        torch.cuda.empty_cache()
+        del self.pipeline
+        self.accelerator.free_memory()
+
+        prompt_path, original_path, restored_path = self._paths()
+        self.accelerator.wait_for_everyone()
 
         dprint("Compiling face models...")
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
 
-        original_path = self.params.image_output_path / "original"
-        restored_path = self.params.image_output_path / "restored"
-        for path in (original_path, restored_path):
-            shutil.rmtree(path, ignore_errors=True)
-            path.mkdir(exist_ok=True)
-
         dprint(f"Saving {len(images)} images...")
         for prompt, image in images:
             dprint(prompt)
-            slug = re.sub(r"[^\w]+", "_", re.sub(r"[\(\)]+", "", prompt))[:30]
+            slug = hashlib.md5(prompt.encode()).hexdigest()
+            (prompt_path / f"{slug}.txt").write_text(prompt)
             image.save(original_path / f"{slug}.png")
 
             dprint("Restoring...")

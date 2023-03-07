@@ -4,10 +4,11 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from enum import Enum, auto
 from functools import lru_cache, partial
 from operator import attrgetter
-from typing import Iterable, Literal, Optional, Type
+from typing import Iterable, Optional, Type
 
 import boto3
 from cloudpathlib import CloudPath
@@ -29,7 +30,6 @@ except ImportError:
 
 class IntanceConfig(BaseModel):
     instance: str
-    dtype: Literal["bf16", "fp16"]
 
     class Config:
         frozen = True
@@ -50,31 +50,32 @@ class TrainJob:
     MAX_WAIT = 60 * 10
 
     DEFAULT_MULTI_INSTANCES = [
-        IntanceConfig(instance="ml.g5.48xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.p3dn.24xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.p4d.24xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.48xlarge"),
+        IntanceConfig(instance="ml.p3dn.24xlarge"),
+        IntanceConfig(instance="ml.p4d.24xlarge"),
+        IntanceConfig(instance="ml.p4de.24xlarge"),
     ]
 
     DEFAULT_BUDGET_MULTI_INSTANCES = [
-        IntanceConfig(instance="ml.g5.12xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.g5.24xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.p3.8xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.p3.16xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.12xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g5.12xlarge"),
+        IntanceConfig(instance="ml.g5.24xlarge"),
+        IntanceConfig(instance="ml.p3.8xlarge"),
+        IntanceConfig(instance="ml.p3.16xlarge"),
+        IntanceConfig(instance="ml.g4dn.12xlarge"),
     ]
 
     DEFAULT_MODERN_SINGLE_INSTANCES = [
-        IntanceConfig(instance="ml.g5.8xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.g5.4xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.g5.2xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.g5.16xlarge", dtype="bf16"),
-        IntanceConfig(instance="ml.g5.xlarge", dtype="bf16"),
+        IntanceConfig(instance="ml.g5.8xlarge"),
+        IntanceConfig(instance="ml.g5.4xlarge"),
+        IntanceConfig(instance="ml.g5.2xlarge"),
+        IntanceConfig(instance="ml.g5.16xlarge"),
+        IntanceConfig(instance="ml.g5.xlarge"),
     ]
 
     DEFAULT_BUDGET_INSTANCES = [
-        IntanceConfig(instance="ml.g4dn.8xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.p3.2xlarge", dtype="fp16"),
-        IntanceConfig(instance="ml.g4dn.16xlarge", dtype="fp16"),
+        IntanceConfig(instance="ml.g4dn.8xlarge"),
+        IntanceConfig(instance="ml.p3.2xlarge"),
+        IntanceConfig(instance="ml.g4dn.16xlarge"),
     ]
 
     estimator: Estimator
@@ -103,14 +104,20 @@ class TrainJob:
 
         match self.instance_optimizer:
             case InstanceOptimizer.COST:
-                return map(
-                    partial(sorted, key=attrgetter("instance")),
-                    instances,
+                return sum(
+                    map(
+                        partial(sorted, key=attrgetter("instance")),
+                        instances,
+                    ),
+                    [],
                 )
             case InstanceOptimizer.TIME:
-                return map(
-                    partial(sorted, reverse=True, key=attrgetter("instance")),
-                    reversed(instances),
+                return sum(
+                    map(
+                        partial(sorted, reverse=True, key=attrgetter("instance")),
+                        reversed(instances),
+                    ),
+                    [],
                 )
             case InstanceOptimizer.BALANCE:
                 return sum(reversed(instances), [])
@@ -133,6 +140,9 @@ class TrainJob:
     @property
     def priors_hash(self):
         return hash_bytes(HyperParams().prior_prompt.encode())
+
+    def job_base_name(self, config: IntanceConfig):
+        return f"dreambooth-{config.instance.replace('.', '')}-{self.id}"
 
     @property
     def keep_alive(self):
@@ -224,6 +234,7 @@ class TrainJob:
         estimator = self.estimator = Estimator(
             image_uri="630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest",
             role="SageMakerRole",
+            base_job_name=self.job_base_name(config),
             use_spot_instances=self.use_spot(config),
             max_run=self.MAX_RUN,
             max_wait=self.MAX_RUN + self.MAX_WAIT if self.use_spot(config) else None,
@@ -235,7 +246,8 @@ class TrainJob:
                 "WANDB_GIT_REMOTE_URL": repo.url,
                 "WANDB_NOTES": repo.refs.main.commit.summary,
                 "INSTANCE_TYPE": config.instance,
-                "ACCELERATE_MIXED_PRECISION": config.dtype,
+                "DREAMBOOTH_ID": self.id,
+                "DREAMBOOTH_BUCKET": self.BUCKET,
             },
             subnets=["subnet-0425d46d0751e9df0"],
             security_group_ids=["sg-0edc333b71f1d600d"],
@@ -279,6 +291,7 @@ class TrainJob:
                     file_system_access_mode="rw",
                 ),
             },
+            job_name=f"{self.job_base_name(config)}-{int(time.time())}",
             wait=False,
         )
         return estimator
@@ -289,9 +302,13 @@ class TrainJob:
         if not transitions:
             return None
         print(transitions[-1])
-        if "Insufficient capacity" in transitions[-1]["StatusMessage"]:
+        if transitions[-1]["Status"] == "Failed":
+            return False
+        elif "Insufficient capacity" in transitions[-1]["StatusMessage"]:
             estimator.latest_training_job.stop()
             return False
+        elif "Starting" in transitions[-1]["StatusMessage"]:
+            return None
         return True
 
     async def _wait_for_start(self, estimator: Estimator):
@@ -304,8 +321,6 @@ class TrainJob:
                     return x
                 case None:
                     await asyncio.sleep(5)
-
-        return estimator
 
     async def _wait_for_finish(self, estimator: Estimator):
         while (
@@ -320,7 +335,7 @@ class TrainJob:
 
     async def run(self):
         for config in self.instance_options:
-            print(f"[bold red]Running {config.instance} {config.dtype}...[/bold red]")
+            print(f"[bold red]Running {config.instance}...[/bold red]")
             try:
                 estimator = await self._run(config)
             except Exception as e:
@@ -342,7 +357,7 @@ class TrainJob:
 
 
 def run(id: str):
-    asyncio.run(TrainJob(id).run_and_wait())
+    asyncio.run(TrainJob(id, optimizer=InstanceOptimizer.TIME).run_and_wait())
 
 
 if __name__ == "__main__":

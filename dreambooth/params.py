@@ -69,7 +69,7 @@ class Model(BaseModel):
 
 class HyperParams(BaseModel):
     dtype: torch.dtype = torch.float16
-    gradient_accumulation_steps: int = 2
+    gradient_accumulation_steps: int = 1
 
     # Model
     source_token: str = "person"
@@ -89,7 +89,8 @@ class HyperParams(BaseModel):
     epsilon: float = 1e-8
 
     # Training
-    dynamo_backend: Optional[str] = "inductor"
+    dynamo_backend: Optional[str] = None
+    use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 12
     train_epochs: int = 35
@@ -109,7 +110,7 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 20  # 380
+    validate_after_steps: int = 380
     validate_every_epochs: Optional[int] = None
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 4
@@ -118,13 +119,16 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"a photo of a {token} in a cowboy costume, with a wild west scene in the background",
-        f"closeup portrait painting of a {token} as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, photorealistic, octane render, 8 k, unreal engine. art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand, looking towards the camera.",
-        f"closeup portrait of a {token} as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
-        f"closeup portrait of a {token} as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
-        f"closeup portrait of a {token} as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
-        f"closeup portrait of a {token} as a jedi with a lightsaber, highly detailed, science fiction, star wars concept art, intricate details, bright colors, golden hour, art by marko djurdjevic, greg rutkowski, wlop, fredperry, digital painting, rossdraws.",
-        f"closeup portrait of a {token} as a ninja, wearing a black hood and suit, stealthy movements, dark night background, shadows and mist, detailed and realistic, art by kazuya yamashita, yuya kanzaki, yang zhizhuo, digital painting, photorealism, 8k resolution.",
+        f"a photo of a {token}, in a cowboy costume",
+        f"a photo of a {token}, as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, octane render, 8 k, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand",
+        f"a photo of a {token}, as a viking, ultra realistic, intricate details, powerful and fierce, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha",
+        f"a photo of a {token}, as a viking, golden hour, horns and braids in hair, fur-lined cape and helmet, with axe in hand",
+        f"closeup portrait painting of a {token}, as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, octane render, 8 k, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand",
+        f"closeup portrait of a {token}, as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
+        f"closeup portrait of a {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
+        f"closeup portrait of a {token}, as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
+        # f"closeup portrait of a {token}, as a jedi with a lightsaber, highly detailed, science fiction, star wars concept art, intricate details, bright colors, golden hour, art by marko djurdjevic, greg rutkowski, wlop, fredperry, digital painting, rossdraws.",
+        # f"closeup portrait of a {token}, as a ninja, wearing a black hood and suit, stealthy movements, dark night background, shadows and mist, detailed and realistic, art by kazuya yamashita, yuya kanzaki, yang zhizhuo, digital painting, photorealism, 8k resolution.",
     ]
 
     upscale_factor: int = 2

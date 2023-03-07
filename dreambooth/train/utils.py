@@ -1,4 +1,4 @@
-import gc
+import copy
 import hashlib
 import itertools
 import json
@@ -6,11 +6,12 @@ import math
 import os
 import tempfile
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import timedelta
 from functools import cached_property, lru_cache, partial
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union, cast
 
 import torch
 import torch._dynamo
@@ -18,11 +19,12 @@ import torch._dynamo.config
 import torch.backends.cuda
 import torch.backends.cudnn
 import torch.distributed
+import torch.distributed.elastic.multiprocessing.errors
 import torch.jit
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from accelerate.utils import InitProcessGroupKwargs
+from accelerate.utils import InitProcessGroupKwargs, release_memory
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
@@ -31,7 +33,14 @@ from diffusers import (
     StableDiffusionPipeline,
     UNet2DConditionModel,
 )
-from peft import LoraConfig, LoraModel, get_peft_model_state_dict
+from diffusers.loaders import AttnProcsLayers
+from diffusers.models.cross_attention import LoRACrossAttnProcessor
+from peft import (
+    LoraConfig,
+    LoraModel,
+    get_peft_model_state_dict,
+    set_peft_model_state_dict,
+)
 from PIL import Image
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, Dataset
@@ -42,19 +51,18 @@ from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
 from dreambooth.train.eval import Evaluator
 from dreambooth.train.shared import (
+    compile_model,
     dprint,
     main_process_only,
-    make_compile_model,
     patch_allowed_pipeline_classes,
 )
 
-compile_model = make_compile_model({"LoraModel"})
-
 T = TypeVar("T")
 
-torch.backends.cuda.matmul.allow_tf32 = True
+
 torch.backends.cudnn.benchmark = True
 torch._dynamo.config.suppress_errors = True
+torch._dynamo.config.cache_size_limit = 64 * 2
 
 
 class PromptDataset(Dataset):
@@ -258,6 +266,9 @@ class Trainer:
 
         self._total_steps = 0
 
+    def compile(self, model: torch.nn.Module, **kwargs):
+        return compile_model(model, backend=self.params.dynamo_backend, **kwargs)
+
     @lru_cache(maxsize=1)
     def token_id(self, tokenizer: CLIPTokenizer):
         return tokenizer.convert_tokens_to_ids(self.params.token)
@@ -280,7 +291,7 @@ class Trainer:
         vae: Optional[AutoencoderKL] = None,
         tokenizer: Optional[CLIPTokenizer] = None,
         **kwargs,
-    ):
+    ) -> StableDiffusionPipeline:
         with patch_allowed_pipeline_classes():
             pipe = self._spawn(
                 DiffusionPipeline,
@@ -296,22 +307,25 @@ class Trainer:
                 **kwargs,
             )
 
-        return pipe.to(self.accelerator.device)
+        if "device_map" not in kwargs:
+            pipe.to(self.accelerator.device)
+        return pipe
 
-    def _text_encoder(self, compile: bool = False) -> CLIPTextModel:
-        return compile_model(
-            self._spawn(
-                CLIPTextModel,
-                subfolder="text_encoder",
-                tap=lambda x: x.requires_grad_(False),
-            ).to(self.accelerator.device),
-            do=compile,
+    def _text_encoder(self, compile: bool = False, **kwargs) -> CLIPTextModel:
+        te = self._spawn(
+            CLIPTextModel,
+            subfolder="text_encoder",
+            tap=lambda x: x.requires_grad_(False),
+            **kwargs,
         )
+        if "device_map" not in kwargs:
+            te.to(self.accelerator.device)
+        return self.compile(te, do=compile)
 
     def _noise_scheduler(self):
         return self._spawn(DDPMScheduler, subfolder="scheduler")
 
-    def _vae(self, **kwargs):
+    def _vae(self, compile: bool = True, **kwargs):
         if self.params.model.vae:
             vae = AutoencoderKL.from_pretrained(
                 self.params.model.vae,
@@ -326,39 +340,66 @@ class Trainer:
 
         vae.requires_grad_(False)
         vae.enable_slicing()
-        return compile_model(vae.to(self.accelerator.device))
+        if "device_map" not in kwargs:
+            vae.to(self.accelerator.device)
+        return self.compile(vae, do=compile)
 
     def _tokenizer(self) -> CLIPTokenizer:
-        return self._spawn(
-            AutoTokenizer,
-            subfolder="tokenizer",
-            use_fast=False,
-        )
+        return self._spawn(AutoTokenizer, subfolder="tokenizer", use_fast=False)
 
-    def _unet(self, compile: bool = False) -> UNet2DConditionModel:
+    def _unet(self, compile: bool = False, **kwargs) -> UNet2DConditionModel:
         unet = self._spawn(
             UNet2DConditionModel,
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
-        ).to(self.accelerator.device)
+            **kwargs,
+        )
+        if "device_map" not in kwargs:
+            unet.to(self.accelerator.device)
 
-        unet.set_attention_slice("auto")
+        if self.params.use_diffusers_unet:
+            lora_attn_procs = {}
+            for name in unet.attn_processors.keys():
+                cross_attention_dim = (
+                    None
+                    if name.endswith("attn1.processor")
+                    else unet.config.cross_attention_dim
+                )
+                if name.startswith("mid_block"):
+                    hidden_size = unet.config.block_out_channels[-1]
+                elif name.startswith("up_blocks"):
+                    block_id = int(name[len("up_blocks.")])
+                    hidden_size = list(reversed(unet.config.block_out_channels))[
+                        block_id
+                    ]
+                elif name.startswith("down_blocks"):
+                    block_id = int(name[len("down_blocks.")])
+                    hidden_size = unet.config.block_out_channels[block_id]
+                else:
+                    raise RuntimeError(f"Unknown attn processor name: {name}")
 
-        try:
-            from diffusers.models.cross_attention import AttnProcessor2_0
+                lora_attn_procs[name] = LoRACrossAttnProcessor(
+                    hidden_size=hidden_size,
+                    cross_attention_dim=cross_attention_dim,
+                    rank=self.params.lora_rank,
+                )
+                if "device_map" not in kwargs:
+                    lora_attn_procs[name].to(self.accelerator.device)
+            unet.set_attn_processor(lora_attn_procs)
+            unet.enable_xformers_memory_efficient_attention()
+        else:
+            unet.enable_xformers_memory_efficient_attention()
+            lora_config = LoraConfig(
+                r=self.params.lora_rank,
+                lora_alpha=self.params.lora_alpha,
+                target_modules=self.UNET_TARGET_MODULES,
+                lora_dropout=self.params.lora_dropout,
+            )
+            unet: UNet2DConditionModel = LoraModel(lora_config, unet)
+            if "device_map" not in kwargs:
+                unet.to(self.accelerator.device)
 
-            unet.set_attn_processor(AttnProcessor2_0())
-        except Exception as e:
-            dprint("Cannot set attn processor")
-            dprint(e)
-
-            try:
-                unet.enable_xformers_memory_efficient_attention()
-            except Exception as e:
-                dprint("Cannot enable xformers memory efficient attention")
-                dprint(e)
-
-        return compile_model(unet, do=compile)
+        return self.compile(unet, do=compile)
 
     @torch.inference_mode()
     def generate_priors(self, progress_bar: bool = False) -> Class:
@@ -414,8 +455,11 @@ class Trainer:
             }
         )
 
+    @main_process_only
     @torch.no_grad()
-    def _validation(self, pipeline: StableDiffusionPipeline) -> list:
+    def _validation(
+        self, pipeline: StableDiffusionPipeline, title: str = "validation"
+    ) -> list:
         prompt = (
             self.instance_class.deterministic_prompt
             + ", "
@@ -431,10 +475,19 @@ class Trainer:
             generator=generator,
         ).images
 
-        self._log_images(
-            [prompt] * self.params.validation_samples, images, title="validation"
-        )
+        self._log_images([prompt] * self.params.validation_samples, images, title=title)
         return images
+
+    @torch.no_grad()
+    def _do_final_validation(
+        self,
+        unet: UNet2DConditionModel,
+        text_encoder: CLIPTextModel,
+        models: dict,
+    ):
+        pipeline = self._create_eval_model(unet, text_encoder, models["tokenizer"])
+        self._validation(pipeline, title="final_validation")
+        return pipeline
 
     @main_process_only
     @torch.no_grad()
@@ -465,6 +518,75 @@ class Trainer:
 
         del pipeline
         torch.cuda.empty_cache()
+
+    @torch.inference_mode()
+    def _create_eval_model(
+        self,
+        unet_: UNet2DConditionModel,
+        text_encoder_: CLIPTextModel,
+        tokenizer: CLIPTokenizer,
+    ):
+        unet = self._unet(torch_dtype=self.params.dtype).eval()
+        if self.params.use_diffusers_unet:
+            unet.load_attn_procs(self.params.model_output_path / "unet")
+        else:
+            unet = cast(
+                UNet2DConditionModel,
+                (
+                    LoraModel(replace(unet_.peft_config, inference_mode=True), unet)
+                    .to(unet.device, dtype=self.params.dtype)
+                    .requires_grad_(False)
+                    .eval()
+                ),
+            )
+            set_peft_model_state_dict(unet, get_peft_model_state_dict(unet_))
+
+        unet_.to_empty(device="cpu")
+        del unet_
+
+        text_encoder = self._text_encoder(torch_dtype=self.params.dtype).eval()
+        text_encoder.resize_token_embeddings(len(tokenizer))
+        embedding = cast(torch.Tensor, text_encoder.get_input_embeddings().weight.data)
+        embedding_ = cast(
+            torch.Tensor, text_encoder_.get_input_embeddings().weight.data
+        )
+        embedding[self.token_id(tokenizer)] = copy.deepcopy(
+            embedding_[self.token_id(tokenizer)]
+        ).to(embedding.device, dtype=embedding.dtype)
+        text_encoder = cast(
+            CLIPTextModel,
+            (
+                LoraModel(
+                    replace(text_encoder_.peft_config, inference_mode=True),
+                    text_encoder,
+                )
+                .to(text_encoder.device, dtype=self.params.dtype)
+                .requires_grad_(False)
+                .eval()
+            ),
+        )
+        set_peft_model_state_dict(
+            text_encoder,
+            get_peft_model_state_dict(text_encoder_),
+        )
+
+        text_encoder_.to_empty(device="cpu")
+        del text_encoder_
+
+        vae = self._vae(torch_dtype=self.params.dtype).eval()
+
+        pipeline = self._pipeline(
+            unet=unet.to(dtype=self.params.dtype),
+            text_encoder=text_encoder.to(dtype=self.params.dtype),
+            tokenizer=tokenizer,
+            vae=vae.to(dtype=self.params.dtype),
+            torch_dtype=self.params.dtype,
+        )
+        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+            pipeline.scheduler.config
+        )
+
+        return pipeline
 
     def _do_epoch(
         self,
@@ -548,7 +670,8 @@ class Trainer:
 
             if self.accelerator.sync_gradients:
                 params_to_clip = itertools.chain(
-                    unet.parameters(), models["text_encoder"].parameters()
+                    models["unet_params"],
+                    models["text_encoder"].parameters(),
                 )
                 self.accelerator.clip_grad_norm_(
                     params_to_clip, self.params.max_grad_norm
@@ -569,7 +692,7 @@ class Trainer:
                     ).get_input_embeddings().weight[idx] = source
 
             if self.accelerator.sync_gradients:
-                self._total_steps += 1
+                self._total_steps += self.params.batch_size
 
             self.accelerator.log(
                 {
@@ -610,14 +733,22 @@ class Trainer:
         text_encoder: CLIPTextModel,
         tokenizer: CLIPTokenizer,
     ):
+        dprint("Saving model...")
+
         config = {}
         state = {}
 
-        unet_state = get_peft_model_state_dict(
-            unet, state_dict=self.accelerator.get_state_dict(unet)
-        )
-        state.update(unet_state)
-        config["unet_peft"] = unet.get_peft_config_as_dict(inference=True)
+        if self.params.use_diffusers_unet:
+            unet.save_attn_procs(
+                self.params.model_output_path / "unet",
+                save_function=self.accelerator.save,
+            )
+        else:
+            unet_state = get_peft_model_state_dict(
+                unet, state_dict=self.accelerator.get_state_dict(unet)
+            )
+            state.update(unet_state)
+            config["unet_peft"] = unet.get_peft_config_as_dict(inference=True)
 
         text_state = {
             f"text_encoder_{k}": v
@@ -629,7 +760,7 @@ class Trainer:
         state.update(text_state)
         config["text_peft"] = text_encoder.get_peft_config_as_dict(inference=True)
 
-        token_embedding = text_encoder.get_input_embeddings().weight[
+        token_embedding = text_encoder.get_input_embeddings().weight.data[
             self.token_id(tokenizer)
         ]
         self.accelerator.save(
@@ -644,12 +775,14 @@ class Trainer:
 
         wandb.save(str(self.params.model_output_path / "*"), policy="end")
 
-    def _init_text(self, init: Optional[torch.Tensor] = None, compile: bool = False):
+    def _init_text(
+        self, init: Optional[torch.Tensor] = None, compile: bool = False, **kwargs
+    ):
         tokenizer = self._tokenizer()
         if not tokenizer.add_tokens(self.params.token):
             raise ValueError(f"Token {self.params.token} already in tokenizer")
 
-        text_encoder = self._text_encoder(compile=compile)
+        text_encoder = self._text_encoder(compile=compile, **kwargs)
         text_encoder.resize_token_embeddings(len(tokenizer))
 
         embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
@@ -664,37 +797,33 @@ class Trainer:
         tkn_id = self.token_id(tokenizer)
         embeds[tkn_id] = init
 
+        lora_text_config = LoraConfig(
+            r=self.params.lora_text_rank,
+            lora_alpha=self.params.lora_text_alpha,
+            target_modules=self.TEXT_ENCODER_TARGET_MODULES,
+            lora_dropout=self.params.lora_text_dropout,
+        )
+        text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder).to(
+            self.accelerator.device
+        )
+
         return (tokenizer, text_encoder)
 
-    def train(self):
+    def _unet_param_source(self, unet: UNet2DConditionModel):
+        if self.params.use_diffusers_unet:
+            lora_layers = AttnProcsLayers(unet.attn_processors)
+            self.accelerator.register_for_checkpointing(lora_layers)
+            return lora_layers
+        else:
+            return unet
+
+    def _prepare_to_train(self):
         with self.accelerator.init():
             tokenizer, text_encoder = self._init_text()
+            unet = self._unet()
 
-            lora_config = LoraConfig(
-                r=self.params.lora_rank,
-                lora_alpha=self.params.lora_alpha,
-                target_modules=self.UNET_TARGET_MODULES,
-                lora_dropout=self.params.lora_dropout,
-            )
-            unet: UNet2DConditionModel = LoraModel(lora_config, self._unet()).to(
-                self.accelerator.device
-            )
-
-            lora_text_config = LoraConfig(
-                r=self.params.lora_text_rank,
-                lora_alpha=self.params.lora_text_alpha,
-                target_modules=self.TEXT_ENCODER_TARGET_MODULES,
-                lora_dropout=self.params.lora_text_dropout,
-            )
-            text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder).to(
-                self.accelerator.device
-            )
-
-        dprint("Compiling models...")
-        unet = compile_model(unet)
-        text_encoder = compile_model(text_encoder)
-
-        dprint("Loading dataset...")
+        unet = self.compile(unet, do=False)
+        text_encoder = self.compile(text_encoder, do=False)
 
         dataset = DreamBoothDataset(
             instance=self.instance_class,
@@ -712,12 +841,11 @@ class Trainer:
             num_workers=self.params.loading_workers,
         )
 
-        dprint("Preparing params...")
-
         ti_params = [
             p.requires_grad_(True)
             for p in text_encoder.get_input_embeddings().parameters()
         ]
+        unet_param_src = self._unet_param_source(unet)
 
         params = [
             {
@@ -728,19 +856,21 @@ class Trainer:
                 "lr": self.params.text_learning_rate,
                 "params": list(set(text_encoder.parameters()) - set(ti_params)),
             },
-            {"lr": self.params.learning_rate, "params": unet.parameters()},
+            {"lr": self.params.learning_rate, "params": unet_param_src.parameters()},
         ]
 
         steps_per_epoch = math.ceil(
-            len(loader) / self.params.gradient_accumulation_steps
+            len(loader)
+            * self.params.batch_size
+            / self.params.gradient_accumulation_steps
         )
         max_train_steps = self.params.train_epochs * steps_per_epoch
 
         (loader, unet, text_encoder) = self.accelerator.prepare(
             loader, unet, text_encoder
         )
-
-        dprint("Initializing Optimizer...")
+        if unet_param_src is not unet:
+            unet_param_src = self.accelerator.prepare(unet_param_src)
 
         optimizer = self.accelerator.optimizer(
             params,
@@ -749,12 +879,12 @@ class Trainer:
             eps=self.params.epsilon,
         )
 
-        dprint("Preparing for training...")
-
-        optimizer = self.accelerator.prepare(optimizer)
+        optimizer = self.accelerator.prepare(optimizer, device_placement=[False])
 
         steps_per_epoch = math.ceil(
-            len(loader) / self.params.gradient_accumulation_steps
+            len(loader)
+            * self.params.batch_size
+            / self.params.gradient_accumulation_steps
         )  # may have changed post-accelerate
         epochs = math.ceil(max_train_steps / steps_per_epoch)
 
@@ -776,9 +906,7 @@ class Trainer:
         lr_scheduler = LambdaLR(
             optimizer,
             [
-                lambda step: (
-                    1.0 if step < self.params.ti_train_epochs * steps_per_epoch else 0.0
-                ),
+                lambda step: 1.0,
                 partial(
                     linear_with_warmup,
                     self.params.ti_train_epochs * steps_per_epoch,
@@ -812,15 +940,17 @@ class Trainer:
             title="data",
         )
 
-        dprint("Starting training...")
-
-        models = {
+        return {
+            "epochs": epochs,
             "unet": unet,
             "text_encoder": text_encoder,
+            "loader": loader,
             "tokenizer": tokenizer,
+            "optimizer": optimizer,
             "vae": self._vae(torch_dtype=self.params.dtype),
             "noise_scheduler": self._noise_scheduler(),
             "lr_scheduler": lr_scheduler,
+            "unet_params": unet_param_src.parameters(),
             "input_embeddings": (
                 self.accelerator.unwrap_model(text_encoder)
                 .get_input_embeddings()
@@ -828,6 +958,17 @@ class Trainer:
                 .to(self.accelerator.device)
             ),
         }
+
+    def _train(self, models: dict):
+        dprint("Starting training...")
+        unet, text_encoder, epochs, optimizer, loader, tokenizer = (
+            models["unet"],
+            models["text_encoder"],
+            models["epochs"],
+            models["optimizer"],
+            models["loader"],
+            models["tokenizer"],
+        )
         for epoch in range(epochs):
             self.logger.warning(
                 f"Epoch {epoch + 1}/{epochs} (Step {self._total_steps})",
@@ -849,6 +990,8 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
+                self.accelerator.wait_for_everyone()
+                self._do_validation(unet, models)
                 break
 
             if (
@@ -860,20 +1003,29 @@ class Trainer:
                 self._do_validation(unet, models)
 
         self.accelerator.wait_for_everyone()
-        dprint("Saving model...")
-        self._persist(
-            self.accelerator.unwrap_model(unet, keep_fp32_wrapper=False),
-            self.accelerator.unwrap_model(text_encoder, keep_fp32_wrapper=False),
-            tokenizer,
+        unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=False)
+        text_encoder = self.accelerator.unwrap_model(
+            text_encoder, keep_fp32_wrapper=False
         )
+        self._persist(unet, text_encoder, tokenizer)
+        return unet, text_encoder, models
 
-    def eval(self):
+    def train(self):
+        self.accelerator.free_memory()
+        objs = self._prepare_to_train()
+        release_memory()
+        unet, text_encoder, models = self._train(objs)
+        self.accelerator.free_memory()
+        return self._do_final_validation(unet, text_encoder, models)
+
+    @torch.distributed.elastic.multiprocessing.errors.record
+    def eval(self, pipeline: StableDiffusionPipeline):
         self.accelerator.wait_for_everyone()
-        dprint("Running GC...")
-        gc.collect()
-        torch.cuda.empty_cache()
+        self.accelerator.free_memory()
 
-        Evaluator(self.accelerator, self.params).generate()
+        pipeline.unet = self.compile(pipeline.unet, do=False)
+        pipeline.text_encoder = self.compile(pipeline.text_encoder, do=False)
+        Evaluator(self.accelerator, self.params, pipeline).generate()
 
 
 def get_mem() -> float:
@@ -882,6 +1034,34 @@ def get_mem() -> float:
 
 def get_params() -> HyperParams:
     params = HyperParams()
+
+    match get_mem():
+        case float(n) if n < 16:
+            params.gradient_accumulation_steps = 2
+        case float(n) if n < 24:
+            params.batch_size = 1  # 2
+        case float(n) if n < 32:
+            params.use_diffusers_unet = False
+            params.batch_size = 1  # 3
+        case float(n):
+            params.use_diffusers_unet = False
+            params.batch_size = 1  # int(n / 8)
+
+    match torch.cuda.device_count():
+        case int(n) if n > 1:
+            params.train_epochs //= n
+
+    match torch.cuda.get_device_capability():
+        case (8, _):
+            torch.backends.cuda.matmul.allow_tf32 = True
+            params.dynamo_backend = "inductor"
+            os.environ["ACCELERATE_MIXED_PRECISION"] = "bf16"
+        case (7, _):
+            params.dynamo_backend = "inductor"
+            os.environ["ACCELERATE_MIXED_PRECISION"] = "fp16"
+        case _:
+            params.dynamo_backend = None
+            os.environ["ACCELERATE_MIXED_PRECISION"] = "fp16"
 
     match os.getenv("ACCELERATE_MIXED_PRECISION"):
         case "bf16":
@@ -893,25 +1073,6 @@ def get_params() -> HyperParams:
         case "fp32":
             params.dtype = torch.float32
             params.model.revision = None
-
-    match get_mem():
-        case float(n) if n < 16:
-            params.batch_size = 1
-            params.gradient_accumulation_steps = 2
-            params.dynamo_backend = None
-        case float(n) if n < 24:
-            params.batch_size = 1
-            params.gradient_accumulation_steps = 1
-        case float(n) if n < 32:
-            params.batch_size = 4
-            params.gradient_accumulation_steps = 1
-        case float(n):
-            params.batch_size = 8 * torch.cuda.device_count()
-            params.gradient_accumulation_steps = 1
-
-    match torch.cuda.device_count():
-        case int(n) if n > 1:
-            params.train_epochs //= n
 
     match os.cpu_count():
         case int(n) if n > 1:

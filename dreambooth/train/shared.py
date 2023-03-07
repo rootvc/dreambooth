@@ -3,7 +3,8 @@ import importlib
 import itertools
 import logging
 from contextlib import contextmanager
-from typing import Callable, TypeVar
+from inspect import isfunction
+from typing import Callable, Optional, TypeVar
 
 import torch
 import torch.distributed
@@ -52,23 +53,38 @@ def is_main():
     return torch.distributed.get_rank() == 0
 
 
-def compile_model(model: M, do: bool = True, ignore: set[str] = set(), **kwargs) -> M:
+def compile_model(
+    model: M,
+    do: bool = True,
+    ignore: set[str] = set(),
+    backend: Optional[str] = "inductor",
+    **kwargs,
+) -> M:
+    from torch._dynamo.eval_frame import OptimizedModule
+
     BROKEN_COMPILE_CLASSES = set()
 
+    if isinstance(model, OptimizedModule):
+        raise RuntimeError("Model is already compiled")
+    elif isfunction(model):
+        raise RuntimeError("Model is a function")
+
+    if not backend:
+        return model
     if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
         return model
     elif model.__class__.__name__ in ignore and model.training:
         return model
     if do:
         if is_main():
-            print(f"Compiling {model.__class__.__name__}...")
-        return torch.compile(model, mode="max-autotune", **kwargs)
+            print(f"Compiling {model.__class__.__name__} with {backend}...")
+        return torch.compile(model, backend=backend, mode="max-autotune", **kwargs)
     else:
         return model
 
 
-def make_compile_model(ignore: set[str]):
-    return functools.partial(compile_model, ignore=ignore)
+def make_compile_model(backend: Optional[str], ignore: set[str] = set()):
+    return functools.partial(compile_model, ignore=ignore, backend=backend)
 
 
 def dprint(*args, **kwargs):
