@@ -52,8 +52,8 @@ class TrainJob:
     DEFAULT_MULTI_INSTANCES = [
         IntanceConfig(instance="ml.g5.48xlarge"),
         IntanceConfig(instance="ml.p3dn.24xlarge"),
-        IntanceConfig(instance="ml.p4d.24xlarge"),
-        IntanceConfig(instance="ml.p4de.24xlarge"),
+        # IntanceConfig(instance="ml.p4d.24xlarge"),
+        # IntanceConfig(instance="ml.p4de.24xlarge"),
     ]
 
     DEFAULT_BUDGET_MULTI_INSTANCES = [

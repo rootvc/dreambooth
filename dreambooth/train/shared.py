@@ -89,3 +89,9 @@ def make_compile_model(backend: Optional[str], ignore: set[str] = set()):
 
 def dprint(*args, **kwargs):
     print(f"[{torch.distributed.get_rank()}]", *args, **kwargs)
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]

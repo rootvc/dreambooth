@@ -121,6 +121,10 @@ def sagemaker_params(env: environment.Environment) -> Params:
 
 
 def sagemaker_cleanup(env: environment.Environment):
+    # No need to persist models
+    shutil.rmtree(env.model_dir, ignore_errors=True)
+    os.mkdir(env.model_dir)
+
     dprint("Persisting global cache...")
     _persist_global_cache()
     dprint("Copying cache back to S3...")
@@ -168,7 +172,6 @@ def standalone_cleanup(env: environment.Environment):
     bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
 
     (bucket / "output" / id).upload_from(env.channel_input_dirs["output"])
-    (bucket / "output" / id / "model").upload_from(env.model_dir)
 
 
 def main():

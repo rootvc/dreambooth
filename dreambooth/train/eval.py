@@ -151,10 +151,8 @@ class Evaluator:
         )
         loader = self.accelerator.prepare(loader)
 
-        dprint(f"Generating images with {len(loader)} batches...")
         all_images = []
         for i, prompts in enumerate(loader):
-            dprint(f"Batch {i * torch.cuda.device_count()}/{len(loader)}")
             assert len(prompts) == 1
             images = self.pipeline(
                 prompts[0],

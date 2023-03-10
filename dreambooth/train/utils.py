@@ -1,4 +1,3 @@
-import copy
 import hashlib
 import itertools
 import json
@@ -6,9 +5,8 @@ import math
 import os
 import tempfile
 from contextlib import contextmanager
-from dataclasses import replace
 from datetime import timedelta
-from functools import cached_property, lru_cache, partial
+from functools import cached_property, lru_cache
 from operator import itemgetter
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union, cast
@@ -32,6 +30,7 @@ from diffusers import (
     DPMSolverMultistepScheduler,
     StableDiffusionPipeline,
     UNet2DConditionModel,
+    get_scheduler,
 )
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
@@ -42,9 +41,10 @@ from peft import (
     set_peft_model_state_dict,
 )
 from PIL import Image
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+from tqdm.auto import tqdm
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
 from dreambooth.params import Class, HyperParams, Model
@@ -54,6 +54,7 @@ from dreambooth.train.shared import (
     compile_model,
     dprint,
     main_process_only,
+    partition,
     patch_allowed_pipeline_classes,
 )
 
@@ -77,6 +78,65 @@ class PromptDataset(Dataset):
         return {"prompt": self.prompt, "index": i}
 
 
+class CachedLatentsDataset(Dataset):
+    def __init__(
+        self,
+        accelerator: BaseAccelerator,
+        dataset: Dataset,
+        params: HyperParams,
+        vae: AutoencoderKL,
+    ):
+        self.dataset = dataset
+        self.params = params
+        self.vae = vae
+        self.accelerator = accelerator
+        self._length = len(self.dataset)
+        self._cached_latents = {}
+        self._warmed = False
+
+    def _compute_latents(self, batch: list[dict[str, torch.FloatTensor]]):
+        images = list(
+            itertools.chain(
+                map(itemgetter("instance_image"), batch),
+                map(itemgetter("prior_image"), batch),
+            )
+        )
+        images = torch.stack(images).to(
+            self.accelerator.device,
+            memory_format=torch.contiguous_format,
+            dtype=self.params.dtype,
+        )
+        latents = self.vae.encode(images).latent_dist.sample()
+        latents = latents * self.vae.config.scaling_factor
+        latents = latents.squeeze(0).to("cpu").float()
+
+        input_ids = list(
+            itertools.chain(
+                map(itemgetter("instance_prompt_ids"), batch),
+                map(itemgetter("prior_prompt_ids"), batch),
+            )
+        )
+        input_ids = torch.cat(input_ids, dim=0).to(dtype=torch.long)
+
+        return {"input_ids": input_ids, "latents": latents}
+
+    def __len__(self):
+        return self._length // self.params.batch_size
+
+    def __getitem__(self, i: int):
+        if not self._warmed and i not in self._cached_latents:
+            s = self.params.batch_size
+            self._cached_latents[i] = self._compute_latents(
+                [self.dataset[idx] for idx in range(s * i, s * (i + 1))]
+            )
+        return self._cached_latents[i]
+
+    def warm(self):
+        for i in tqdm(range(len(self)), disable=not self.accelerator.is_main_process):
+            self[i]
+        self._warmed = True
+
+
 class DreamBoothDataset(Dataset):
     def __init__(
         self,
@@ -94,34 +154,6 @@ class DreamBoothDataset(Dataset):
         self.augment = augment
 
         self._length = max(len(self.instance_images), len(self.prior_images))
-
-    def loader_collate_fn(self, examples: list[dict]):
-        input_ids = list(
-            itertools.chain(
-                map(itemgetter("instance_prompt_ids"), examples),
-                map(itemgetter("prior_prompt_ids"), examples),
-            )
-        )
-        pixel_values = list(
-            itertools.chain(
-                map(itemgetter("instance_image"), examples),
-                map(itemgetter("prior_image"), examples),
-            )
-        )
-
-        input_ids = self.tokenizer.pad(
-            {"input_ids": input_ids},
-            padding="max_length",
-            max_length=self.tokenizer.model_max_length,
-            return_tensors="pt",
-        ).input_ids
-
-        return {
-            "input_ids": input_ids,
-            "pixel_values": torch.stack(pixel_values)
-            .to(memory_format=torch.contiguous_format)
-            .float(),
-        }
 
     @cached_property
     def prior_images(self):
@@ -183,8 +215,9 @@ class DreamBoothDataset(Dataset):
             "instance_prompt_ids": self.tokenizer(
                 self.instance.prompt,
                 truncation=True,
-                padding="do_not_pad",
+                padding="max_length",
                 max_length=self.tokenizer.model_max_length,
+                return_tensors="pt",
             ).input_ids,
         }
 
@@ -197,8 +230,9 @@ class DreamBoothDataset(Dataset):
             "prior_prompt_ids": self.tokenizer(
                 self.prior.prompt,
                 truncation=True,
-                padding="do_not_pad",
+                padding="max_length",
                 max_length=self.tokenizer.model_max_length,
+                return_tensors="pt",
             ).input_ids,
         }
 
@@ -266,6 +300,10 @@ class Trainer:
 
         self._total_steps = 0
 
+    @property
+    def total_steps(self):
+        return self._total_steps * self.params.batch_size
+
     def compile(self, model: torch.nn.Module, **kwargs):
         return compile_model(model, backend=self.params.dynamo_backend, **kwargs)
 
@@ -299,9 +337,9 @@ class Trainer:
                 low_cpu_mem_usage=True,
                 local_files_only=True,
                 vae=vae or self._vae().eval(),
-                unet=unet.eval() or self._unet(compile=True).eval(),
+                unet=(unet or self._unet(compile=True)).eval(),
                 text_encoder=(
-                    text_encoder.eval() or self._text_encoder(compile=True).eval()
+                    (text_encoder or self._text_encoder(compile=True)).eval()
                 ),
                 tokenizer=tokenizer or self._tokenizer(),
                 **kwargs,
@@ -340,6 +378,7 @@ class Trainer:
 
         vae.requires_grad_(False)
         vae.enable_slicing()
+        vae.enable_xformers_memory_efficient_attention()
         if "device_map" not in kwargs:
             vae.to(self.accelerator.device)
         return self.compile(vae, do=compile)
@@ -479,13 +518,8 @@ class Trainer:
         return images
 
     @torch.no_grad()
-    def _do_final_validation(
-        self,
-        unet: UNet2DConditionModel,
-        text_encoder: CLIPTextModel,
-        models: dict,
-    ):
-        pipeline = self._create_eval_model(unet, text_encoder, models["tokenizer"])
+    def _do_final_validation(self, tokenizer: CLIPTokenizer):
+        pipeline = self._create_eval_model(tokenizer)
         self._validation(pipeline, title="final_validation")
         return pipeline
 
@@ -509,6 +543,8 @@ class Trainer:
                 vae=models["vae"],
                 torch_dtype=self.params.dtype,
             )
+            pipeline.unet = unet.eval()
+            pipeline.text_encoder = text_encoder.eval()
             pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
                 pipeline.scheduler.config
             )
@@ -520,12 +556,16 @@ class Trainer:
         torch.cuda.empty_cache()
 
     @torch.inference_mode()
-    def _create_eval_model(
-        self,
-        unet_: UNet2DConditionModel,
-        text_encoder_: CLIPTextModel,
-        tokenizer: CLIPTokenizer,
-    ):
+    def _create_eval_model(self, tokenizer: CLIPTokenizer):
+        config = json.loads(
+            (self.params.model_output_path / "lora_config.json").read_text()
+        )
+        state = torch.load(
+            self.params.model_output_path / "lora_weights.pt",
+            map_location=self.accelerator.device,
+        )
+        unet_state, text_state = partition(state, lambda kv: "text_encoder_" in kv[0])
+
         unet = self._unet(torch_dtype=self.params.dtype).eval()
         if self.params.use_diffusers_unet:
             unet.load_attn_procs(self.params.model_output_path / "unet")
@@ -533,55 +573,39 @@ class Trainer:
             unet = cast(
                 UNet2DConditionModel,
                 (
-                    LoraModel(replace(unet_.peft_config, inference_mode=True), unet)
+                    LoraModel(LoraConfig(**config["unet_peft"]), unet)
                     .to(unet.device, dtype=self.params.dtype)
                     .requires_grad_(False)
                     .eval()
                 ),
             )
-            set_peft_model_state_dict(unet, get_peft_model_state_dict(unet_))
-
-        unet_.to_empty(device="cpu")
-        del unet_
+            set_peft_model_state_dict(unet, unet_state)
 
         text_encoder = self._text_encoder(torch_dtype=self.params.dtype).eval()
         text_encoder.resize_token_embeddings(len(tokenizer))
         embedding = cast(torch.Tensor, text_encoder.get_input_embeddings().weight.data)
-        embedding_ = cast(
-            torch.Tensor, text_encoder_.get_input_embeddings().weight.data
-        )
-        embedding[self.token_id(tokenizer)] = copy.deepcopy(
-            embedding_[self.token_id(tokenizer)]
-        ).to(embedding.device, dtype=embedding.dtype)
-        text_encoder = cast(
-            CLIPTextModel,
-            (
-                LoraModel(
-                    replace(text_encoder_.peft_config, inference_mode=True),
-                    text_encoder,
-                )
-                .to(text_encoder.device, dtype=self.params.dtype)
-                .requires_grad_(False)
-                .eval()
-            ),
+        token_embedding = torch.load(
+            self.params.model_output_path / "token_embedding.pt",
+            map_location=self.accelerator.device,
+        )[self.params.token].to(dtype=self.params.dtype)
+        embedding[self.token_id(tokenizer)] = token_embedding
+
+        text_encoder = LoraModel(LoraConfig(**config["text_peft"]), text_encoder).to(
+            self.accelerator.device, dtype=self.params.dtype
         )
         set_peft_model_state_dict(
             text_encoder,
-            get_peft_model_state_dict(text_encoder_),
+            {k.removeprefix("text_encoder_"): v for k, v in text_state.items()},
         )
 
-        text_encoder_.to_empty(device="cpu")
-        del text_encoder_
-
-        vae = self._vae(torch_dtype=self.params.dtype).eval()
-
-        pipeline = self._pipeline(
-            unet=unet.to(dtype=self.params.dtype),
-            text_encoder=text_encoder.to(dtype=self.params.dtype),
-            tokenizer=tokenizer,
-            vae=vae.to(dtype=self.params.dtype),
-            torch_dtype=self.params.dtype,
+        vae = (
+            self._vae(torch_dtype=self.params.dtype).eval().to(dtype=self.params.dtype)
         )
+
+        pipeline = self._pipeline(torch_dtype=self.params.dtype, tokenizer=tokenizer)
+        pipeline.unet = unet
+        pipeline.text_encoder = text_encoder
+        pipeline.vae = vae
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
@@ -593,7 +617,7 @@ class Trainer:
         epoch: int,
         unet: UNet2DConditionModel,
         loader: DataLoader,
-        optimizer: torch.optim.Optimizer,
+        optimizer: Optimizer,
         models: dict,
     ):
         unet.train()
@@ -601,12 +625,9 @@ class Trainer:
 
         for batch in loader:
             # Convert images to latent space
-            latents = (
-                models["vae"]
-                .encode(batch["pixel_values"].to(dtype=self.params.dtype))
-                .latent_dist.sample()
+            latents = batch["latents"].to(
+                self.accelerator.device, dtype=self.params.dtype
             )
-            latents = latents * models["vae"].config.scaling_factor
 
             # Sample noise that we'll add to the latents
             noise = torch.randn_like(latents)
@@ -652,7 +673,7 @@ class Trainer:
             target, target_prior = torch.chunk(target, 2, dim=0)
 
             # Compute instance loss
-            loss = (
+            instance_loss = (
                 F.mse_loss(model_pred.float(), target.float(), reduction="none")
                 .mean([1, 2, 3])
                 .mean()
@@ -664,7 +685,7 @@ class Trainer:
             )
 
             # Add the prior loss to the instance loss.
-            loss = loss + self.params.prior_loss_weight * prior_loss
+            loss = instance_loss + self.params.prior_loss_weight * prior_loss
 
             self.accelerator.backward(loss)
 
@@ -677,8 +698,6 @@ class Trainer:
                     params_to_clip, self.params.max_grad_norm
                 )
             optimizer.step()
-            if not self.accelerator.optimizer_step_was_skipped:
-                models["lr_scheduler"].step()
             optimizer.zero_grad(set_to_none=True)
 
             if epoch < self.params.ti_train_epochs:
@@ -692,16 +711,14 @@ class Trainer:
                     ).get_input_embeddings().weight[idx] = source
 
             if self.accelerator.sync_gradients:
-                self._total_steps += self.params.batch_size
+                self._total_steps += 1
 
             self.accelerator.log(
                 {
-                    "loss": loss.detach().item(),
-                    "ti_lr": models["lr_scheduler"].get_last_lr()[0],
-                    "text_lr": models["lr_scheduler"].get_last_lr()[1],
-                    "unet_lr": models["lr_scheduler"].get_last_lr()[2],
+                    "instance_loss": instance_loss.detach().item(),
+                    "prior_loss": prior_loss.detach().item(),
                 },
-                step=self._total_steps,
+                step=self.total_steps,
             )
 
             if self.exceeded_max_steps():
@@ -710,7 +727,7 @@ class Trainer:
     def exceeded_max_steps(self):
         return (
             self.params.validate_every_epochs is None
-            and self._total_steps > self.params.validate_after_steps
+            and self.total_steps > self.params.validate_after_steps
         )
 
     @main_process_only
@@ -783,6 +800,7 @@ class Trainer:
             raise ValueError(f"Token {self.params.token} already in tokenizer")
 
         text_encoder = self._text_encoder(compile=compile, **kwargs)
+        text_encoder.get_input_embeddings().requires_grad_(True)
         text_encoder.resize_token_embeddings(len(tokenizer))
 
         embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
@@ -824,6 +842,7 @@ class Trainer:
 
         unet = self.compile(unet, do=False)
         text_encoder = self.compile(text_encoder, do=False)
+        vae = self._vae(compile=True, torch_dtype=self.params.dtype)
 
         dataset = DreamBoothDataset(
             instance=self.instance_class,
@@ -831,13 +850,16 @@ class Trainer:
             tokenizer=tokenizer,
             size=self.params.model.resolution,
         )
+        dprint("Caching latents...")
+        dataset = CachedLatentsDataset(self.accelerator, dataset, self.params, vae)
+        dataset.warm()
         loader = DataLoader(
             dataset,
-            batch_size=self.params.batch_size,
+            batch_size=1,
+            collate_fn=lambda b: b[0],
             shuffle=True,
             pin_memory=True,
             pin_memory_device=self.accelerator.device,
-            collate_fn=dataset.loader_collate_fn,
             num_workers=self.params.loading_workers,
         )
 
@@ -879,7 +901,7 @@ class Trainer:
             eps=self.params.epsilon,
         )
 
-        optimizer = self.accelerator.prepare(optimizer, device_placement=[False])
+        optimizer = self.accelerator.prepare(optimizer)
 
         steps_per_epoch = math.ceil(
             len(loader)
@@ -888,46 +910,11 @@ class Trainer:
         )  # may have changed post-accelerate
         epochs = math.ceil(max_train_steps / steps_per_epoch)
 
-        def linear_with_warmup(
-            skip_steps: int, warmup_steps: int, training_steps: int, current_step: int
-        ):
-            if current_step < skip_steps:
-                return 0.0
-
-            current_step -= skip_steps
-            if current_step < warmup_steps:
-                return float(current_step) / float(max(1, warmup_steps))
-            return max(
-                0.0,
-                float(training_steps - current_step)
-                / float(max(1, training_steps - warmup_steps)),
-            )
-
-        lr_scheduler = LambdaLR(
-            optimizer,
-            [
-                lambda step: 1.0,
-                partial(
-                    linear_with_warmup,
-                    self.params.ti_train_epochs * steps_per_epoch,
-                    (
-                        self.params.lr_warmup_steps
-                        * self.params.gradient_accumulation_steps
-                    ),
-                    max_train_steps * self.params.gradient_accumulation_steps,
-                ),
-                partial(
-                    linear_with_warmup,
-                    self.params.ti_train_epochs * steps_per_epoch,
-                    (
-                        self.params.lr_warmup_steps
-                        * self.params.gradient_accumulation_steps
-                    ),
-                    max_train_steps * self.params.gradient_accumulation_steps,
-                ),
-            ],
+        lr_scheduler = get_scheduler(
+            self.params.lr_scheduler,
+            optimizer=optimizer,
+            num_warmup_steps=self.params.lr_warmup_steps,
         )
-        lr_scheduler = self.accelerator.prepare(lr_scheduler)
 
         dprint(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
 
@@ -947,9 +934,9 @@ class Trainer:
             "loader": loader,
             "tokenizer": tokenizer,
             "optimizer": optimizer,
-            "vae": self._vae(torch_dtype=self.params.dtype),
-            "noise_scheduler": self._noise_scheduler(),
+            "vae": vae,
             "lr_scheduler": lr_scheduler,
+            "noise_scheduler": self._noise_scheduler(),
             "unet_params": unet_param_src.parameters(),
             "input_embeddings": (
                 self.accelerator.unwrap_model(text_encoder)
@@ -971,7 +958,7 @@ class Trainer:
         )
         for epoch in range(epochs):
             self.logger.warning(
-                f"Epoch {epoch + 1}/{epochs} (Step {self._total_steps})",
+                f"Epoch {epoch + 1}/{epochs} (Step {self.total_steps})",
                 main_process_only=True,
             )
 
@@ -982,7 +969,7 @@ class Trainer:
             else:
                 optimizer.param_groups[0]["lr"] = 0.0
                 optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
-                optimizer.param_groups[0]["lr"] = self.params.learning_rate
+                optimizer.param_groups[2]["lr"] = self.params.learning_rate
                 if epoch == self.params.ti_train_epochs:
                     dprint(f"Finished TI training at epoch {epoch}.")
                     del models["input_embeddings"]
@@ -996,7 +983,7 @@ class Trainer:
 
             if (
                 self.params.validate_every_epochs is not None
-                and self._total_steps >= self.params.validate_after_steps
+                and self.total_steps >= self.params.validate_after_steps
                 and epoch % self.params.validate_every_epochs == 0
             ):
                 self.accelerator.wait_for_everyone()
@@ -1008,15 +995,16 @@ class Trainer:
             text_encoder, keep_fp32_wrapper=False
         )
         self._persist(unet, text_encoder, tokenizer)
-        return unet, text_encoder, models
+        return tokenizer
 
     def train(self):
         self.accelerator.free_memory()
         objs = self._prepare_to_train()
         release_memory()
-        unet, text_encoder, models = self._train(objs)
+        tokenizer = self._train(objs)
         self.accelerator.free_memory()
-        return self._do_final_validation(unet, text_encoder, models)
+        self.accelerator.wait_for_everyone()
+        return self._do_final_validation(tokenizer)
 
     @torch.distributed.elastic.multiprocessing.errors.record
     def eval(self, pipeline: StableDiffusionPipeline):
@@ -1045,7 +1033,7 @@ def get_params() -> HyperParams:
             params.batch_size = 1  # 3
         case float(n):
             params.use_diffusers_unet = False
-            params.batch_size = 1  # int(n / 8)
+            params.batch_size = 3  # int(n / 8)
 
     match torch.cuda.device_count():
         case int(n) if n > 1:
