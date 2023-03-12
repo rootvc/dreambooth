@@ -1,12 +1,32 @@
 from typing import Type
 
 from diffusers import StableDiffusionPipeline
+from transformers import (
+    CLIPModel,
+    CLIPProcessor,
+    CLIPTextModelWithProjection,
+    CLIPTokenizer,
+    CLIPVisionModelWithProjection,
+)
 
 from dreambooth.params import HyperParams
 
 
 def download(klass: Type, name: str, **kwargs):
     return klass.from_pretrained(name, **kwargs)
+
+
+def download_test_models(_, name: str):
+    return [
+        download(klass, name)
+        for klass in [
+            CLIPProcessor,
+            CLIPTextModelWithProjection,
+            CLIPTokenizer,
+            CLIPVisionModelWithProjection,
+            CLIPModel,
+        ]
+    ]
 
 
 def download_model():
@@ -21,3 +41,4 @@ def download_model():
 
 if __name__ == "__main__":
     download_model()
+    download_test_models(None, HyperParams().test_model)

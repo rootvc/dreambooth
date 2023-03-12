@@ -9,7 +9,7 @@ from datetime import timedelta
 from functools import cached_property, lru_cache
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, Union, cast
+from typing import Any, Callable, Optional, Type, TypeVar, cast
 
 import torch
 import torch._dynamo
@@ -57,6 +57,7 @@ from dreambooth.train.shared import (
     partition,
     patch_allowed_pipeline_classes,
 )
+from dreambooth.train.test import Tester
 
 T = TypeVar("T")
 
@@ -275,6 +276,7 @@ class Trainer:
 
         self.priors_dir = Path(tempfile.mkdtemp())
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
+        self.metrics_cache = {}
 
         try:
             from dreambooth.train.accelerators.colossal import (
@@ -292,6 +294,8 @@ class Trainer:
             kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(minutes=5))],
         )
         self.logger = get_logger(__name__)
+        self.tester = Tester(self.params, self.accelerator, instance_class)
+
         self.logger.warning(self.accelerator.state, main_process_only=False)
         self.logger.warning(
             f"Available GPU memory: {get_mem():.2f} GB", main_process_only=True
@@ -475,47 +479,11 @@ class Trainer:
         return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
 
     @main_process_only
-    def _log_images(
-        self,
-        prompts: Union[str, list[str]],
-        images: Iterable,
-        title: str = "validation",
-    ):
-        images = list(images)
-        if not isinstance(prompts, list):
-            prompts = [prompts] * len(images)
-
-        self.accelerator.wandb_tracker.log(
-            {
-                title: [
-                    wandb.Image(image, caption=f"{i}: {prompts[i]}")
-                    for i, image in enumerate(images)
-                ]
-            }
-        )
-
-    @main_process_only
     @torch.no_grad()
-    def _validation(
-        self, pipeline: StableDiffusionPipeline, title: str = "validation"
-    ) -> list:
-        prompt = (
-            self.instance_class.deterministic_prompt
-            + ", "
-            + self.params.validation_prompt_suffix
-        )
-        generator = torch.Generator(device=self.accelerator.device)
-
-        images = pipeline(
-            prompt,
-            negative_prompt=self.params.negative_prompt,
-            num_inference_steps=self.params.validation_steps,
-            num_images_per_prompt=self.params.validation_samples,
-            generator=generator,
-        ).images
-
-        self._log_images([prompt] * self.params.validation_samples, images, title=title)
-        return images
+    def _validation(self, pipeline: StableDiffusionPipeline, title: str = "validation"):
+        score = self.tester.test_pipe(pipeline, title)
+        torch.cuda.empty_cache()
+        self.metrics_cache.update(score)
 
     @torch.no_grad()
     def _do_final_validation(self, tokenizer: CLIPTokenizer):
@@ -717,9 +685,11 @@ class Trainer:
                 {
                     "instance_loss": instance_loss.detach().item(),
                     "prior_loss": prior_loss.detach().item(),
+                    **self.metrics_cache,
                 },
                 step=self.total_steps,
             )
+            self.metrics_cache = {}
 
             if self.exceeded_max_steps():
                 break
@@ -921,9 +891,9 @@ class Trainer:
         if self.accelerator.is_main_process:
             self._init_trackers()
 
-        self._log_images(
+        self.tester.log_images(
             self.instance_class.deterministic_prompt,
-            map(str, self.instance_class.data.iterdir()),
+            list(map(str, self.instance_class.data.iterdir())),
             title="data",
         )
 

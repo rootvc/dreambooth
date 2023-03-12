@@ -44,6 +44,8 @@ def _unpack_model(env: environment.Environment, name: str):
             ]
         )
         shutil.unpack_archive(f.name, model_dir, format="tar")
+
+    print(f"Unpacked {name} to {model_dir}...")
     return model_dir
 
 
@@ -108,6 +110,7 @@ def sagemaker_params(env: environment.Environment) -> Params:
     params.model.name = _unpack_model(env, params.model.name)
     if params.model.vae:
         params.model.vae = _unpack_model(env, params.model.vae)
+    params.test_model = _unpack_model(env, params.test_model)
     params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
     params.image_output_path = output_data
     params.model_output_path = Path(env.model_dir)
@@ -123,7 +126,7 @@ def sagemaker_params(env: environment.Environment) -> Params:
 def sagemaker_cleanup(env: environment.Environment):
     # No need to persist models
     shutil.rmtree(env.model_dir, ignore_errors=True)
-    os.mkdir(env.model_dir)
+    os.makedirs(env.model_dir, exist_ok=True)
 
     dprint("Persisting global cache...")
     _persist_global_cache()

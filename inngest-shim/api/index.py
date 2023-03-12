@@ -14,5 +14,5 @@ app = Sanic()
 @app.route("/api/start", methods=["POST"])
 async def start(request):
     id = request.json["id"]
-    resp = await TrainJob(id).run_and_report(id)
+    resp = await TrainJob(id).run_and_report()
     return response.json(resp)

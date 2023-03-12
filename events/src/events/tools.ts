@@ -1,6 +1,7 @@
 import { FunctionOptions, Inngest } from "inngest";
 import { Events as GenEvents } from "inngest-events";
 import { createStepTools } from "inngest/components/InngestStepTools";
+import { Redis } from "ioredis";
 import _ from "lodash";
 import hash from "object-hash";
 import { inngest } from "./client";
@@ -102,9 +103,31 @@ const getTools = <E extends Event>(
     log: partial(tools, _log),
     collect: partial(tools, _collect),
     send: partialRun(tools, partialRun(inngest, _send)),
+    redis: new Redis(process.env.REDIS_URL),
   };
 };
 
+const _defineFunction = <E extends Event>(
+  name: string,
+  trigger: { event: E } | { cron: string },
+  fn: (arg: {
+    event: Events[E];
+    tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
+  }) => any,
+  opts: Omit<FunctionOptions, "name"> = {}
+) => {
+  return inngest.createFunction<
+    { event: E } | { cron: string },
+    { name: typeof name } & typeof opts
+  >(
+    { name, ...opts },
+    trigger,
+    ({ event, step }: { event: Events[E]?; step: Tools<E> }) => {
+      const { run, ...rest } = step;
+      return fn({ event, tools: { ...getTools<E>(inngest, step), ...rest } });
+    }
+  );
+};
 export const defineFunction = <E extends Event>(
   name: string,
   event: E,
@@ -113,16 +136,14 @@ export const defineFunction = <E extends Event>(
     tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
   }) => any,
   opts: Omit<FunctionOptions, "name"> = {}
-) => {
-  return inngest.createFunction<
-    { event: E },
-    { name: typeof name } & typeof opts
-  >(
-    { name, ...opts },
-    { event },
-    ({ event, step }: { event: Events[E]; step: Tools<E> }) => {
-      const { run, ...rest } = step;
-      return fn({ event, tools: { ...getTools<E>(inngest, step), ...rest } });
-    }
-  );
-};
+) => _defineFunction<E>(name, { event }, fn, opts);
+
+export const defineCronFunction = <E extends Event>(
+  name: string,
+  cron: string,
+  fn: (arg: {
+    event: Events[E];
+    tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
+  }) => any,
+  opts: Omit<FunctionOptions, "name"> = {}
+) => _defineFunction<E>(name, { cron }, fn, opts);

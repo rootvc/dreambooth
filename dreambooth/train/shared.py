@@ -62,7 +62,7 @@ def compile_model(
 ) -> M:
     from torch._dynamo.eval_frame import OptimizedModule
 
-    BROKEN_COMPILE_CLASSES = set()
+    BROKEN_COMPILE_CLASSES = {"PreTrainedTokenizer", "CLIPTokenizer"}
 
     if isinstance(model, OptimizedModule):
         raise RuntimeError("Model is already compiled")

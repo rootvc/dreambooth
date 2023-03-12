@@ -5,6 +5,41 @@ from typing import Literal, Optional, Union
 import torch
 from pydantic import BaseModel
 
+TEST_PROMPTS = [
+    "{} swimming in a pool",
+    "{} at a beach with a view of seashore",
+    "{} in times square",
+    "{} wearing sunglasses",
+    "{} in a construction outfit",
+    "{} playing with a ball",
+    "{} wearing headphones",
+    "{} oil painting ghibli inspired",
+    "{} working on the laptop",
+    "{} with mountains and sunset in background",
+    "Painting of {} at a beach by artist claude monet",
+    "{} digital painting 3d render geometric style",
+    "A screaming {}",
+    "A depressed {}",
+    "A sleeping {}",
+    "A sad {}",
+    "A joyous {}",
+    "A frowning {}",
+    "A sculpture of {}",
+    "{} near a pool",
+    "{} at a beach with a view of seashore",
+    "{} in a garden",
+    "{} in grand canyon",
+    "{} floating in ocean",
+    "{} and an armchair",
+    "A maple tree on the side of {}",
+    "{} and an orange sofa",
+    "{} with chocolate cake on it",
+    "{} with a vase of rose flowers on it",
+    "A digital illustration of {}",
+    "Georgia O'Keeffe style {} painting",
+    "A watercolor painting of {} on a beach",
+]
+
 
 class Class(BaseModel):
     IMAGENET_TEMPLATES = [
@@ -110,12 +145,14 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 500  # 380
+    validate_after_steps: int = 600  # 380
     validate_every_epochs: Optional[int] = 5
     validation_prompt_suffix: str = "in a cowboy costume"
-    validation_samples: int = 4
+    validation_samples: int = 3
     validation_steps: int = 50
+    validation_guidance_scale: float = 8.5
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
+    test_model: Union[str, Path] = "openai/clip-vit-large-patch14"
 
     # Eval
     eval_prompts: list[str] = [
@@ -133,6 +170,8 @@ class HyperParams(BaseModel):
 
     upscale_factor: int = 2
     fidelity_weight: float = 0.5
+    test_steps: int = 150
+    test_guidance_scale: float = 7.5
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
     image_output_path: Path = Path("output/images")

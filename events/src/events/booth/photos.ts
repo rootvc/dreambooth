@@ -1,5 +1,4 @@
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { Redis } from "ioredis";
 import hash from "object-hash";
 import { defineFunction } from "../tools";
 
@@ -7,13 +6,11 @@ const AWS_REGION = "us-west-2";
 const BUCKET = "rootvc-photobooth";
 const EXPECTED_COUNT = 4;
 
-const redis = new Redis(process.env.REDIS_URL);
-
 export default defineFunction(
   "Process a new set of photos",
   "dreambooth/booth.photos",
   async ({
-    tools: { run, send },
+    tools: { run, send, redis },
     event: {
       data: { phone, blob },
     },
@@ -41,7 +38,7 @@ export default defineFunction(
     }
     await run("delete sequence", async () => await redis.del(`dataset/${id}`));
     await run("store ts", async () => await redis.set(`ts/${id}`, Date.now()));
-    await send("dreambooth/train.start", { id });
+    await send("dreambooth/train.queue", { id });
     await send("dreambooth/sms.notify", { phone, key: "STARTED" });
   }
 );

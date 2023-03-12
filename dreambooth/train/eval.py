@@ -157,7 +157,8 @@ class Evaluator:
             images = self.pipeline(
                 prompts[0],
                 negative_prompt=self.params.negative_prompt,
-                num_inference_steps=self.params.validation_steps,
+                num_inference_steps=self.params.test_steps,
+                guidance_scale=self.params.test_guidance_scale,
             ).images
             all_images.extend(zip(prompts, images))
 
