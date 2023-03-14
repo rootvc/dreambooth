@@ -68,7 +68,6 @@ class Tester:
                     m.to(self.accelerator.device)  # , dtype=self.params.dtype)
                     .eval()
                     .requires_grad_(False),
-                    do=False,
                 )
                 for m in (text_model, vis_model)
             ]
@@ -109,11 +108,11 @@ class Tester:
 
         return {
             "text_alignments": wandb.Histogram(text_image_similarity.detach().tolist()),
-            "text_alignment_avg": text_image_similarity.mean().detach().item(),
+            "text_alignment": text_image_similarity.mean().detach().item(),
             "image_alignments": wandb.Histogram(
                 image_image_similarity.detach().tolist()
             ),
-            "image_alignment_avg": image_image_similarity.mean().detach().item(),
+            "image_alignment": image_image_similarity.mean().detach().item(),
         }
 
     @main_process_only

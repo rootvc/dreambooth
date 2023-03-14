@@ -9,7 +9,7 @@ ENV SM_CHANNEL_OUTPUT /opt/ml/input/data/output
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   apt-get update && \
-  apt-get install -y wget && \
+  apt-get install -y wget openssh-server openssh-client && \
   rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -22,3 +22,5 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 ADD data/config/accelerate/standalone.yml /root/.cache/huggingface/accelerate/default_config.yaml
 ADD scripts/train/setup.sh /root/setup.sh
+
+ENTRYPOINT service ssh restart && /bin/bash

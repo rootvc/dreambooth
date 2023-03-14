@@ -13,11 +13,11 @@ TEST_PROMPTS = [
     "{} in a construction outfit",
     "{} playing with a ball",
     "{} wearing headphones",
-    "{} oil painting ghibli inspired",
+    "an oil paining of {}, ghibli inspired",
     "{} working on the laptop",
     "{} with mountains and sunset in background",
     "Painting of {} at a beach by artist claude monet",
-    "{} digital painting 3d render geometric style",
+    "digital painting of {}, 3d render geometric style",
     "A screaming {}",
     "A depressed {}",
     "A sleeping {}",
@@ -25,18 +25,17 @@ TEST_PROMPTS = [
     "A joyous {}",
     "A frowning {}",
     "A sculpture of {}",
-    "{} near a pool",
-    "{} at a beach with a view of seashore",
-    "{} in a garden",
-    "{} in grand canyon",
-    "{} floating in ocean",
-    "{} and an armchair",
-    "A maple tree on the side of {}",
+    "a photo of {} near a pool",
+    "a photo of {} at a beach with a view of seashore",
+    "a photo of {} in a garden",
+    "a photo of {} in grand canyon",
+    "a photo of {} floating in ocean",
+    "a photo of {} and an armchair",
+    "A watercolor of a maple tree and {}",
     "{} and an orange sofa",
-    "{} with chocolate cake on it",
-    "{} with a vase of rose flowers on it",
+    "a photo of {} holding a vase of roses",
     "A digital illustration of {}",
-    "Georgia O'Keeffe style {} painting",
+    "Georgia O'Keeffe style painting of {}",
     "A watercolor painting of {} on a beach",
 ]
 
@@ -129,8 +128,8 @@ class HyperParams(BaseModel):
     loading_workers: int = 4
     ti_train_epochs: int = 15
     train_epochs: int = 60
-    lr_scheduler: str = "constant"
-    lr_warmup_steps: int = 150
+    lr_scheduler: str = "cosine_with_restarts"
+    lr_warmup_steps: int = 50
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
 
@@ -146,7 +145,7 @@ class HyperParams(BaseModel):
 
     # Validation
     validate_after_steps: int = 400
-    validate_every_epochs: Optional[dict] = {400: 3, 500: 2, 600: 1}
+    validate_every_epochs: Optional[dict] = {400: 3, 525: 2, 600: 1}
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 3
     validation_steps: int = 50
@@ -155,7 +154,7 @@ class HyperParams(BaseModel):
     test_model: Union[str, Path] = "openai/clip-vit-large-patch14"
 
     image_alignment_threshold: float = 0.75
-    text_alignment_threshold: float = 0.20
+    text_alignment_threshold: float = 0.19
 
     # Eval
     eval_prompts: list[str] = [

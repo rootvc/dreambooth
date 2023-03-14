@@ -258,10 +258,14 @@ def to_dtype(new_dtype: torch.dtype):
     def f(*args: torch.nn.Module):
         dtypes = [model.dtype for model in args]
         for model in args:
+            if model.dtype == new_dtype:
+                continue
             print(f"Converting {model.__class__.__name__} to {new_dtype}")
             model.to(dtype=new_dtype)
         yield
         for model, dtype in zip(args, dtypes):
+            if model.dtype == dtype:
+                continue
             print(f"Restoring {model.__class__.__name__} to {dtype}")
             model.to(dtype=dtype)
 
@@ -489,13 +493,25 @@ class Trainer:
         torch.cuda.empty_cache()
 
         self.metrics_cache.update(score)
-        self.logger.info(score, main_process_only=True)
 
-        img, txt = score["image_alignment_avg"], score["text_alignment_avg"]
+        flex = ((self.total_steps - self.params.validate_after_steps) // 100) / 100
+        img, txt = score["image_alignment"], score["text_alignment"]
         img_trg, txt_trg = (
-            self.params.image_alignment_threshold,
-            self.params.text_alignment_threshold,
+            self.params.image_alignment_threshold - flex,
+            self.params.text_alignment_threshold - flex,
         )
+        self.metrics_cache.update(
+            {
+                "score": img + txt,
+                "img_trg": img_trg,
+                "txt_trg": txt_trg,
+                "score_trg": img_trg + txt_trg,
+            }
+        )
+        self.logger.warning(
+            {"img": img, "txt": txt, "img_trg": img_trg, "txt_trg": txt_trg}
+        )
+
         if ((img + txt) > (img_trg + txt_trg)) and ((img > img_trg) or (txt > txt_trg)):
             raise ScoreThresholdExceeded()
 
@@ -693,12 +709,17 @@ class Trainer:
                     self.accelerator.unwrap_model(
                         models["text_encoder"]
                     ).get_input_embeddings().weight[idx] = source
+            else:
+                models["lr_scheduler"].step()
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
 
             self.accelerator.log(
                 {
+                    "ti_lr": models["lr_scheduler"].get_last_lr()[0],
+                    "text_lr": models["lr_scheduler"].get_last_lr()[1],
+                    "unet_lr": models["lr_scheduler"].get_last_lr()[2],
                     "instance_loss": instance_loss.detach().item(),
                     "prior_loss": prior_loss.detach().item(),
                     **self.metrics_cache,
@@ -712,7 +733,7 @@ class Trainer:
 
     def exceeded_max_steps(self):
         return (
-            self.validate_every_epochs is None
+            self.params.validate_every_epochs is None
             and self.total_steps > self.params.validate_after_steps
         )
 
@@ -908,6 +929,8 @@ class Trainer:
             self.params.lr_scheduler,
             optimizer=optimizer,
             num_warmup_steps=self.params.lr_warmup_steps,
+            num_training_steps=max_train_steps,
+            num_cycles=max_train_steps // 25,
         )
 
         dprint(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
@@ -942,13 +965,14 @@ class Trainer:
 
     def _train(self, models: dict):
         dprint("Starting training...")
-        unet, text_encoder, epochs, optimizer, loader, tokenizer = (
+        unet, text_encoder, epochs, optimizer, loader, tokenizer, lr_scheduler = (
             models["unet"],
             models["text_encoder"],
             models["epochs"],
             models["optimizer"],
             models["loader"],
             models["tokenizer"],
+            models["lr_scheduler"],
         )
         for epoch in range(epochs):
             self.logger.warning(
@@ -956,14 +980,15 @@ class Trainer:
                 main_process_only=True,
             )
 
+            pg, blr = optimizer.param_groups, lr_scheduler.base_lrs
             if epoch < self.params.ti_train_epochs:
-                optimizer.param_groups[0]["lr"] = self.params.ti_learning_rate
-                optimizer.param_groups[1]["lr"] = 0.0
-                optimizer.param_groups[2]["lr"] = 0.0
+                pg[0]["lr"] = blr[0] = self.params.ti_learning_rate
+                pg[1]["lr"] = blr[1] = 0.0
+                pg[2]["lr"] = blr[2] = 0.0
             else:
-                optimizer.param_groups[0]["lr"] = 0.0
-                optimizer.param_groups[1]["lr"] = self.params.text_learning_rate
-                optimizer.param_groups[2]["lr"] = self.params.learning_rate
+                pg[0]["lr"] = blr[0] = 0.0
+                pg[1]["lr"] = blr[1] = self.params.text_learning_rate
+                pg[2]["lr"] = blr[2] = self.params.learning_rate
                 if epoch == self.params.ti_train_epochs:
                     dprint(f"Finished TI training at epoch {epoch}.")
                     del models["input_embeddings"]
@@ -971,6 +996,7 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
+                dprint("Max steps exceeded. Stopping training.")
                 break
 
             if (
@@ -978,10 +1004,10 @@ class Trainer:
                 and self.total_steps >= self.params.validate_after_steps
                 and epoch % self.validate_every_epochs == 0
             ):
-                self.accelerator.wait_for_everyone()
                 try:
                     self._do_validation(unet, models)
                 except ScoreThresholdExceeded:
+                    dprint("Score threshold exceeded. Stopping training.")
                     break
 
         self.accelerator.wait_for_everyone()
