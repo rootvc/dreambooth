@@ -145,14 +145,17 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 600  # 380
-    validate_every_epochs: Optional[int] = 5
+    validate_after_steps: int = 400
+    validate_every_epochs: Optional[dict] = {400: 3, 500: 2, 600: 1}
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 3
     validation_steps: int = 50
     validation_guidance_scale: float = 8.5
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
     test_model: Union[str, Path] = "openai/clip-vit-large-patch14"
+
+    image_alignment_threshold: float = 0.75
+    text_alignment_threshold: float = 0.20
 
     # Eval
     eval_prompts: list[str] = [
@@ -171,7 +174,7 @@ class HyperParams(BaseModel):
     upscale_factor: int = 2
     fidelity_weight: float = 0.5
     test_steps: int = 150
-    test_guidance_scale: float = 7.5
+    test_guidance_scale: float = 8.5
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
     image_output_path: Path = Path("output/images")

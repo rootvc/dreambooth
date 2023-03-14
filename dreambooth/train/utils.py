@@ -67,6 +67,10 @@ torch._dynamo.config.suppress_errors = True
 torch._dynamo.config.cache_size_limit = 64 * 2
 
 
+class ScoreThresholdExceeded(Exception):
+    pass
+
+
 class PromptDataset(Dataset):
     def __init__(self, prompt: str, n: int):
         self.prompt = prompt
@@ -483,12 +487,23 @@ class Trainer:
     def _validation(self, pipeline: StableDiffusionPipeline, title: str = "validation"):
         score = self.tester.test_pipe(pipeline, title)
         torch.cuda.empty_cache()
+
         self.metrics_cache.update(score)
+        self.logger.info(score, main_process_only=True)
+
+        img, txt = score["image_alignment_avg"], score["text_alignment_avg"]
+        img_trg, txt_trg = (
+            self.params.image_alignment_threshold,
+            self.params.text_alignment_threshold,
+        )
+        if ((img + txt) > (img_trg + txt_trg)) and ((img > img_trg) or (txt > txt_trg)):
+            raise ScoreThresholdExceeded()
 
     @torch.no_grad()
-    def _do_final_validation(self, tokenizer: CLIPTokenizer):
+    def _do_final_validation(self, tokenizer: CLIPTokenizer, check: bool = False):
         pipeline = self._create_eval_model(tokenizer)
-        self._validation(pipeline, title="final_validation")
+        if check:
+            self._validation(pipeline, title="final_validation")
         return pipeline
 
     @main_process_only
@@ -518,10 +533,11 @@ class Trainer:
             )
 
             pipeline.set_progress_bar_config(disable=True)
-            self._validation(pipeline)
-
-        del pipeline
-        torch.cuda.empty_cache()
+            try:
+                self._validation(pipeline)
+            finally:
+                del pipeline
+                torch.cuda.empty_cache()
 
     @torch.inference_mode()
     def _create_eval_model(self, tokenizer: CLIPTokenizer):
@@ -696,9 +712,17 @@ class Trainer:
 
     def exceeded_max_steps(self):
         return (
-            self.params.validate_every_epochs is None
+            self.validate_every_epochs is None
             and self.total_steps > self.params.validate_after_steps
         )
+
+    @property
+    def validate_every_epochs(self) -> Optional[int]:
+        if not self.params.validate_every_epochs:
+            return None
+        for milestone, epochs in self.params.validate_every_epochs.items():
+            if self.total_steps >= milestone:
+                return epochs
 
     @main_process_only
     def _init_trackers(self):
@@ -947,17 +971,18 @@ class Trainer:
 
             self._do_epoch(epoch, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
-                self.accelerator.wait_for_everyone()
-                self._do_validation(unet, models)
                 break
 
             if (
-                self.params.validate_every_epochs is not None
+                self.validate_every_epochs is not None
                 and self.total_steps >= self.params.validate_after_steps
-                and epoch % self.params.validate_every_epochs == 0
+                and epoch % self.validate_every_epochs == 0
             ):
                 self.accelerator.wait_for_everyone()
-                self._do_validation(unet, models)
+                try:
+                    self._do_validation(unet, models)
+                except ScoreThresholdExceeded:
+                    break
 
         self.accelerator.wait_for_everyone()
         unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=False)

@@ -1,7 +1,6 @@
 import asyncio
 import itertools
 import logging
-import os
 import subprocess
 import tempfile
 import time
@@ -13,7 +12,6 @@ from typing import Callable, Iterable, Optional, Type, Union
 import boto3
 from cloudpathlib import CloudPath
 from diffusers import AutoencoderKL, StableDiffusionPipeline
-from git import Repo
 from pydantic import BaseModel
 from sagemaker.estimator import Estimator
 from sagemaker.inputs import FileSystemInput, TrainingInput
@@ -244,7 +242,7 @@ class SagemakerTrainer(BaseTrainer):
 
     async def _run(self, config: IntanceConfig):
         self.check_cache(config)
-        repo = Repo().remotes.origin
+
         estimator = self.estimator = Estimator(
             image_uri="630351220487.dkr.ecr.us-west-2.amazonaws.com/train-dreambooth-sagemaker:latest",
             role="SageMakerRole",
@@ -255,13 +253,8 @@ class SagemakerTrainer(BaseTrainer):
             instance_count=1,
             instance_type=config.instance,
             environment={
-                "WANDB_API_KEY": os.environ["WANDB_API_KEY"],
-                "WANDB_GIT_COMMIT": repo.refs.main.commit.hexsha,
-                "WANDB_GIT_REMOTE_URL": repo.url,
-                "WANDB_NOTES": repo.refs.main.commit.summary,
+                **self.env,
                 "INSTANCE_TYPE": config.instance,
-                "DREAMBOOTH_ID": self.id,
-                "DREAMBOOTH_BUCKET": self.BUCKET,
             },
             subnets=["subnet-0425d46d0751e9df0"],
             security_group_ids=["sg-0edc333b71f1d600d"],

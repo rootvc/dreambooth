@@ -1,11 +1,10 @@
-import json
 import os
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from enum import Enum, auto
 from functools import lru_cache
 from textwrap import dedent
-from typing import Generator, cast
+from typing import AsyncGenerator, cast
 
 import asyncssh
 from jlclient import jarvisclient
@@ -42,32 +41,39 @@ class JarvisTrainer(BaseTrainer):
             if i.name == self.INSTANCE_NAME
         )
 
-    def create_instance(self) -> Instance:
-        return Instance.create(
-            gpu_type="A100",
-            num_gpus=4,
-            hdd=50,
-            framework_id=FrameworkId.BYOC.value,
-            name=self.INSTANCE_NAME,
-            image="rootventures/train-dreambooth-sagemaker:latest",
-            is_reserved=False,
-            docker_username=os.environ["DOCKER_USERNAME"],
-            docker_password=os.environ["DOCKER_PASSWORD"],
+    async def create_instance(self) -> Instance:
+        instance = cast(
+            Instance,
+            Instance.create(
+                gpu_type="A100",
+                num_gpus=4,
+                hdd=80,
+                framework_id=FrameworkId.BYOC.value,
+                name=self.INSTANCE_NAME,
+                image="rootventures/train-dreambooth-standalone:latest",
+                is_reserved=False,
+            ),
         )
+        try:
+            await self._exec(instance, "/root/setup.sh")
+        except asyncssh.Error:
+            instance.pause()
+            raise
+        return instance
 
     @lru_cache
-    def _instance(self) -> Instance:
+    async def _instance(self) -> Instance:
         try:
             instance = self.find_instance()
             if instance.status != "Running":
                 instance.resume()
             return instance
         except StopIteration:
-            return self.create_instance()
+            return await self.create_instance()
 
-    @contextmanager
-    def instance(self) -> Generator[Instance, None, None]:
-        instance = self._instance()
+    @asynccontextmanager
+    async def instance(self) -> AsyncGenerator[Instance, None]:
+        instance = await self._instance()
         try:
             yield instance
         finally:
@@ -89,27 +95,23 @@ class JarvisTrainer(BaseTrainer):
     def params(self) -> Params:
         return Params(
             env={
-                "DREAMBOOTH_ID": self.id,
-                "DREAMBOOTH_BUCKET": self.BUCKET,
+                **self.env,
             }
         )
 
+    async def _exec(self, instance: Instance, command: str):
+        async with asyncssh.connect(
+            instance.ssh_str, known_hosts=None, client_keys=[self.client_key]
+        ) as conn:
+            return await conn.run(command, check=True, timeout=self.MAX_RUN)
+
     async def run(self):
-        with self.instance() as instance:
+        async with self.instance() as instance:
             return instance
 
     async def run_and_wait(self):
-        with self.instance() as instance:
-            async with asyncssh.connect(
-                instance.ssh_str, known_hosts=None, client_keys=[self.client_key]
-            ) as conn:
-                await conn.run(
-                    "/dreambooth/scripts/run.sh",
-                    check=True,
-                    timeout=self.MAX_RUN,
-                    input=json.dumps(asdict(self.params)),
-                    stdout=asyncssh.STDOUT,
-                )
+        async with self.instance() as instance:
+            await self._exec(instance, "/dreambooth/scripts/train/run.sh")
 
     async def run_and_report(self):
         return (await self.run()).ssh_str
