@@ -49,8 +49,14 @@ def patch_allowed_pipeline_classes():
         delattr(pipelines, lib)
 
 
+def local_rank():
+    if not torch.distributed.is_initialized():
+        return 0
+    return torch.distributed.get_rank()
+
+
 def is_main():
-    return torch.distributed.get_rank() == 0
+    return local_rank() == 0
 
 
 def compile_model(
@@ -78,7 +84,7 @@ def compile_model(
     if do:
         if is_main():
             print(f"Compiling {model.__class__.__name__} with {backend}...")
-        return torch.compile(model, backend=backend, mode="max-autotune", **kwargs)
+        return torch.compile(model, backend=backend, **kwargs)  # mode="max-autotune"
     else:
         return model
 
@@ -88,7 +94,7 @@ def make_compile_model(backend: Optional[str], ignore: set[str] = set()):
 
 
 def dprint(*args, **kwargs):
-    print(f"[{torch.distributed.get_rank()}]", *args, **kwargs)
+    print(f"[{local_rank()}]", *args, **kwargs)
 
 
 def chunks(lst, n):

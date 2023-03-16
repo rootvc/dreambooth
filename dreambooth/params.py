@@ -16,7 +16,6 @@ TEST_PROMPTS = [
     "an oil paining of {}, ghibli inspired",
     "{} working on the laptop",
     "{} with mountains and sunset in background",
-    "Painting of {} at a beach by artist claude monet",
     "digital painting of {}, 3d render geometric style",
     "A screaming {}",
     "A depressed {}",
@@ -115,7 +114,7 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-5
+    learning_rate: float = 1e-4
     text_learning_rate: float = 1e-5
     ti_learning_rate: float = 5e-4
     betas: tuple[float, float] = (0.9, 0.999)
@@ -126,10 +125,11 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    ti_train_epochs: int = 15
-    train_epochs: int = 60
+    ti_train_epochs: int = 8
+    train_epochs: int = 25
     lr_scheduler: str = "cosine_with_restarts"
-    lr_warmup_steps: int = 50
+    lr_warmup_steps: int = 0  # 50
+    lr_cycles: int = 4
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
 
@@ -144,8 +144,8 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 400
-    validate_every_epochs: Optional[dict] = {400: 3, 525: 2, 600: 1}
+    validate_after_steps: int = 800
+    validate_every_epochs: Optional[dict] = {800: 3, 1200: 2, 1500: 1}
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 3
     validation_steps: int = 50

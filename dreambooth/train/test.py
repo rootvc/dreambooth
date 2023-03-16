@@ -1,6 +1,6 @@
 import random
 from functools import cached_property
-from typing import Union
+from typing import ClassVar, Union
 
 import torch
 import wandb
@@ -19,8 +19,17 @@ from dreambooth.params import TEST_PROMPTS, Class, HyperParams
 from dreambooth.train.accelerators import BaseAccelerator
 from dreambooth.train.shared import compile_model, main_process_only
 
+TClipModels = tuple[
+    CLIPTokenizer,
+    CLIPProcessor,
+    CLIPTextModelWithProjection,
+    CLIPVisionModelWithProjection,
+]
+
 
 class Tester:
+    _clip_models: ClassVar[TClipModels] = None
+
     def __init__(
         self, params: HyperParams, accelerator: BaseAccelerator, instance_class: Class
     ):
@@ -47,15 +56,9 @@ class Tester:
             }
         )
 
-    @torch.no_grad()
-    def prepare_clip_model_sets(
-        self, model
-    ) -> tuple[
-        CLIPTokenizer,
-        CLIPProcessor,
-        CLIPTextModelWithProjection,
-        CLIPVisionModelWithProjection,
-    ]:
+    @staticmethod
+    @torch.inference_mode()
+    def prepare_clip_model_sets(model) -> TClipModels:
         text_model = CLIPTextModelWithProjection.from_pretrained(model)
         tokenizer = CLIPTokenizer.from_pretrained(model)
         vis_model = CLIPVisionModelWithProjection.from_pretrained(model)
@@ -65,21 +68,56 @@ class Tester:
             [tokenizer, processor]
             + [
                 compile_model(
-                    m.to(self.accelerator.device)  # , dtype=self.params.dtype)
-                    .eval()
-                    .requires_grad_(False),
+                    m.to("cuda").eval().requires_grad_(False),
                 )
                 for m in (text_model, vis_model)
             ]
         )
 
-    @cached_property
     def clip_models(self):
-        return self.prepare_clip_model_sets(self.params.test_model)
+        if not self.__class__._clip_models:
+            self.__class__._clip_models = self.prepare_clip_model_sets(
+                self.params.test_model
+            )
+        return self.__class__._clip_models
 
     @cached_property
     def test_images(self):
         return [Image.open(p) for p in self.instance_class.data.iterdir()]
+
+    @cached_property
+    def test_prompts(self):
+        prompt = (
+            self.instance_class.deterministic_prompt
+            + ", "
+            + self.params.validation_prompt_suffix
+        )
+        return [prompt] + [
+            p.format(self.params.token)
+            for p in random.sample(TEST_PROMPTS, self.params.validation_samples - 1)
+        ]
+
+    @cached_property
+    def text_embeds(self):
+        tokenizer, _, text_model, _ = self.clip_models()
+        text_embed_inputs = [
+            tokenizer(
+                p.replace(self.params.token, self.params.source_token),
+                padding=True,
+                return_tensors="pt",
+            ).to(self.accelerator.device)
+            for p in self.test_prompts
+        ]
+        text_embeds = [text_model(**inp).text_embeds for inp in text_embed_inputs]
+        return torch.cat(text_embeds, dim=0)
+
+    @cached_property
+    def image_embeds(self):
+        _, processor, _, vis_model = self.clip_models()
+        target_image_embed_inputs = processor(
+            images=self.test_images, return_tensors="pt"
+        ).to(self.accelerator.device)
+        return vis_model(**target_image_embed_inputs).image_embeds
 
     @main_process_only
     def score(
@@ -116,36 +154,26 @@ class Tester:
         }
 
     @main_process_only
-    def validate(
-        self, pipe: StableDiffusionPipeline, title: str
-    ) -> tuple[list[str], list[Image.Image]]:
+    def validate(self, pipe: StableDiffusionPipeline, title: str) -> list[Image.Image]:
         generator = torch.Generator(device=self.accelerator.device)
-        prompt = (
-            self.instance_class.deterministic_prompt
-            + ", "
-            + self.params.validation_prompt_suffix
-        )
-        prompts = [prompt] + [
-            p.format(self.params.token)
-            for p in random.sample(TEST_PROMPTS, self.params.validation_samples - 1)
-        ]
+
         images = pipe(
-            prompts,
+            self.test_prompts,
             num_inference_steps=self.params.validation_steps,
             guidance_scale=self.params.validation_guidance_scale,
-            negative_prompt=[self.params.negative_prompt] * len(prompts),
+            negative_prompt=[self.params.negative_prompt] * len(self.test_prompts),
             generator=generator,
         ).images
 
         images = list(images)
-        self.log_images(prompts, images, title=title)
-        return prompts, images
+        self.log_images(self.test_prompts, images, title=title)
+        return images
 
     @main_process_only
     @torch.no_grad()
     def test_pipe(self, pipe: StableDiffusionPipeline, title: str):
-        tokenizer, processor, text_model, vis_model = self.clip_models
-        prompts, images = self.validate(pipe, title)
+        _, processor, _, vis_model = self.clip_models()
+        images = self.validate(pipe, title)
 
         image_embed_inputs = [
             processor(images=image, return_tensors="pt").to(self.accelerator.device)
@@ -154,20 +182,4 @@ class Tester:
         image_embeds = [vis_model(**inp).image_embeds for inp in image_embed_inputs]
         image_embeds = torch.cat(image_embeds, dim=0)
 
-        text_embed_inputs = [
-            tokenizer(
-                p.replace(self.params.token, self.params.source_token),
-                padding=True,
-                return_tensors="pt",
-            ).to(self.accelerator.device)
-            for p in prompts
-        ]
-        text_embeds = [text_model(**inp).text_embeds for inp in text_embed_inputs]
-        text_embeds = torch.cat(text_embeds, dim=0)
-
-        target_image_embed_inputs = processor(
-            images=self.test_images, return_tensors="pt"
-        ).to(self.accelerator.device)
-        target_image_embeds = vis_model(**target_image_embed_inputs).image_embeds
-
-        return self.score(image_embeds, text_embeds, target_image_embeds)
+        return self.score(image_embeds, self.text_embeds, self.image_embeds)

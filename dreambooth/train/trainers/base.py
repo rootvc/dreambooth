@@ -25,6 +25,9 @@ class BaseTrainer(Generic[T], ABC):
     def __init__(self, id: str) -> None:
         self.id = id
 
+    def job_base_name(self):
+        return f"dreambooth-{self.id}"
+
     @cached_property
     def env(self):
         repo = Repo().remotes.origin
@@ -33,6 +36,7 @@ class BaseTrainer(Generic[T], ABC):
             "WANDB_GIT_COMMIT": repo.refs.main.commit.hexsha,
             "WANDB_GIT_REMOTE_URL": repo.url,
             "WANDB_NOTES": repo.refs.main.commit.summary,
+            "WANDB_NAME": self.job_base_name(),
             "DREAMBOOTH_ID": self.id,
             "DREAMBOOTH_BUCKET": self.BUCKET,
         }

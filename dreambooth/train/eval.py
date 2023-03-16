@@ -1,5 +1,6 @@
 import hashlib
 import itertools
+import os
 import shutil
 from datetime import timedelta
 from functools import partial
@@ -61,6 +62,11 @@ class Evaluator:
         model = RRDBNet(num_in_ch=3, num_out_ch=3, scale=self.params.upscale_factor).to(
             self.accelerator.device
         )
+        os.system(f"ls -la {Path('./weights').absolute()}")
+        os.system(f"ls -la {Path('./weights/.').absolute()}")
+        os.system(f"ls -lL {Path('./weights/').absolute()}")
+        os.system(f"ls -lH {Path('./weights/').absolute()}")
+        os.system(f"ls -la {Path('./weights/realesrgan').absolute()}")
         upsampler = RealESRGANer(
             scale=self.params.upscale_factor,
             model_path=str(
@@ -148,19 +154,19 @@ class Evaluator:
         loader = DataLoader(
             PromptDataset(self.params),
             collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
+            batch_size=self.params.batch_size,
         )
         loader = self.accelerator.prepare(loader)
 
         all_images = []
-        for i, prompts in enumerate(loader):
-            assert len(prompts) == 1
+        for batch in loader:
             images = self.pipeline(
-                prompts[0],
-                negative_prompt=self.params.negative_prompt,
+                batch,
+                negative_prompt=[self.params.negative_prompt] * len(batch),
                 num_inference_steps=self.params.test_steps,
                 guidance_scale=self.params.test_guidance_scale,
             ).images
-            all_images.extend(zip(prompts, images))
+            all_images.extend(zip(batch, images))
 
         return all_images
 

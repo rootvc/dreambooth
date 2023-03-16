@@ -19,7 +19,7 @@ pull_build_push() {
   IMAGE_NAME="rootventures/$2:latest"
   docker pull "$IMAGE_NAME"
   docker build \
-    -o type=registry,oci-mediatypes=true,compression=estargz \
+    -o type=registry,oci-mediatypes=true \
     --cache-from=type=registry,ref=rootventures/$2:cache \
     --cache-to=type=registry,ref=rootventures/$2:cache,mode=max \
     --builder builder \
@@ -33,9 +33,10 @@ init
 pull_build_push Dockerfile.pytorch pytorch
 pull_build_push Dockerfile.train train-dreambooth
 pull_build_push Dockerfile.sagemaker train-dreambooth-sagemaker
+pull_build_push Dockerfile.runpod train-dreambooth-runpod
 
 docker build \
-  -o type=registry,oci-mediatypes=true,compression=estargz \
+  -o type=registry,oci-mediatypes=true,compression=zstd \
   --cache-from=type=registry,ref=rootventures/train-dreambooth-sagemaker:cache \
   --builder builder \
   -f dockerfiles/Dockerfile.sagemaker . \

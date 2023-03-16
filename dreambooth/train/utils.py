@@ -329,6 +329,7 @@ class Trainer:
         instance = klass.from_pretrained(
             self.params.model.name,
             revision=self.params.model.revision,
+            local_files_only=True,
             **kwargs,
         )
         tap(instance)
@@ -347,7 +348,6 @@ class Trainer:
                 DiffusionPipeline,
                 safety_checker=None,
                 low_cpu_mem_usage=True,
-                local_files_only=True,
                 vae=vae or self._vae().eval(),
                 unet=(unet or self._unet(compile=True)).eval(),
                 text_encoder=(
@@ -389,7 +389,7 @@ class Trainer:
             )
 
         vae.requires_grad_(False)
-        vae.enable_slicing()
+        # vae.enable_slicing()
         vae.enable_xformers_memory_efficient_attention()
         if "device_map" not in kwargs:
             vae.to(self.accelerator.device)
@@ -700,6 +700,8 @@ class Trainer:
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
+            models["lr_scheduler"].step()
+
             if epoch < self.params.ti_train_epochs:
                 with torch.no_grad():
                     idx = torch.arange(len(models["tokenizer"])) != self.token_id(
@@ -709,8 +711,6 @@ class Trainer:
                     self.accelerator.unwrap_model(
                         models["text_encoder"]
                     ).get_input_embeddings().weight[idx] = source
-            else:
-                models["lr_scheduler"].step()
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
@@ -741,7 +741,7 @@ class Trainer:
     def validate_every_epochs(self) -> Optional[int]:
         if not self.params.validate_every_epochs:
             return None
-        for milestone, epochs in self.params.validate_every_epochs.items():
+        for milestone, epochs in reversed(self.params.validate_every_epochs.items()):
             if self.total_steps >= milestone:
                 return epochs
 
@@ -930,8 +930,9 @@ class Trainer:
             optimizer=optimizer,
             num_warmup_steps=self.params.lr_warmup_steps,
             num_training_steps=max_train_steps,
-            num_cycles=max_train_steps // 25,
+            num_cycles=self.params.lr_cycles,
         )
+        lr_scheduler.lr_lambdas[0] = lambda _: 1
 
         dprint(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
 
@@ -1054,7 +1055,7 @@ def get_params() -> HyperParams:
             params.batch_size = 1  # 3
         case float(n):
             params.use_diffusers_unet = False
-            params.batch_size = 3  # int(n / 8)
+            params.batch_size = 3
 
     match torch.cuda.device_count():
         case int(n) if n > 1:

@@ -9,9 +9,6 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -19,8 +16,11 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          swap-storage: false
-          large-packages: false
+          swap-storage: true
+          large-packages: true
+
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
       - uses: actions/setup-go@v3
         with:
@@ -42,8 +42,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Docker meta
-        id: meta
+      - name: Docker meta (SageMaker)
+        id: sm_meta
         uses: docker/metadata-action@v4
         with:
           images: |
@@ -60,17 +60,50 @@ jobs:
             type=semver,pattern={{major}}
             type=sha
 
+      - name: Docker meta (RunPod)
+        id: rp_meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            rootventures/train-dreambooth-runpod
+          flavor: |
+            latest=true
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Build and push
+      - name: Clean up space
+        run: docker system prune -af
+
+      - name: Build and push (SageMaker)
         uses: docker/build-push-action@v4
         with:
           context: .
           file: ./dockerfiles/Dockerfile.sagemaker
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          outputs: "type=registry,oci-mediatypes=true,compression=estargz"
+          tags: ${{ steps.sm_meta.outputs.tags }}
+          labels: ${{ steps.sm_meta.outputs.labels }}
+          cache-from: type=gha,compression=zstd
+          cache-to: type=gha,mode=min,oci-mediatypes=true,compression=zstd
+          outputs: "type=registry,oci-mediatypes=true,compression=zstd,compression-level=3"
+
+      - name: Build and push (RunPod)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./dockerfiles/Dockerfile.runpod
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.rp_meta.outputs.tags }}
+          labels: ${{ steps.rp_meta.outputs.labels }}
+          cache-from: type=gha,compression=zstd
+          cache-to: type=gha,mode=min,oci-mediatypes=true,compression=zstd
+          outputs: "type=registry,oci-mediatypes=true" # compression=zstd,compression-level=3n

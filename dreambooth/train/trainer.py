@@ -1,10 +1,10 @@
 import asyncio
 
-from dreambooth.train.trainers.sagemaker import InstanceOptimizer, SagemakerTrainer
+from dreambooth.train.trainers.runpod import RunpodTrainer
 
 
 def run(id: str):
-    asyncio.run(SagemakerTrainer(id, optimizer=InstanceOptimizer.TIME).run_and_wait())
+    asyncio.run(RunpodTrainer(id).run_and_wait())
 
 
 if __name__ == "__main__":

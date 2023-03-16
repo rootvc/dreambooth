@@ -1,6 +1,8 @@
+import os
+from pathlib import Path
 from typing import Type
 
-from diffusers import StableDiffusionPipeline
+from diffusers import AutoencoderKL, StableDiffusionPipeline
 from transformers import (
     CLIPModel,
     CLIPProcessor,
@@ -11,9 +13,16 @@ from transformers import (
 
 from dreambooth.params import HyperParams
 
+HF_MODEL_CACHE = os.getenv("HF_MODEL_CACHE")
+
 
 def download(klass: Type, name: str, **kwargs):
-    return klass.from_pretrained(name, **kwargs)
+    model = klass.from_pretrained(name, **kwargs)
+    if HF_MODEL_CACHE:
+        path = Path(HF_MODEL_CACHE) / name
+        print(f"Saving {name} to {path}")
+        model.save_pretrained(path)
+    return model
 
 
 def download_test_models(_, name: str):
@@ -31,12 +40,17 @@ def download_test_models(_, name: str):
 
 def download_model():
     params = HyperParams()
-    return download(
-        StableDiffusionPipeline,
-        params.model.name,
-        revision=params.model.revision,
-        torch_dtype=params.dtype,
-    )
+    models = [
+        download(
+            StableDiffusionPipeline,
+            params.model.name,
+            revision=params.model.revision,
+            torch_dtype=params.dtype,
+        )
+    ]
+    if params.model.vae:
+        models.append(download(AutoencoderKL, params.model.vae))
+    return models
 
 
 if __name__ == "__main__":

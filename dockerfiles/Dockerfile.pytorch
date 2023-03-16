@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile:experimental
 
-FROM ghcr.io/pytorch/pytorch-nightly:2.1.0.dev20230309-devel AS nightly
+FROM ghcr.io/pytorch/pytorch-nightly:2.1.0.dev20230320-devel AS nightly
 
 ENV TORCH_CUDA_ARCH_LIST "7.0;7.2;7.5;8.0;8.6;8.7"
 ENV CUDA_HOME /usr/local/cuda
@@ -9,7 +9,7 @@ ENV CCACHE_DIR /opt/ccache
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   apt-get update && \
-  apt-get install -y git build-essential ccache && \
+  apt-get install -y curl git build-essential ccache && \
   rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/opt/ccache \
@@ -29,9 +29,8 @@ RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy -
 
 RUN --mount=type=cache,target=/opt/ccache \
   export CUDA_VERSION=$(echo "$CUDA_VERSION" | tr -d '.' | rev | cut -c 2- | rev) && \
-  git clone https://github.com/telpirion/bitsandbytes.git && \
+  git clone https://github.com/TimDettmers/bitsandbytes.git && \
   cd bitsandbytes && \
-  git checkout 1238d1842bdebf9c89925bdd5712c9f5ffe4c206 && \
   make cuda11x cuda11x_nomatmul && \
   python setup.py install
 
