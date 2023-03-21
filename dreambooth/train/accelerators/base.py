@@ -96,9 +96,7 @@ class BaseAccelerator(ABC):
         pass
 
     @abstractmethod
-    def log(
-        self, values: dict, step: Optional[int] = None, log_kwargs: Optional[dict] = {}
-    ):
+    def log(self, values: dict, step: Optional[int] = None, **log_kwargs):
         pass
 
     @abstractmethod

@@ -156,7 +156,6 @@ class Tester:
     @main_process_only
     def validate(self, pipe: StableDiffusionPipeline, title: str) -> list[Image.Image]:
         generator = torch.Generator(device=self.accelerator.device)
-
         images = pipe(
             self.test_prompts,
             num_inference_steps=self.params.validation_steps,
@@ -164,7 +163,6 @@ class Tester:
             negative_prompt=[self.params.negative_prompt] * len(self.test_prompts),
             generator=generator,
         ).images
-
         images = list(images)
         self.log_images(self.test_prompts, images, title=title)
         return images

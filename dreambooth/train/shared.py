@@ -3,6 +3,7 @@ import importlib
 import itertools
 import logging
 from contextlib import contextmanager
+from datetime import datetime
 from inspect import isfunction
 from typing import Callable, Optional, TypeVar
 
@@ -23,7 +24,7 @@ def partition(
 def main_process_only(f):
     @functools.wraps(f)
     def wrapper(self, *args, **kwargs):
-        if not self.accelerator.is_main_process:
+        if torch.distributed.is_initialized() and not self.accelerator.is_main_process:
             return
         return f(self, *args, **kwargs)
 
@@ -93,8 +94,19 @@ def make_compile_model(backend: Optional[str], ignore: set[str] = set()):
     return functools.partial(compile_model, ignore=ignore, backend=backend)
 
 
-def dprint(*args, **kwargs):
-    print(f"[{local_rank()}]", *args, **kwargs)
+__ts = datetime.now()
+__last_ts = __ts
+
+
+def dprint(*args, reset: bool = False, **kwargs):
+    global __ts, __last_ts
+    if reset:
+        __ts = datetime.now()
+
+    total = datetime.now() - __ts
+    delta = datetime.now() - __last_ts
+    print(f"[{local_rank()}/T:{total}/D:+{delta}]", *args, **kwargs)
+    __last_ts = datetime.now()
 
 
 def chunks(lst, n):

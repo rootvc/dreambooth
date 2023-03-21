@@ -62,10 +62,8 @@ def _unpack_eval_models(model_dir: Path):
     if not models.exists():
         raise ValueError(f"Model directory {models} does not exist!")
 
-    os.system(f"ls -la {models}")
     if not Path("weights").is_symlink():
         os.symlink(models, "weights", target_is_directory=True)
-    os.system("ls -lHa weights")
 
     if not facelib_path.is_symlink():
         shutil.rmtree(facelib_path, ignore_errors=True)
@@ -242,7 +240,9 @@ def standalone_cleanup():
     id = os.environ["DREAMBOOTH_ID"]
     bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
 
-    (bucket / "output" / id).upload_from(Path("/opt/ml/output"))
+    (bucket / "output" / id).upload_from(
+        Path("/opt/ml/output"), force_overwrite_to_cloud=True
+    )
 
     dprint("Persisting global cache...")
     _persist_global_cache()
@@ -271,6 +271,8 @@ def standalone_cleanup():
 def main():
     is_main = os.getenv("LOCAL_RANK", "0") == "0"
     is_sagemaker = "SAGEMAKER_JOB_NAME" in os.environ
+
+    dprint("Starting!", reset=True)
 
     if is_sagemaker:
         env = environment.Environment()

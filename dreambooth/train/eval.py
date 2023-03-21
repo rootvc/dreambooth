@@ -1,7 +1,7 @@
 import hashlib
 import itertools
-import os
 import shutil
+from concurrent.futures import ProcessPoolExecutor as Pool
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import torch
 import torch.distributed
+import torch.multiprocessing
 import wandb
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils import img2tensor, tensor2img
@@ -23,12 +24,14 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import normalize
 
 from dreambooth.params import HyperParams
-from dreambooth.train.accelerators.base import BaseAccelerator
 from dreambooth.train.shared import (
     compile_model,
     dprint,
+    is_main,
     main_process_only,
 )
+
+multiprocessing = torch.multiprocessing.get_context("forkserver")
 
 T = TypeVar("T", bound=torch.nn.Module)
 
@@ -36,6 +39,9 @@ T = TypeVar("T", bound=torch.nn.Module)
 class PromptDataset(Dataset):
     def __init__(self, params: HyperParams):
         self.params = params
+
+    def __iter__(self):
+        return iter(self.params.eval_prompts)
 
     def __len__(self):
         return len(self.params.eval_prompts)
@@ -47,12 +53,12 @@ class PromptDataset(Dataset):
 class Evaluator:
     def __init__(
         self,
-        accelerator: BaseAccelerator,
+        device: torch.device,
         params: HyperParams,
         pipeline: StableDiffusionPipeline,
     ):
         self.params = params
-        self.accelerator = accelerator
+        self.device = device
         self.pipeline = pipeline
 
     def compile(self, model: torch.nn.Module, **kwargs):
@@ -60,13 +66,8 @@ class Evaluator:
 
     def _upsampler(self):
         model = RRDBNet(num_in_ch=3, num_out_ch=3, scale=self.params.upscale_factor).to(
-            self.accelerator.device
+            self.device, dtype=self.params.dtype
         )
-        os.system(f"ls -la {Path('./weights').absolute()}")
-        os.system(f"ls -la {Path('./weights/.').absolute()}")
-        os.system(f"ls -lL {Path('./weights/').absolute()}")
-        os.system(f"ls -lH {Path('./weights/').absolute()}")
-        os.system(f"ls -la {Path('./weights/realesrgan').absolute()}")
         upsampler = RealESRGANer(
             scale=self.params.upscale_factor,
             model_path=str(
@@ -74,18 +75,17 @@ class Evaluator:
             ),
             model=model.eval(),
             pre_pad=0,
-            half=True,
-            device=self.accelerator.device,
+            device=self.device,
         )
-        upsampler.model = self.compile(upsampler.model)
+        upsampler.model = self.compile(upsampler.model, do=False)
         return upsampler
 
     def _restorer(self):
-        model = ARCH_REGISTRY.get("CodeFormer")().to(self.accelerator.device)
+        model = ARCH_REGISTRY.get("CodeFormer")().to(self.device)
         model.load_state_dict(
             torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
-        return self.compile(model.eval())
+        return self.compile(model.eval(), do=False)
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):
@@ -93,7 +93,7 @@ class Evaluator:
                 self.params.upscale_factor,
                 det_model="dlib",
                 use_parse=True,
-                device=self.accelerator.device,
+                device=self.device,
             )
         return self.__face_helper
 
@@ -122,7 +122,7 @@ class Evaluator:
 
         face_t: torch.Tensor = img2tensor(face / 255.0, bgr2rgb=True, float32=True)
         normalize(face_t, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], inplace=True)
-        return (face, face_t.unsqueeze(0).to(self.accelerator.device))
+        return (face, face_t.unsqueeze(0).to(self.device))
 
     def _restore_face(
         self,
@@ -144,8 +144,10 @@ class Evaluator:
         helper: FaceRestoreHelper,
         image: np.ndarray,
     ) -> np.ndarray:
+        dprint("Enhancing background...")
         background = upsampler.enhance(image, outscale=self.params.upscale_factor)[0]
         helper.get_inverse_affine()
+        dprint("Enhancing face...")
         return helper.paste_faces_to_input_image(
             upsample_img=background, face_upsampler=upsampler
         )
@@ -154,9 +156,8 @@ class Evaluator:
         loader = DataLoader(
             PromptDataset(self.params),
             collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
-            batch_size=self.params.batch_size,
+            batch_size=len(self.params.eval_prompts),
         )
-        loader = self.accelerator.prepare(loader)
 
         all_images = []
         for batch in loader:
@@ -176,6 +177,8 @@ class Evaluator:
         upsampler: RealESRGANer,
         pil_image: Image,
     ) -> Optional[np.ndarray]:
+        upsampler.model = self.compile(upsampler.model)
+
         helper = self._face_helper()
         dprint("Converting image...")
         image = self._convert_image(pil_image)
@@ -192,7 +195,7 @@ class Evaluator:
     @main_process_only
     def _upload_images(self):
         for key in ("original", "restored"):
-            self.accelerator.wandb_tracker.log(
+            wandb.run.log(
                 {
                     key: [
                         wandb.Image(
@@ -212,40 +215,47 @@ class Evaluator:
             self.params.image_output_path / "original",
             self.params.image_output_path / "restored",
         ]
-        if self.accelerator.is_main_process:
+        if is_main():
             for path in paths:
                 shutil.rmtree(path, ignore_errors=True)
                 path.mkdir(exist_ok=True)
         return paths
+
+    def wait_for_everyone(self):
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
 
     @torch.inference_mode()
     def generate(self):
         dprint("Generating images...")
         images = self._gen_images()
         del self.pipeline
-        self.accelerator.free_memory()
+        torch.cuda.empty_cache()
 
         prompt_path, original_path, restored_path = self._paths()
-        self.accelerator.wait_for_everyone()
+        self.wait_for_everyone()
 
         dprint("Compiling face models...")
         upsampler, restorer = self._upsampler(), self._restorer()
         restore = partial(self._process_image, restorer, upsampler)
 
+        with Pool(len(images), mp_context=multiprocessing) as p:
+            all_restored = p.map(restore, (image for _, image in images))
+
         dprint(f"Saving {len(images)} images...")
-        for prompt, image in images:
+        for i, (prompt, image) in enumerate(images):
             dprint(prompt)
             slug = hashlib.md5(prompt.encode()).hexdigest()
             (prompt_path / f"{slug}.txt").write_text(prompt)
             image.save(original_path / f"{slug}.png")
 
             dprint("Restoring...")
-            if (restored := restore(image)) is None:
+            if (restored := next(all_restored)) is None:
                 continue
             path = str(restored_path / f"{slug}.png")
             cv2.imwrite(path, restored)
 
         dprint("Waiting for upload...")
-        torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
+        self.wait_for_everyone()
         self._upload_images()
         dprint("Done!")
