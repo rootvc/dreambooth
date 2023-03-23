@@ -123,7 +123,7 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 8
-    train_epochs: int = 22
+    train_epochs: int = 23
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0  # 50
     lr_cycles: int = 2
@@ -141,8 +141,8 @@ class HyperParams(BaseModel):
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 2000
-    validate_every_epochs: Optional[dict] = {2000: 1}
+    validate_after_steps: int = 2100
+    validate_every_epochs: Optional[dict] = {2100: 1}
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 2
     validation_steps: int = 75
@@ -150,8 +150,11 @@ class HyperParams(BaseModel):
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
     test_model: Union[str, Path] = "openai/clip-vit-large-patch14"
 
-    image_alignment_threshold: float = 0.69
-    text_alignment_threshold: float = 0.19
+    image_alignment_threshold: float = 0.82
+    text_alignment_threshold: float = 0.21
+
+    final_image_alignment_threshold: float = 0.60
+    final_text_alignment_threshold: float = 0.20
 
     # Eval
     eval_prompts: list[str] = [

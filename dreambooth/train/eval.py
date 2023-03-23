@@ -13,6 +13,7 @@ import torch
 import torch.distributed
 import torch.multiprocessing
 import wandb
+from accelerate.utils import convert_outputs_to_fp32
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils import img2tensor, tensor2img
 from basicsr.utils.realesrgan_utils import RealESRGANer
@@ -76,8 +77,8 @@ class Evaluator:
             model=model.eval(),
             pre_pad=0,
             device=self.device,
+            half=True,
         )
-        upsampler.model = self.compile(upsampler.model, do=False)
         return upsampler
 
     def _restorer(self):
@@ -85,7 +86,7 @@ class Evaluator:
         model.load_state_dict(
             torch.load("weights/CodeFormer/codeformer.pth")["params_ema"]
         )
-        return self.compile(model.eval(), do=False)
+        return model.eval()
 
     def _face_helper_singleton(self) -> FaceRestoreHelper:
         if not hasattr(self, "__face_helper"):
@@ -177,7 +178,9 @@ class Evaluator:
         upsampler: RealESRGANer,
         pil_image: Image,
     ) -> Optional[np.ndarray]:
-        upsampler.model = self.compile(upsampler.model)
+        upsampler.model.forward = torch.cuda.amp.autocast()(upsampler.model.forward)
+        upsampler.model.forward = convert_outputs_to_fp32(upsampler.model.forward)
+        upsampler.model = self.compile(upsampler.model).to(self.device)
 
         helper = self._face_helper()
         dprint("Converting image...")

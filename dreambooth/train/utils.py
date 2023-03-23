@@ -14,6 +14,9 @@ from typing import Any, Callable, Optional, Type, TypeVar, cast
 import torch
 import torch._dynamo
 import torch._dynamo.config
+import torch._dynamo.config_utils
+import torch._functorch.config
+import torch._inductor.config
 import torch.backends.cuda
 import torch.backends.cudnn
 import torch.distributed
@@ -488,18 +491,28 @@ class Trainer:
 
     @main_process_only
     @torch.no_grad()
-    def _validation(self, pipeline: StableDiffusionPipeline, title: str = "validation"):
-        score = self.tester.test_pipe(pipeline, title)
+    def _validation(self, pipeline: StableDiffusionPipeline, final: bool = False):
+        score = self.tester.test_pipe(
+            pipeline, "final_validation" if final else "validation"
+        )
         torch.cuda.empty_cache()
 
         self.metrics_cache.update(score)
 
         flex = ((self.total_steps - self.params.validate_after_steps) // 100) / 100
         img, txt = score["image_alignment"], score["text_alignment"]
-        img_trg, txt_trg = (
-            self.params.image_alignment_threshold - flex,
-            self.params.text_alignment_threshold - flex,
+        img_align_trg, txt_align_trg = (
+            (
+                self.params.final_image_alignment_threshold,
+                self.params.final_text_alignment_threshold,
+            )
+            if final
+            else (
+                self.params.image_alignment_threshold,
+                self.params.text_alignment_threshold,
+            )
         )
+        img_trg, txt_trg = (img_align_trg - flex, txt_align_trg - flex)
         self.metrics_cache.update(
             {
                 "score": img + txt,
@@ -513,7 +526,7 @@ class Trainer:
         )
 
         if (
-            ((img + txt) > (img_trg + txt_trg) * 0.9)
+            ((img + txt) > (img_trg + txt_trg) * 0.95)
             and ((img > img_trg) or (txt > txt_trg))
             and (img > 0.95 * img_trg)
         ):
@@ -528,7 +541,7 @@ class Trainer:
         vae: AutoencoderKL,
         check: bool = False,
     ):
-        dprint(f"Final validation...")
+        dprint("Final validation...")
         pipeline = self._create_eval_model(
             unet,
             text_encoder,
@@ -539,13 +552,16 @@ class Trainer:
         )
         if check:
             try:
-                self._validation(pipeline, title=f"final_validation")
+                self._validation(pipeline, final=True)
             except ScoreThresholdExceeded:
                 pass
             else:
+                pass
                 raise RuntimeError("Final validation failed")
             finally:
-                wandb.run.log(self.metrics_cache, commit=True)
+                wandb.run.log(
+                    self.metrics_cache, step=self._total_steps + 1, commit=True
+                )
         return pipeline
 
     @main_process_only
@@ -562,19 +578,15 @@ class Trainer:
 
         with to_dtype(torch.float)(unet, text_encoder, models["vae"]):
             pipeline = self._pipeline(
-                unet=unet,
-                text_encoder=text_encoder,
+                unet=unet.eval(),
+                text_encoder=text_encoder.eval(),
                 tokenizer=models["tokenizer"],
-                vae=models["vae"],
+                vae=models["vae"].eval(),
                 torch_dtype=self.params.dtype,
-            )
-            pipeline.unet = unet.eval()
-            pipeline.text_encoder = text_encoder.eval()
+            ).to(self.accelerator.device)
             pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
                 pipeline.scheduler.config
             )
-
-            pipeline.set_progress_bar_config(disable=True)
             try:
                 self._validation(pipeline)
             finally:
@@ -746,7 +758,7 @@ class Trainer:
 
             # Get the text embedding for conditioning
             encoder_hidden_states = models["text_encoder"](
-                batch["input_ids"].to(self.accelerator.device, dtype=torch.long)
+                batch["input_ids"].to(self.accelerator.device)
             )[0]
             # Predict the noise residual
             model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
@@ -917,9 +929,11 @@ class Trainer:
         embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
 
         if init is None:
-            src_token_ids3 = tokenizer.encode("person", add_special_tokens=False)
-            assert len(src_token_ids3) == 1
-            init = embeds[src_token_ids3[0]]
+            src_token_ids = tokenizer.encode(
+                self.params.source_token, add_special_tokens=False
+            )
+            assert len(src_token_ids) == 1
+            init = embeds[src_token_ids[0]]
 
         tkn_id = self.token_id(tokenizer)
         embeds[tkn_id] = init
@@ -946,12 +960,10 @@ class Trainer:
 
     def _prepare_to_train(self):
         with self.accelerator.init():
-            tokenizer, text_encoder = self._init_text()
-            unet = self._unet()
+            tokenizer, text_encoder = self._init_text(compile=False)
+            unet = self._unet(compile=False)
 
-        unet = self.compile(unet, do=False)
-        text_encoder = self.compile(text_encoder, do=False)
-        vae = self._vae(compile=True, torch_dtype=self.params.dtype)
+        vae = self._vae(compile=False, torch_dtype=self.params.dtype)
 
         dataset = DreamBoothDataset(
             instance=self.instance_class,
@@ -997,11 +1009,14 @@ class Trainer:
         )
         max_train_steps = self.params.train_epochs * steps_per_epoch
 
-        (loader, unet, text_encoder) = self.accelerator.prepare(
-            loader, unet, text_encoder
+        (loader, unet, text_encoder, vae) = self.accelerator.prepare(
+            loader, unet, text_encoder, vae
         )
         if unet_param_src is not unet:
             unet_param_src = self.accelerator.prepare(unet_param_src)
+
+        text_encoder = self.compile(text_encoder)
+        vae = self.compile(vae)
 
         optimizer = self.accelerator.optimizer(
             params,
@@ -1070,10 +1085,8 @@ class Trainer:
             models["lr_scheduler"],
         )
         for epoch in range(epochs):
-            self.logger.warning(
-                f"Epoch {epoch + 1}/{epochs} (Step {self.total_steps})",
-                main_process_only=True,
-            )
+            if self.accelerator.is_main_process:
+                dprint(f"Epoch {epoch + 1}/{epochs} (Step {self.total_steps})")
 
             pg, blr = optimizer.param_groups, lr_scheduler.base_lrs
             if epoch < self.params.ti_train_epochs:

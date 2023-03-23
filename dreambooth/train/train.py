@@ -80,6 +80,7 @@ def _setup_global_cache():
 
 def _persist_global_cache():
     cache_dir = Path(os.environ["TORCHINDUCTOR_CACHE_DIR"])
+
     local_cache = cache_dir / "local_cache"
     global_cache = cache_dir / "global_cache"
 
@@ -160,7 +161,11 @@ def cache_path():
     dinfo = torch.cuda.get_device_properties(torch.cuda.current_device()).name
     vinfo = torch.version.cuda
     key = f"{dinfo}-{vinfo}-{torch.__version__}".replace(" ", "-").lower()
-    return bucket / "cache" / key
+    path = bucket / "cache" / key
+
+    if not path.exists():
+        (path / ".keep").touch(exist_ok=True)
+    return path.as_uri().replace("s3://", "s3:/")
 
 
 def standalone_params(is_main: bool) -> Params:
@@ -194,7 +199,8 @@ def standalone_params(is_main: bool) -> Params:
         subprocess.run(
             [
                 "rclone",
-                "sync",
+                "copy",
+                "--progress",
                 "--checksum",
                 "--fast-list",
                 "--human-readable",
@@ -205,8 +211,8 @@ def standalone_params(is_main: bool) -> Params:
                 "--s3-use-accelerate-endpoint",
                 "--s3-no-check-bucket",
                 "--s3-no-head",
-                f"{cache_path()}/",
-                f"{os.environ['CACHE_DIR']}",
+                cache_path(),
+                os.environ["CACHE_DIR"],
             ]
         )
 
@@ -250,7 +256,8 @@ def standalone_cleanup():
     subprocess.run(
         [
             "rclone",
-            "sync",
+            "copy",
+            "--progress",
             "--checksum",
             "--fast-list",
             "--human-readable",
@@ -262,9 +269,11 @@ def standalone_cleanup():
             "--s3-use-accelerate-endpoint",
             "--s3-no-check-bucket",
             "--s3-no-head",
-            f"{os.environ['CACHE_DIR']}/",
+            os.environ["CACHE_DIR"],
             cache_path(),
-        ]
+        ],
+        capture_output=True,
+        check=True,
     )
 
 
@@ -293,8 +302,8 @@ def main():
         model.eval(pipeline)
     finally:
         if is_main:
-            model.accelerator.end_training()
             cleanup_fn()
+            model.accelerator.end_training()
 
         dprint("Exiting!")
 
