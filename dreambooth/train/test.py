@@ -1,35 +1,41 @@
 import random
 from functools import cached_property
-from typing import ClassVar, Union
+from typing import Union
 
 import torch
 import wandb
 from diffusers import (
+    DiffusionPipeline,
+    StableDiffusionDepth2ImgPipeline,
     StableDiffusionPipeline,
 )
 from PIL import Image
 from transformers import (
+    CLIPModel,
     CLIPProcessor,
     CLIPTextModelWithProjection,
-    CLIPTokenizer,
     CLIPVisionModelWithProjection,
 )
 
 from dreambooth.params import TEST_PROMPTS, Class, HyperParams
+from dreambooth.registry import CompiledModelsRegistry
 from dreambooth.train.accelerators import BaseAccelerator
-from dreambooth.train.shared import compile_model, main_process_only
+from dreambooth.train.shared import (
+    image_transforms,
+    images,
+    main_process_only,
+    patch_allowed_pipeline_classes,
+)
 
 TClipModels = tuple[
-    CLIPTokenizer,
     CLIPProcessor,
+    CLIPModel,
     CLIPTextModelWithProjection,
     CLIPVisionModelWithProjection,
 ]
 
 
 class Tester:
-    _clip_models: ClassVar[TClipModels] = None
-
     def __init__(
         self, params: HyperParams, accelerator: BaseAccelerator, instance_class: Class
     ):
@@ -56,34 +62,35 @@ class Tester:
             }
         )
 
-    @staticmethod
     @torch.inference_mode()
-    def prepare_clip_model_sets(model) -> TClipModels:
-        text_model = CLIPTextModelWithProjection.from_pretrained(model)
-        tokenizer = CLIPTokenizer.from_pretrained(model)
-        vis_model = CLIPVisionModelWithProjection.from_pretrained(model)
-        processor = CLIPProcessor.from_pretrained(model)
-
-        return tuple(
-            [tokenizer, processor]
-            + [
-                compile_model(
-                    m.to("cuda").eval().requires_grad_(False),
-                )
-                for m in (text_model, vis_model)
-            ]
+    def clip_models(self) -> TClipModels:
+        processor = CLIPProcessor.from_pretrained(
+            self.params.test_model, local_files_only=True
         )
-
-    def clip_models(self):
-        if not self.__class__._clip_models:
-            self.__class__._clip_models = self.prepare_clip_model_sets(
-                self.params.test_model
+        clip_model, text_model, vis_model = [
+            CompiledModelsRegistry.get(
+                klass,
+                self.params.test_model,
+                local_files_only=True,
+                compile=True,
             )
-        return self.__class__._clip_models
+            .to(self.accelerator.device, non_blocking=True)
+            .eval()
+            .requires_grad_(False)
+            for klass in (
+                CLIPModel,
+                CLIPTextModelWithProjection,
+                CLIPVisionModelWithProjection,
+            )
+        ]
+        return (processor, clip_model, text_model, vis_model)
 
     @cached_property
     def test_images(self):
-        return [Image.open(p) for p in self.instance_class.data.iterdir()]
+        transforms = image_transforms(
+            self.params.model.resolution, augment=False, to_pil=True
+        )
+        return [transforms(Image.open(p)) for p in images(self.instance_class.data)]
 
     @cached_property
     def test_prompts(self):
@@ -99,9 +106,9 @@ class Tester:
 
     @cached_property
     def text_embeds(self):
-        tokenizer, _, text_model, _ = self.clip_models()
+        processor, _, text_model, _ = self.clip_models()
         text_embed_inputs = [
-            tokenizer(
+            processor.tokenizer(
                 p.replace(self.params.token, self.params.source_token),
                 padding=True,
                 return_tensors="pt",
@@ -113,7 +120,7 @@ class Tester:
 
     @cached_property
     def image_embeds(self):
-        _, processor, _, vis_model = self.clip_models()
+        processor, _, _, vis_model = self.clip_models()
         target_image_embed_inputs = processor(
             images=self.test_images, return_tensors="pt"
         ).to(self.accelerator.device)
@@ -153,24 +160,34 @@ class Tester:
             "image_alignment": image_image_similarity.mean().detach().item(),
         }
 
+    def pipeline(self, pipe: StableDiffusionPipeline) -> DiffusionPipeline:
+        with patch_allowed_pipeline_classes():
+            return StableDiffusionDepth2ImgPipeline.from_pretrained(
+                self.params.model.name, **pipe.components, strength=1.0
+            ).to(self.accelerator.device)
+
     @main_process_only
     def validate(self, pipe: StableDiffusionPipeline, title: str) -> list[Image.Image]:
-        generator = torch.Generator(device=self.accelerator.device)
-        images = pipe(
-            self.test_prompts,
-            num_inference_steps=self.params.validation_steps,
-            guidance_scale=self.params.validation_guidance_scale,
-            negative_prompt=[self.params.negative_prompt] * len(self.test_prompts),
-            generator=generator,
-        ).images
-        images = list(images)
-        self.log_images(self.test_prompts, images, title=title)
+        pipeline = self.pipeline(pipe)
+        gss = self.params.validation_guidance_scales if "final" in title else [7.5]
+        for gs in gss:
+            generator = torch.Generator(device=self.accelerator.device)
+            images = pipeline(
+                self.test_prompts,
+                num_inference_steps=self.params.validation_steps,
+                image=[self.test_images[0]] * len(self.test_prompts),
+                guidance_scale=gs,
+                negative_prompt=[self.params.negative_prompt] * len(self.test_prompts),
+                generator=generator,
+            ).images
+            images = list(images)
+            self.log_images(self.test_prompts, images, title=f"{title}-{gs}")
         return images
 
     @main_process_only
     @torch.no_grad()
     def test_pipe(self, pipe: StableDiffusionPipeline, title: str):
-        _, processor, _, vis_model = self.clip_models()
+        processor, _, _, vis_model = self.clip_models()
         images = self.validate(pipe, title)
 
         image_embed_inputs = [

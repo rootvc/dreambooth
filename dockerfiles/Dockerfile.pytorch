@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile:experimental
 
-FROM ghcr.io/pytorch/pytorch-nightly:2.1.0.dev20230322-devel AS nightly
+FROM ghcr.io/pytorch/pytorch-nightly:2.1.0.dev20230411-devel AS nightly
 
 ENV TORCH_CUDA_ARCH_LIST "7.0;7.2;7.5;8.0;8.6;8.7"
 ENV CUDA_HOME /usr/local/cuda

@@ -11,17 +11,14 @@ BUCKET = "s3://rootvc-photobooth"
 
 URLS = {
     "realesrgan": [
-        "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/RealESRGAN_x2plus.pth"
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth"
     ],
     "CodeFormer": [
         "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth"
     ],
-    "dlib": [
-        "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/mmod_human_face_detector-4cb19393.dat",
-        "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/shape_predictor_5_face_landmarks-c4b1e980.dat",
-    ],
-    "facelib": [
-        "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/parsing_parsenet.pth"
+    "facexlib": [
+        "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth",
+        "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth",
     ],
 }
 

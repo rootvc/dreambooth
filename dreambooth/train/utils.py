@@ -29,8 +29,8 @@ from accelerate.utils import InitProcessGroupKwargs, release_memory
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
-    DiffusionPipeline,
     DPMSolverMultistepScheduler,
+    StableDiffusionDepth2ImgPipeline,
     StableDiffusionPipeline,
     UNet2DConditionModel,
     get_scheduler,
@@ -48,14 +48,24 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm.auto import tqdm
-from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
+from transformers import (
+    AutoTokenizer,
+    CLIPTextModel,
+    CLIPTokenizer,
+    DPTForDepthEstimation,
+)
 
 from dreambooth.params import Class, HyperParams, Model
+from dreambooth.registry import CompiledModelsRegistry
 from dreambooth.train.accelerators import BaseAccelerator
 from dreambooth.train.eval import Evaluator
 from dreambooth.train.shared import (
     compile_model,
+    depth_image_path,
+    depth_transforms,
     dprint,
+    image_transforms,
+    images,
     main_process_only,
     partition,
     patch_allowed_pipeline_classes,
@@ -68,6 +78,9 @@ T = TypeVar("T")
 torch.backends.cudnn.benchmark = True
 torch._dynamo.config.suppress_errors = True
 torch._dynamo.config.cache_size_limit = 64 * 2
+torch._inductor.config.triton.store_cubin = True
+torch._dynamo.config.verbose = True
+get_logger("torch._dynamo.eval_frame").setLevel("ERROR")
 
 
 class ScoreThresholdExceeded(Exception):
@@ -114,6 +127,20 @@ class CachedLatentsDataset(Dataset):
             memory_format=torch.contiguous_format,
             dtype=self.params.dtype,
         )
+
+        depth_images = list(
+            itertools.chain(
+                map(itemgetter("instance_depth_image"), batch),
+                map(itemgetter("prior_depth_image"), batch),
+            )
+        )
+        depth_images = (
+            torch.stack(depth_images)
+            .to("cpu", memory_format=torch.contiguous_format)
+            .float()
+            .pin_memory()
+        )
+
         latents = self.vae.encode(images).latent_dist.sample()
         latents = latents * self.vae.config.scaling_factor
         latents = latents.squeeze(0).to("cpu").float().pin_memory()
@@ -126,7 +153,11 @@ class CachedLatentsDataset(Dataset):
         )
         input_ids = torch.cat(input_ids, dim=0).to(dtype=torch.long)
 
-        return {"input_ids": input_ids, "latents": latents}
+        return {
+            "input_ids": input_ids,
+            "latents": latents,
+            "depth_values": depth_images,
+        }
 
     def __len__(self):
         return self._length // self.params.batch_size
@@ -153,52 +184,37 @@ class DreamBoothDataset(Dataset):
         prior: Class,
         tokenizer: CLIPTokenizer,
         size: int,
+        vae_scale_factor: float,
         augment: bool = True,
     ):
         self.instance = instance
         self.prior = prior
         self.size = size
+        self.vae_scale_factor = vae_scale_factor
         self.tokenizer = tokenizer
         self.augment = augment
 
         self._length = max(len(self.instance_images), len(self.prior_images))
 
+    @staticmethod
+    def depth_image_path(path):
+        return depth_image_path(path)
+
     @cached_property
     def prior_images(self):
-        return list(self.prior.data.iterdir())
+        path = self.prior.data
+        return images(path)
 
     @cached_property
     def instance_images(self):
-        return list(self.instance.data.iterdir())
+        path = self.instance.data
+        return images(path)
+
+    def depth_transform(self):
+        return depth_transforms(self.size, self.vae_scale_factor)
 
     def image_transforms(self, augment: bool = True):
-        t = [
-            transforms.ToTensor(),
-            transforms.Resize(
-                self.size,
-                interpolation=transforms.InterpolationMode.BICUBIC,
-                antialias=True,
-            ),
-        ]
-        if self.augment and augment:
-            t += [
-                transforms.RandomCrop(self.size),
-                transforms.RandomOrder(
-                    [
-                        transforms.ColorJitter(brightness=0.2, contrast=0.1),
-                        transforms.RandomHorizontalFlip(p=0.5),
-                        transforms.RandomAdjustSharpness(2, p=0.5),
-                    ]
-                ),
-            ]
-        else:
-            t += [
-                transforms.CenterCrop(self.size),
-            ]
-        t += [
-            transforms.Normalize([0.5], [0.5]),
-        ]
-        return transforms.Compose(t)
+        return image_transforms(self.size, self.augment and augment)
 
     def __len__(self):
         return self._length
@@ -206,9 +222,10 @@ class DreamBoothDataset(Dataset):
     def __iter__(self):
         return (self[i] for i in range(self._length))
 
-    def _open_image(self, path: Path):
+    @staticmethod
+    def open_image(path: Path, convert: bool = True):
         img = Image.open(path)
-        if img.mode == "RGB":
+        if not convert or img.mode == "RGB":
             return img
         else:
             return img.convert("RGB")
@@ -216,10 +233,14 @@ class DreamBoothDataset(Dataset):
     def _instance_image(self, index):
         path = self.instance_images[index % len(self.instance_images)]
         do_augment, index = divmod(index, len(self.instance_images))
-        image = self.image_transforms(do_augment)(self._open_image(path))
+        image = self.image_transforms(do_augment)(self.open_image(path))
+
+        depth_path = self.depth_image_path(path)
+        depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
 
         return {
             "instance_image": image,
+            "instance_depth_image": depth_image,
             "instance_prompt_ids": self.tokenizer(
                 self.instance.prompt,
                 truncation=True,
@@ -231,10 +252,14 @@ class DreamBoothDataset(Dataset):
 
     def _prior_image(self, index):
         path = self.prior_images[index % len(self.prior_images)]
-        image = self.image_transforms(False)(self._open_image(path))
+        image = self.image_transforms(False)(self.open_image(path))
+
+        depth_path = self.depth_image_path(path)
+        depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
 
         return {
             "prior_image": image,
+            "prior_depth_image": depth_image,
             "prior_prompt_ids": self.tokenizer(
                 self.prior.prompt,
                 truncation=True,
@@ -319,9 +344,6 @@ class Trainer:
     def total_steps(self):
         return self._total_steps * self.params.batch_size
 
-    def compile(self, model: torch.nn.Module, **kwargs):
-        return compile_model(model, backend=self.params.dynamo_backend, **kwargs)
-
     @lru_cache(maxsize=1)
     def token_id(self, tokenizer: CLIPTokenizer):
         return tokenizer.convert_tokens_to_ids(self.params.token)
@@ -329,7 +351,8 @@ class Trainer:
     def _spawn(
         self, klass: Type[T], tap: Callable[[T], Any] = lambda x: x, **kwargs
     ) -> T:
-        instance = klass.from_pretrained(
+        instance = CompiledModelsRegistry.get(
+            klass,
             self.params.model.name,
             revision=self.params.model.revision,
             local_files_only=True,
@@ -345,10 +368,10 @@ class Trainer:
         vae: Optional[AutoencoderKL] = None,
         tokenizer: Optional[CLIPTokenizer] = None,
         **kwargs,
-    ) -> StableDiffusionPipeline:
+    ) -> StableDiffusionDepth2ImgPipeline:
         with patch_allowed_pipeline_classes():
             pipe = self._spawn(
-                DiffusionPipeline,
+                StableDiffusionDepth2ImgPipeline,
                 safety_checker=None,
                 low_cpu_mem_usage=True,
                 vae=vae or self._vae().eval(),
@@ -357,11 +380,14 @@ class Trainer:
                     (text_encoder or self._text_encoder(compile=True)).eval()
                 ),
                 tokenizer=tokenizer or self._tokenizer(),
+                depth_estimator=self._spawn(
+                    DPTForDepthEstimation, subfolder="depth_estimator"
+                ),
                 **kwargs,
             )
-
         if "device_map" not in kwargs:
             pipe.to(self.accelerator.device)
+        pipe.enable_xformers_memory_efficient_attention()
         return pipe
 
     def _text_encoder(self, compile: bool = False, **kwargs) -> CLIPTextModel:
@@ -369,25 +395,30 @@ class Trainer:
             CLIPTextModel,
             subfolder="text_encoder",
             tap=lambda x: x.requires_grad_(False),
+            compile=compile,
             **kwargs,
         )
         if "device_map" not in kwargs:
             te.to(self.accelerator.device, non_blocking=True)
-        return self.compile(te, do=compile)
+        return te
 
     def _noise_scheduler(self):
         return self._spawn(DDPMScheduler, subfolder="scheduler")
 
     def _vae(self, compile: bool = True, **kwargs):
         if self.params.model.vae:
-            vae = AutoencoderKL.from_pretrained(
+            vae = CompiledModelsRegistry.get(
+                AutoencoderKL,
                 self.params.model.vae,
+                compile=compile,
+                local_files_only=True,
                 **kwargs,
             )
         else:
             vae = self._spawn(
                 AutoencoderKL,
                 subfolder="vae",
+                compile=compile,
                 **kwargs,
             )
 
@@ -396,7 +427,7 @@ class Trainer:
         vae.enable_xformers_memory_efficient_attention()
         if "device_map" not in kwargs:
             vae.to(self.accelerator.device, non_blocking=True)
-        return self.compile(vae, do=compile)
+        return vae
 
     def _tokenizer(self) -> CLIPTokenizer:
         return self._spawn(AutoTokenizer, subfolder="tokenizer", use_fast=False)
@@ -406,6 +437,7 @@ class Trainer:
             UNet2DConditionModel,
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
+            compile=compile,
             **kwargs,
         )
         if "device_map" not in kwargs:
@@ -453,7 +485,7 @@ class Trainer:
             if "device_map" not in kwargs:
                 unet.to(self.accelerator.device, non_blocking=True)
 
-        return self.compile(unet, do=compile)
+        return unet
 
     @torch.inference_mode()
     def generate_priors(self, progress_bar: bool = False) -> Class:
@@ -489,11 +521,41 @@ class Trainer:
 
         return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
 
+    @torch.inference_mode()
+    def generate_depth_values(self, path: Path) -> float:
+        dprint("Generating depth values...")
+
+        pipeline: StableDiffusionDepth2ImgPipeline = self._pipeline(
+            unet=self._unet(compile=True),
+            text_encoder=self._text_encoder(compile=True),
+            torch_dtype=self.params.dtype,
+        ).to(self.accelerator.device)
+
+        for img_path in (progress := tqdm(images(path))):
+            depth_path = DreamBoothDataset.depth_image_path(img_path)
+            if depth_path.exists():
+                continue
+            progress.set_description(f"Processing {img_path.name}")
+            image = DreamBoothDataset.open_image(img_path)
+            pixel_values = pipeline.feature_extractor(
+                image, return_tensors="pt"
+            ).pixel_values.to(self.accelerator.device)
+            depth_map = pipeline.depth_estimator(pixel_values).predicted_depth
+            depth_min = torch.amin(depth_map, dim=[0, 1, 2], keepdim=True)
+            depth_max = torch.amax(depth_map, dim=[0, 1, 2], keepdim=True)
+            depth_map = 2.0 * (depth_map - depth_min) / (depth_max - depth_min) - 1.0
+            depth_map = depth_map[0, :, :]
+            depth_map_image = transforms.ToPILImage()(depth_map)
+            depth_map_image.save(depth_path)
+        return 2 ** (len(pipeline.vae.config.block_out_channels) - 1)
+
     @main_process_only
     @torch.no_grad()
-    def _validation(self, pipeline: StableDiffusionPipeline, final: bool = False):
+    def _validation(
+        self, pipeline: StableDiffusionPipeline, final: bool = False, **kwargs
+    ):
         score = self.tester.test_pipe(
-            pipeline, "final_validation" if final else "validation"
+            pipeline, ("final_validation" if final else "validation") + str(kwargs)
         )
         torch.cuda.empty_cache()
 
@@ -552,16 +614,19 @@ class Trainer:
         )
         if check:
             try:
-                self._validation(pipeline, final=True)
+                self._validation(
+                    pipeline,
+                    final=True,
+                    alpha=self.params.lora_alpha,
+                    text_alpha=self.params.lora_text_alpha,
+                )
             except ScoreThresholdExceeded:
                 pass
             else:
-                pass
                 raise RuntimeError("Final validation failed")
             finally:
-                wandb.run.log(
-                    self.metrics_cache, step=self._total_steps + 1, commit=True
-                )
+                self._total_steps += 1
+                wandb.run.log(self.metrics_cache, step=self.total_steps, commit=True)
         return pipeline
 
     @main_process_only
@@ -610,7 +675,7 @@ class Trainer:
         unet_config["lora_alpha"] = alpha
         unet_config["lora_dropout"] = 0.0
 
-        unet = self._unet(compile=False).requires_grad_(False).eval()
+        unet = self._unet(compile=False, reset=True).requires_grad_(False).eval()
         unet = cast(
             UNet2DConditionModel,
             (
@@ -620,9 +685,11 @@ class Trainer:
             ),
         )
         set_peft_model_state_dict(unet, unet_state)
-        unet = unet.eval()
+        unet = compile_model(unet.eval())
 
-        text_encoder = self._text_encoder(compile=False).requires_grad_(False).eval()
+        text_encoder = (
+            self._text_encoder(compile=False, reset=True).requires_grad_(False).eval()
+        )
         text_encoder.resize_token_embeddings(len(tokenizer))
 
         embeds_0 = text_encoder_0.model.get_input_embeddings().weight.data
@@ -646,7 +713,7 @@ class Trainer:
             ),
         )
         set_peft_model_state_dict(text_encoder, text_state)
-        text_encoder = text_encoder.eval()
+        text_encoder = compile_model(text_encoder.eval())
 
         pipeline = self._pipeline(
             unet=unet.to(dtype=self.params.dtype),
@@ -658,6 +725,7 @@ class Trainer:
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
+        pipeline.to(self.accelerator.device)
         return pipeline
 
     @torch.inference_mode()
@@ -734,7 +802,10 @@ class Trainer:
         for batch in loader:
             # Convert images to latent space
             latents = batch["latents"].to(
-                self.accelerator.device, dtype=self.params.dtype
+                self.accelerator.device, dtype=torch.float, non_blocking=True
+            )
+            depth_values = batch["depth_values"].to(
+                self.accelerator.device, dtype=torch.float, non_blocking=True
             )
 
             # Sample noise that we'll add to the latents
@@ -755,6 +826,7 @@ class Trainer:
             noisy_latents = models["noise_scheduler"].add_noise(
                 latents, noise, timesteps
             )
+            noisy_latents = torch.cat([noisy_latents, depth_values], dim=1)
 
             # Get the text embedding for conditioning
             encoder_hidden_states = models["text_encoder"](
@@ -919,8 +991,7 @@ class Trainer:
         self, init: Optional[torch.Tensor] = None, compile: bool = False, **kwargs
     ):
         tokenizer = self._tokenizer()
-        if not tokenizer.add_tokens(self.params.token):
-            raise ValueError(f"Token {self.params.token} already in tokenizer")
+        tokenizer.add_tokens(self.params.token)
 
         text_encoder = self._text_encoder(compile=compile, **kwargs)
         text_encoder.get_input_embeddings().requires_grad_(True)
@@ -958,19 +1029,21 @@ class Trainer:
         else:
             return unet
 
-    def _prepare_to_train(self):
+    def _prepare_models(self):
         with self.accelerator.init():
-            tokenizer, text_encoder = self._init_text(compile=False)
-            unet = self._unet(compile=False)
+            tokenizer, text_encoder = self._init_text(compile=True, reset=True)
+            unet = self._unet(compile=True, reset=True)
 
-        vae = self._vae(compile=False, torch_dtype=self.params.dtype)
-
+        vae = self._vae(compile=True, reset=True, torch_dtype=self.params.dtype)
+        vae_scale_factor = self.generate_depth_values(self.instance_class.data)
         dataset = DreamBoothDataset(
             instance=self.instance_class,
             prior=self.params.prior_class or self.generate_priors(),
             tokenizer=tokenizer,
             size=self.params.model.resolution,
+            vae_scale_factor=vae_scale_factor,
         )
+        self.generate_depth_values(dataset.prior.data)
         dprint("Caching latents...")
         dataset = CachedLatentsDataset(self.accelerator, dataset, self.params, vae)
         dataset.warm()
@@ -1009,14 +1082,12 @@ class Trainer:
         )
         max_train_steps = self.params.train_epochs * steps_per_epoch
 
-        (loader, unet, text_encoder, vae) = self.accelerator.prepare(
-            loader, unet, text_encoder, vae
-        )
-        if unet_param_src is not unet:
-            unet_param_src = self.accelerator.prepare(unet_param_src)
+        loader = self.accelerator.prepare(loader)
 
-        text_encoder = self.compile(text_encoder)
-        vae = self.compile(vae)
+        # Wait for AOT Triton to be ready
+        # unet = self.compile(unet)
+        # text_encoder = self.compile(text_encoder)
+        # vae = self.compile(vae)
 
         optimizer = self.accelerator.optimizer(
             params,
@@ -1043,19 +1114,9 @@ class Trainer:
         )
         lr_scheduler.lr_lambdas[0] = lambda _: 1
 
-        dprint(f"Training for {epochs} epochs. Max steps: {max_train_steps}.")
-
-        if self.accelerator.is_main_process:
-            self._init_trackers()
-
-        self.tester.log_images(
-            self.instance_class.deterministic_prompt,
-            list(map(str, self.instance_class.data.iterdir())),
-            title="data",
-        )
-
         return {
             "epochs": epochs,
+            "max_train_steps": max_train_steps,
             "unet": unet,
             "text_encoder": text_encoder,
             "loader": loader,
@@ -1072,6 +1133,22 @@ class Trainer:
                 .to(self.accelerator.device, non_blocking=True)
             ),
         }
+
+    def _prepare_to_train(self):
+        models = self._prepare_models()
+        dprint(
+            f"Training for {models['epochs']} epochs. Max steps: {models['max_train_steps']}."
+        )
+
+        if self.accelerator.is_main_process:
+            self._init_trackers()
+
+        self.tester.log_images(
+            self.instance_class.deterministic_prompt,
+            list(map(str, images(self.instance_class.data))),
+            title="data",
+        )
+        return models
 
     def _train(self, models: dict):
         dprint("Starting training...")
@@ -1094,7 +1171,7 @@ class Trainer:
                 pg[1]["lr"] = blr[1] = 0.0
                 pg[2]["lr"] = blr[2] = 0.0
             else:
-                pg[0]["lr"] = blr[0] = 0.0
+                pg[0]["lr"] = blr[0] = self.params.ti_continuted_learning_rate
                 pg[1]["lr"] = blr[1] = self.params.text_learning_rate
                 pg[2]["lr"] = blr[2] = self.params.learning_rate
                 if epoch == self.params.ti_train_epochs:
@@ -1132,13 +1209,17 @@ class Trainer:
         tokenizer, unet, text_encoder, vae = self._train(objs)
         self.accelerator.free_memory()
         self.accelerator.wait_for_everyone()
-        return self._do_final_validation(unet, text_encoder, tokenizer, vae, check=True)
+        return self._do_final_validation(
+            unet, text_encoder, tokenizer, vae, check=False
+        )
 
     @torch.distributed.elastic.multiprocessing.errors.record
     def eval(self, pipeline: StableDiffusionPipeline):
         self.accelerator.wait_for_everyone()
         self.accelerator.free_memory()
-        Evaluator(self.accelerator.device, self.params, pipeline).generate()
+        Evaluator(
+            self.accelerator.device, self.params, self.instance_class, pipeline
+        ).generate()
 
 
 def get_mem() -> float:

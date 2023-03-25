@@ -1,10 +1,16 @@
 import os
+from collections import namedtuple
 
 import runpod.serverless
 
+from dreambooth.train.eval import Evaluator
 from dreambooth.train.test import Tester
 from dreambooth.train.train import main as train
 from dreambooth.train.train import standalone_params
+from dreambooth.train.utils import get_model
+
+Acc = namedtuple("Acc", ["device"])
+Class = namedtuple("Acc", ["data"])
 
 
 def prepare():
@@ -15,7 +21,24 @@ def prepare():
     os.environ["WANDB_MODE"] = "disabled"
 
     params = standalone_params(True)
-    Tester(params["params"], None, None).clip_models()
+    trainer = get_model(**params)
+    pipe = trainer._pipeline()
+
+    tester = Tester(params["params"], Acc(device="cuda"), None)
+    evaluator = Evaluator(
+        trainer.accelerator.device,
+        params["params"],
+        Class(data=params["instance_path"]),
+        pipe,
+    )
+
+    trainer.generate_depth_values(params["instance_path"])
+    trainer.generate_depth_values(params["params"].prior_class.data)
+
+    trainer._prepare_models()
+    tester.clip_models()
+    evaluator._upsampler()
+    evaluator._restorer()
 
     del os.environ["WANDB_MODE"]
     del os.environ["DREAMBOOTH_ID"]

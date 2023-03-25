@@ -2,7 +2,11 @@ import os
 from pathlib import Path
 from typing import Type
 
-from diffusers import AutoencoderKL, StableDiffusionPipeline
+from diffusers import (
+    AutoencoderKL,
+    StableDiffusionDepth2ImgPipeline,
+    StableDiffusionLatentUpscalePipeline,
+)
 from transformers import (
     CLIPModel,
     CLIPProcessor,
@@ -42,7 +46,7 @@ def download_model():
     params = HyperParams()
     models = [
         download(
-            StableDiffusionPipeline,
+            StableDiffusionDepth2ImgPipeline,
             params.model.name,
             revision=params.model.revision,
             torch_dtype=params.dtype,
@@ -56,3 +60,4 @@ def download_model():
 if __name__ == "__main__":
     download_model()
     download_test_models(None, HyperParams().test_model)
+    download(StableDiffusionLatentUpscalePipeline, HyperParams().upscale_model)

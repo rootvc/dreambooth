@@ -65,6 +65,19 @@ RUN --mount=type=cache,target=/opt/ccache \
   .. && \
   make -j"$(nproc)"
 
+FROM build-base as conda
+
+RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba
+
+ADD environment.txt environment.txt
+RUN --mount=type=cache,target=/opt/conda/pkgs \
+  export MAMBA_ROOT_PREFIX=$(conda config --show root_prefix | cut -d' ' -f2) && \
+  eval "$(./bin/micromamba shell hook -s posix)" && \
+  micromamba activate && \
+  micromamba install -c conda-forge -qy \
+  --file environment.txt && \
+  micromamba clean --all --yes
+
 FROM build-base AS build
 
 WORKDIR /
@@ -73,9 +86,7 @@ COPY --from=cv-build /opencv_contrib-4.7.0 /opencv_contrib-4.7.0
 COPY --from=cv-build /opencv-4.7.0 /opencv-4.7.0
 RUN cd /opencv-4.7.0/build && make install
 
-ADD environment.txt environment.txt
-RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy \
-  --file environment.txt
+COPY --from=conda /opt/conda /opt/conda
 
 RUN CUDNN_NAME="cudnn-linux-x86_64-8.5.0.96_cuda11-archive" && \
   curl --retry 3 -OLs https://ossci-linux.s3.amazonaws.com/${CUDNN_NAME}.tar.xz && \
@@ -92,15 +103,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --no-dependencies lpips
 
-RUN cd /opt/conda/pkgs && \
-  git clone https://github.com/sczhou/CodeFormer.git codeformer-latest && \
-  cd codeformer-latest && \
-  python basicsr/setup.py develop --no-deps
+RUN --mount=type=cache,target=/root/.cache/pip \
+  BASICSR_EXT=True pip install --no-deps basicsr && \
+  pip install --no-deps facexlib realesrgan
 
 # RUN git clone https://github.com/hpcaitech/ColossalAI.git && \
 #   cd ColossalAI && \
 #   CUDA_EXT=1 pip install .
-
 
 FROM ubuntu:22.04 AS train
 

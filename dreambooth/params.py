@@ -91,9 +91,9 @@ class Class(BaseModel):
 
 
 class Model(BaseModel):
-    name: Union[str, Path] = "stabilityai/stable-diffusion-2-1"
+    name: Union[str, Path] = "stabilityai/stable-diffusion-2-depth"
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-mse"
-    resolution: int = 768
+    resolution: int = 512
     revision: Optional[str] = "fp16"
 
 
@@ -114,6 +114,7 @@ class HyperParams(BaseModel):
     learning_rate: float = 1e-3
     text_learning_rate: float = 1e-4
     ti_learning_rate: float = 5e-3
+    ti_continuted_learning_rate: float = 1e-4
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
     epsilon: float = 1e-8
@@ -122,8 +123,8 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    ti_train_epochs: int = 8
-    train_epochs: int = 23
+    ti_train_epochs: int = 4
+    train_epochs: int = 7
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0  # 50
     lr_cycles: int = 2
@@ -132,23 +133,23 @@ class HyperParams(BaseModel):
 
     # LoRA
     lora_rank: int = 8
-    lora_alpha: float = 2.7
+    lora_alpha: float = 0.125
     lora_dropout: float = 0.1
 
     # Text Encoder
     lora_text_rank: int = 8
-    lora_text_alpha: float = 0.8
+    lora_text_alpha: float = 1.6
     lora_text_dropout: float = 0.1
 
     # Validation
-    validate_after_steps: int = 2100
-    validate_every_epochs: Optional[dict] = {2100: 1}
+    validate_after_steps: int = 2500
+    validate_every_epochs: Optional[dict] = {2500: 1}
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 2
     validation_steps: int = 75
-    validation_guidance_scale: float = 10.5
+    validation_guidance_scales: list[float] = [8.0]
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
-    test_model: Union[str, Path] = "openai/clip-vit-large-patch14"
+    test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
@@ -158,23 +159,25 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"a photo of a {token}, in a cowboy costume",
-        f"a photo of a {token}, as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, octane render, 8 k, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand",
-        f"a photo of a {token}, as a viking, ultra realistic, intricate details, powerful and fierce, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha",
+        f"closeup portrait of {token} as a midwest cowboy with a cowboy hat and bandana",
         f"a photo of a {token}, as a viking, golden hour, horns and braids in hair, fur-lined cape and helmet, with axe in hand",
         f"closeup portrait painting of a {token}, as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, octane render, 8 k, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand",
         f"closeup portrait of a {token}, as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
         f"closeup portrait of a {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
         f"closeup portrait of a {token}, as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
-        f"{token} man model futuristic cyberpunk portrait cyborg deep look by edwin longben, craig mullins, j. c. leyendecker, artgerm, fantasy, cosmic horror, dramatic lighting 4 k 8 k 4 k",
-        # f"closeup portrait of a {token}, as a jedi with a lightsaber, highly detailed, science fiction, star wars concept art, intricate details, bright colors, golden hour, art by marko djurdjevic, greg rutkowski, wlop, fredperry, digital painting, rossdraws.",
-        # f"closeup portrait of a {token}, as a ninja, wearing a black hood and suit, stealthy movements, dark night background, shadows and mist, detailed and realistic, art by kazuya yamashita, yuya kanzaki, yang zhizhuo, digital painting, photorealism, 8k resolution.",
+        f"{token} photo, futuristic cyberpunk portrait cyborg deep look by edwin longben, craig mullins, j. c. leyendecker, artgerm, fantasy, cosmic horror, dramatic lighting 4 k 8 k 4 k",
+        f"closeup portrait of a {token}, as a jedi with a lightsaber, highly detailed, science fiction, star wars concept art, intricate details, bright colors, golden hour, art by marko djurdjevic, greg rutkowski, wlop, fredperry, digital painting, rossdraws.",
+        f"closeup portrait of a {token}, as a ninja, wearing a black hood and suit, stealthy movements, dark night background, shadows and mist, detailed and realistic, art by kazuya yamashita, yuya kanzaki, yang zhizhuo, digital painting, photorealism, 8k resolution.",
+        f"8k linkedin professional profile photo of {token} in a suit with studio lighting, bokeh, corporate portrait headshot photograph best corporate photography photo winner, meticulous detail, hyperrealistic, centered uncropped symmetrical beautiful",
     ]
 
-    upscale_factor: int = 2
+    upscale_model = "stabilityai/sd-x2-latent-upscaler"
+    upscale_factor: int = 1
+    debug_outputs: bool = False
     fidelity_weight: float = 0.5
     test_steps: int = 150
-    test_guidance_scale: float = 10.5
+    test_guidance_scale: float = 16.5
+    test_strength = 0.93
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
     image_output_path: Path = Path("output/images")
