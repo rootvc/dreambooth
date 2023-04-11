@@ -46,4 +46,4 @@ pull_build_push Dockerfile.runpod train-dreambooth-runpod min
 
 # pull_build_push Dockerfile dreambooth
 
-docker system prune -f
+# docker system prune -f

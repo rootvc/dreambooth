@@ -74,7 +74,7 @@ def _unpack_eval_models(model_dir: Path):
 def _setup_global_cache():
     import torch._inductor.config
 
-    torch._inductor.config.global_cache_path = (
+    torch._inductor.config.global_cache_dir = (
         Path(os.environ["TORCHINDUCTOR_CACHE_DIR"]) / "global_cache"
     )
 

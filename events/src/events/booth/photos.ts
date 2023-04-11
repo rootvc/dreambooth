@@ -38,7 +38,7 @@ export default defineFunction(
     }
     await run("delete sequence", async () => await redis.del(`dataset/${id}`));
     await run("store ts", async () => await redis.set(`ts/${id}`, Date.now()));
-    await send("dreambooth/train.queue", { id });
+    await send("dreambooth/train.start", { id });
     await send("dreambooth/sms.notify", { phone, key: "STARTED" });
   }
 );

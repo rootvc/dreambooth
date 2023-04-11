@@ -1,11 +1,14 @@
-import {
-  DescribeTrainingJobCommand,
-  SageMakerClient,
-  UpdateTrainingJobCommand,
-} from "@aws-sdk/client-sagemaker";
+import got from "got";
+import { API_ID } from "../constants";
 import { defineFunction } from "../tools";
 
-const client = new SageMakerClient({ region: process.env.AWS_REGION });
+const URL = `https://api.runpod.ai/v2/${API_ID}/status`;
+
+type StatusResponse = {
+  delayTime: number;
+  id: string;
+  status: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "IN_QUEUE";
+};
 
 export default defineFunction(
   "Monitor a training run",
@@ -13,39 +16,25 @@ export default defineFunction(
   async ({
     tools: { run, send, redis, sleep },
     event: {
-      data: { id, name },
+      data: { id, requestId },
     },
   }) => {
     while (true) {
-      const response = await run(
+      const response = (await run(
         "get training job status",
         async () =>
-          await client.send(
-            new DescribeTrainingJobCommand({ TrainingJobName: name })
-          )
-      );
-      if (
-        ["Completed", "Failed", "Stopped"].includes(response.TrainingJobStatus)
-      ) {
+          await got
+            .get(`${URL}/${requestId}`, {
+              headers: {
+                Authorization: `Bearer ${process.env.RUNPOD_API_KEY}`,
+              },
+            })
+            .json()
+      )) as StatusResponse;
+      if (["COMPLETED", "FAILED"].includes(response.status)) {
         break;
       }
       await sleep("1 minute");
-    }
-
-    const length = await run("get queue length", async () => redis.llen(id));
-    if (length === 0) {
-      await run(
-        "update training job",
-        async () =>
-          await client.send(
-            new UpdateTrainingJobCommand({
-              TrainingJobName: name,
-              ResourceConfig: {
-                KeepAlivePeriodInSeconds: 300,
-              },
-            })
-          )
-      );
     }
 
     await send("dreambooth/train.complete", { id });

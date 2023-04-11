@@ -39,7 +39,7 @@ from diffusers.loaders import AttnProcsLayers
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from peft import (
     LoraConfig,
-    LoraModel,
+    get_peft_model,
     get_peft_model_state_dict,
     set_peft_model_state_dict,
 )
@@ -481,7 +481,7 @@ class Trainer:
                 target_modules=self.UNET_TARGET_MODULES,
                 lora_dropout=self.params.lora_dropout,
             )
-            unet: UNet2DConditionModel = LoraModel(lora_config, unet)
+            unet: UNet2DConditionModel = get_peft_model(unet, lora_config)
             if "device_map" not in kwargs:
                 unet.to(self.accelerator.device, non_blocking=True)
 
@@ -679,7 +679,7 @@ class Trainer:
         unet = cast(
             UNet2DConditionModel,
             (
-                LoraModel(LoraConfig(**unet_config), unet)
+                get_peft_model(unet, LoraConfig(**unet_config))
                 .to(unet_0.device, non_blocking=True)
                 .requires_grad_(False)
             ),
@@ -707,7 +707,7 @@ class Trainer:
         text_encoder = cast(
             CLIPTextModel,
             (
-                LoraModel(LoraConfig(**text_config), text_encoder)
+                get_peft_model(text_encoder, LoraConfig(**text_config))
                 .to(text_encoder_0.device, non_blocking=True)
                 .requires_grad_(False)
             ),
@@ -746,7 +746,7 @@ class Trainer:
             unet = cast(
                 UNet2DConditionModel,
                 (
-                    LoraModel(LoraConfig(**config["unet_peft"]), unet)
+                    get_peft_model(unet, LoraConfig(**config["unet_peft"]))
                     .to(unet.device, non_blocking=True)
                     .requires_grad_(False)
                     .eval()
@@ -763,7 +763,7 @@ class Trainer:
         )[self.params.token]
         embedding[self.token_id(tokenizer)] = token_embedding
 
-        text_encoder = LoraModel(LoraConfig(**config["text_peft"]), text_encoder).to(
+        text_encoder = get_peft_model(text_encoder, LoraConfig(**config["text_peft"])).to(
             self.accelerator.device, non_blocking=True
         )
         set_peft_model_state_dict(
@@ -1015,7 +1015,7 @@ class Trainer:
             target_modules=self.TEXT_ENCODER_TARGET_MODULES,
             lora_dropout=self.params.lora_text_dropout,
         )
-        text_encoder: CLIPTextModel = LoraModel(lora_text_config, text_encoder).to(
+        text_encoder: CLIPTextModel = get_peft_model(text_encoder, lora_text_config).to(
             self.accelerator.device, non_blocking=True
         )
 
