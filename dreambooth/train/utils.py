@@ -1034,7 +1034,7 @@ class Trainer:
             tokenizer, text_encoder = self._init_text(compile=True, reset=True)
             unet = self._unet(compile=True, reset=True)
 
-        vae = self._vae(compile=True, reset=True, torch_dtype=self.params.dtype)
+        vae = self._vae(compile=True, reset=True)
         vae_scale_factor = self.generate_depth_values(self.instance_class.data)
         dataset = DreamBoothDataset(
             instance=self.instance_class,
