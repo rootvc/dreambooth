@@ -173,6 +173,7 @@ class HyperParams(BaseModel):
 
     upscale_model = "stabilityai/sd-x2-latent-upscaler"
     upscale_factor: int = 1
+    restore_faces: bool = False
     debug_outputs: bool = False
     fidelity_weight: float = 0.5
     test_steps: int = 150

@@ -1,4 +1,6 @@
 import os
+import traceback
+import warnings
 from collections import namedtuple
 
 import runpod.serverless
@@ -58,7 +60,11 @@ def run(job):
 
 
 def main():
-    prepare()
+    try:
+        prepare()
+    except Exception:
+        traceback.print_exc()
+        warnings.warn("Warmup failed. Requests will likely fail too.")
     runpod.serverless.start({"handler": run})
 
 

@@ -92,7 +92,6 @@ def compile_model(
     backend: Optional[str] = "inductor",
     **kwargs,
 ) -> M:
-
     BROKEN_COMPILE_CLASSES = {"PreTrainedTokenizer", "CLIPTokenizer"}
 
     if isinstance(model, OptimizedModule):
@@ -109,7 +108,7 @@ def compile_model(
     if do:
         if is_main():
             dprint(f"Compiling {model.__class__.__name__} with {backend}...")
-        model = torch.compile(model, backend=backend, **kwargs)
+        model = torch.compile(model, backend=backend, mode="max-autotune", **kwargs)
         if is_main():
             dprint(f"Done compiling {model.__class__.__name__}")
         return model
@@ -132,7 +131,7 @@ def dprint(*args, reset: bool = False, **kwargs):
 
     total = datetime.now() - __ts
     delta = datetime.now() - __last_ts
-    print(f"[{local_rank()}/T:{total}/D:+{delta}]", *args, **kwargs)
+    print(f"[{local_rank()}/T:{total}/D:+{delta}]", *args, **kwargs, flush=True)
     __last_ts = datetime.now()
 
 

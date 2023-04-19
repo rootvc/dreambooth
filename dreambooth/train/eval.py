@@ -188,20 +188,22 @@ class Evaluator:
 
     @torch.inference_mode()
     def _process_image(self, pil_image: Image.Image) -> Optional[np.ndarray]:
-        restorer = self._restorer()
+        s = torch.cuda.Stream()
+        with torch.cuda.stream(s):
+            restorer = self._restorer()
 
-        helper = self._face_helper()
-        dprint("Converting image...")
-        image = self._convert_image(pil_image)
-        dprint("Extracting face...")
-        try:
-            face = self._extract_face(helper, image)
-        except ValueError:
-            return None
-        dprint("Restoring face...")
-        self._restore_face(restorer, helper, face)
-        dprint("Pasting face...")
-        return self._paste_face(helper, pil_image, image)
+            helper = self._face_helper()
+            dprint("Converting image...")
+            image = self._convert_image(pil_image)
+            dprint("Extracting face...")
+            try:
+                face = self._extract_face(helper, image)
+            except ValueError:
+                return None
+            dprint("Restoring face...")
+            self._restore_face(restorer, helper, face)
+            dprint("Pasting face...")
+            return self._paste_face(helper, pil_image, image)
 
     @main_process_only
     def _upload_images(self):
@@ -214,9 +216,13 @@ class Evaluator:
                     ]
                 }
             )
-        for key in (
-            ("original", "restored") if self.params.debug_outputs else ("original",)
-        ):
+        if self.params.debug_outputs:
+            keys = ("original", "restored")
+        elif self.params.restore_faces:
+            keys = ("restored",)
+        else:
+            keys = ("original",)
+        for key in keys:
             wandb.run.log(
                 {
                     key: [
@@ -268,11 +274,15 @@ class Evaluator:
             images = upsampler(prompt=prompt, image=image).images
             del upsampler
 
+        dprint("Cleaning up...")
         del self.pipeline
 
-        dprint("Restoring images...")
-        with multiprocessing.Pool(len(self.params.eval_prompts)) as p:
-            all_restored = iter(p.map(self._process_image, images))
+        if self.params.restore_faces:
+            dprint("Restoring images...")
+            with multiprocessing.Pool(len(self.params.eval_prompts)) as p:
+                all_restored = iter(p.map(self._process_image, images))
+        else:
+            all_restored = itertools.repeat(None)
 
         dprint(f"Saving {len(images)} images...")
         for prompt, image in zip(prompts, images):

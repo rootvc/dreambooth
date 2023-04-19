@@ -1,6 +1,6 @@
-transformers>=4.27.3
+transformers>=4.28.1
 pydantic>=1.10.4
-diffusers>=0.14.0
+diffusers>=0.15.1
 wandb>=0.14.0
 mkl>=2023.0.0
 scipy>=1.10.1
