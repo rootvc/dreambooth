@@ -108,7 +108,7 @@ def compile_model(
     if do:
         if is_main():
             dprint(f"Compiling {model.__class__.__name__} with {backend}...")
-        model = torch.compile(model, backend=backend, mode="max-autotune", **kwargs)
+        model = torch.compile(model, backend=backend, **kwargs)
         if is_main():
             dprint(f"Done compiling {model.__class__.__name__}")
         return model

@@ -159,15 +159,12 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"closeup portrait of {token} as a midwest cowboy with a cowboy hat and bandana",
-        f"a photo of a {token}, as a viking, golden hour, horns and braids in hair, fur-lined cape and helmet, with axe in hand",
         f"closeup portrait painting of a {token}, as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, octane render, 8 k, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand",
         f"closeup portrait of a {token}, as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
         f"closeup portrait of a {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
         f"closeup portrait of a {token}, as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
         f"{token} photo, futuristic cyberpunk portrait cyborg deep look by edwin longben, craig mullins, j. c. leyendecker, artgerm, fantasy, cosmic horror, dramatic lighting 4 k 8 k 4 k",
         f"closeup portrait of a {token}, as a jedi with a lightsaber, highly detailed, science fiction, star wars concept art, intricate details, bright colors, golden hour, art by marko djurdjevic, greg rutkowski, wlop, fredperry, digital painting, rossdraws.",
-        f"closeup portrait of a {token}, as a ninja, wearing a black hood and suit, stealthy movements, dark night background, shadows and mist, detailed and realistic, art by kazuya yamashita, yuya kanzaki, yang zhizhuo, digital painting, photorealism, 8k resolution.",
         f"8k linkedin professional profile photo of {token} in a suit with studio lighting, bokeh, corporate portrait headshot photograph best corporate photography photo winner, meticulous detail, hyperrealistic, centered uncropped symmetrical beautiful",
     ]
 
@@ -176,7 +173,7 @@ class HyperParams(BaseModel):
     restore_faces: bool = False
     debug_outputs: bool = False
     fidelity_weight: float = 0.5
-    test_steps: int = 150
+    test_steps: int = 250
     test_guidance_scale: float = 16.5
     test_strength = 0.93
     eval_model_path: Path = Path("CodeFormer")

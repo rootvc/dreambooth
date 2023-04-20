@@ -3,6 +3,7 @@ import itertools
 import json
 import math
 import os
+import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import timedelta
@@ -11,6 +12,8 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Any, Callable, Optional, Type, TypeVar, cast
 
+import peft.tuners.adalora
+import peft.utils
 import torch
 import torch._dynamo
 import torch._dynamo.config
@@ -39,7 +42,7 @@ from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import AttnProcessor2_0
 from diffusers.models.cross_attention import LoRACrossAttnProcessor
 from peft import (
-    LoraConfig,
+    AdaLoraConfig,
     get_peft_model,
     get_peft_model_state_dict,
     set_peft_model_state_dict,
@@ -86,6 +89,16 @@ torch._dynamo.config.verbose = True
 torch._dynamo.config.skip_nnmodule_hook_guards = True
 
 get_logger("torch._dynamo.eval_frame").setLevel("ERROR")
+
+
+# https://github.com/huggingface/peft/pull/347
+def transpose(weight, fan_in_fan_out=False):
+    return weight.T if fan_in_fan_out else weight
+
+
+peft.utils.transpose = transpose
+peft.tuners.adalora.transpose = transpose
+#
 
 
 class ScoreThresholdExceeded(Exception):
@@ -482,8 +495,10 @@ class Trainer:
         else:
             unet.set_attn_processor(AttnProcessor2_0())
 
-            lora_config = LoraConfig(
-                r=self.params.lora_rank,
+            lora_config = AdaLoraConfig(
+                target_r=self.params.lora_rank,
+                init_r=int(self.params.lora_rank * 1.5),
+                tinit=self.params.lr_warmup_steps,
                 lora_alpha=1,
                 target_modules=self.UNET_TARGET_MODULES,
                 lora_dropout=self.params.lora_dropout,
@@ -689,14 +704,14 @@ class Trainer:
         )
         unet_config = unet_0.get_peft_config_as_dict(inference=True)
         unet_config["lora_alpha"] = alpha
-        unet_config["lora_dropout"] = 0.0
+        unet_config["lora_dropout"] = sys.float_info.epsilon
 
         unet = self._unet(eval=True, compile=False, reset=True).requires_grad_(False)
         unet = cast(
             UNet2DConditionModel,
             (
                 get_peft_model(
-                    self.accelerator.unwrap_model(unet), LoraConfig(**unet_config)
+                    self.accelerator.unwrap_model(unet), AdaLoraConfig(**unet_config)
                 )
                 .to(unet_0.device, non_blocking=True)
                 .requires_grad_(False)
@@ -720,14 +735,14 @@ class Trainer:
         )
         text_config = text_encoder_0.get_peft_config_as_dict(inference=True)
         text_config["lora_alpha"] = alpha_txt
-        text_config["lora_dropout"] = 0.0
+        text_config["lora_dropout"] = sys.float_info.epsilon
 
         text_encoder = cast(
             CLIPTextModel,
             (
                 get_peft_model(
                     self.accelerator.unwrap_model(text_encoder),
-                    LoraConfig(**text_config),
+                    AdaLoraConfig(**text_config),
                 )
                 .to(text_encoder_0.device, non_blocking=True)
                 .requires_grad_(False)
@@ -769,7 +784,7 @@ class Trainer:
             unet = cast(
                 UNet2DConditionModel,
                 (
-                    get_peft_model(unet, LoraConfig(**config["unet_peft"]))
+                    get_peft_model(unet, AdaLoraConfig(**config["unet_peft"]))
                     .to(unet.device, non_blocking=True)
                     .requires_grad_(False)
                     .eval()
@@ -787,7 +802,7 @@ class Trainer:
         embedding[self.token_id(tokenizer)] = token_embedding
 
         text_encoder = get_peft_model(
-            text_encoder, LoraConfig(**config["text_peft"])
+            text_encoder, AdaLoraConfig(**config["text_peft"])
         ).to(self.accelerator.device, non_blocking=True)
         set_peft_model_state_dict(
             text_encoder,
@@ -1036,9 +1051,11 @@ class Trainer:
         tkn_id = self.token_id(tokenizer)
         embeds[tkn_id] = init
 
-        lora_text_config = LoraConfig(
-            r=self.params.lora_text_rank,
+        lora_text_config = AdaLoraConfig(
+            target_r=self.params.lora_text_rank,
+            init_r=int(self.params.lora_text_rank * 1.5),
             lora_alpha=1,
+            tinit=self.params.lr_warmup_steps,
             target_modules=self.TEXT_ENCODER_TARGET_MODULES,
             lora_dropout=self.params.lora_text_dropout,
         )
@@ -1066,8 +1083,8 @@ class Trainer:
 
     def _prepare_models(self):
         with self.accelerator.init():
-            tokenizer, text_encoder = self._init_text(compile=True, reset=True)
-            unet = self._unet(compile=True, reset=True)
+            tokenizer, text_encoder = self._init_text(compile=False, reset=True)
+            unet = self._unet(compile=False, reset=True)
 
         vae = self._vae(compile=True, reset=True)
         vae_scale_factor = self.generate_depth_values(self.instance_class.data)
@@ -1116,6 +1133,12 @@ class Trainer:
             / self.params.gradient_accumulation_steps
         )
         max_train_steps = self.params.train_epochs * steps_per_epoch
+
+        total_lora_steps = (
+            max_train_steps - self.params.ti_train_epochs * steps_per_epoch
+        )
+        unet.base_model.peft_config["default"].total_step = total_lora_steps
+        text_encoder.base_model.peft_config["default"].total_step = total_lora_steps
 
         loader = self.accelerator.prepare(loader)
 
