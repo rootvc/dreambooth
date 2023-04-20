@@ -499,7 +499,7 @@ class Trainer:
                 target_r=self.params.lora_rank,
                 init_r=int(self.params.lora_rank * 1.5),
                 tinit=self.params.lr_warmup_steps,
-                lora_alpha=1,
+                lora_alpha=self.params.lora_alpha,
                 target_modules=self.UNET_TARGET_MODULES,
                 lora_dropout=self.params.lora_dropout,
             )
@@ -1054,7 +1054,7 @@ class Trainer:
         lora_text_config = AdaLoraConfig(
             target_r=self.params.lora_text_rank,
             init_r=int(self.params.lora_text_rank * 1.5),
-            lora_alpha=1,
+            lora_alpha=self.params.lora_text_alpha,
             tinit=self.params.lr_warmup_steps,
             target_modules=self.TEXT_ENCODER_TARGET_MODULES,
             lora_dropout=self.params.lora_text_dropout,

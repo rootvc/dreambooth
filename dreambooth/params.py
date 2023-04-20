@@ -111,9 +111,9 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-3
-    text_learning_rate: float = 1e-4
-    ti_learning_rate: float = 5e-3
+    learning_rate: float = 2e-3
+    text_learning_rate: float = 2e-4
+    ti_learning_rate: float = 8e-3
     ti_continuted_learning_rate: float = 1e-4
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
@@ -123,8 +123,8 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    ti_train_epochs: int = 4
-    train_epochs: int = 7
+    ti_train_epochs: int = 3
+    train_epochs: int = 5
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0  # 50
     lr_cycles: int = 2
@@ -160,11 +160,8 @@ class HyperParams(BaseModel):
     # Eval
     eval_prompts: list[str] = [
         f"closeup portrait painting of a {token}, as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, octane render, 8 k, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand",
-        f"closeup portrait of a {token}, as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
         f"closeup portrait of a {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
-        f"closeup portrait of a {token}, as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
         f"{token} photo, futuristic cyberpunk portrait cyborg deep look by edwin longben, craig mullins, j. c. leyendecker, artgerm, fantasy, cosmic horror, dramatic lighting 4 k 8 k 4 k",
-        f"closeup portrait of a {token}, as a jedi with a lightsaber, highly detailed, science fiction, star wars concept art, intricate details, bright colors, golden hour, art by marko djurdjevic, greg rutkowski, wlop, fredperry, digital painting, rossdraws.",
         f"8k linkedin professional profile photo of {token} in a suit with studio lighting, bokeh, corporate portrait headshot photograph best corporate photography photo winner, meticulous detail, hyperrealistic, centered uncropped symmetrical beautiful",
     ]
 
