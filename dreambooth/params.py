@@ -123,8 +123,8 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    ti_train_epochs: int = 3
-    train_epochs: int = 5
+    ti_train_epochs: int = 4
+    train_epochs: int = 7
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0  # 50
     lr_cycles: int = 2
@@ -132,13 +132,15 @@ class HyperParams(BaseModel):
     max_grad_norm: float = 1.0
 
     # LoRA
-    lora_rank: int = 8
-    lora_alpha: float = 0.125
+    lora_rank: int = 4
+    lora_alpha = 0.14
+    lora_alphas: list[float] = [0.15]
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 8
-    lora_text_alpha: float = 1.6
+    lora_text_rank: int = 4
+    lora_text_alpha: float = 3.0
+    lora_text_alphas: list[float] = [1.0]
     lora_text_dropout: float = 0.1
 
     # Validation
@@ -147,7 +149,7 @@ class HyperParams(BaseModel):
     validation_prompt_suffix: str = "in a cowboy costume"
     validation_samples: int = 2
     validation_steps: int = 75
-    validation_guidance_scales: list[float] = [8.0]
+    validation_guidance_scale: float = 18.5
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 

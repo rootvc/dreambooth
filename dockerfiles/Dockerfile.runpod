@@ -39,6 +39,7 @@ FROM rootventures/train-dreambooth-sagemaker:latest
 WORKDIR /dreambooth
 ENV PYTHONUNBUFFERED 1
 ENV RUNPOD_DEBUG_LEVEL WARN
+ENV TOKENIZERS_PARALLELISM false
 ENV HF_MODEL_CACHE /root/.cache/huggingface/models
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

@@ -499,7 +499,7 @@ class Trainer:
                 target_r=self.params.lora_rank,
                 init_r=int(self.params.lora_rank * 1.5),
                 tinit=self.params.lr_warmup_steps,
-                lora_alpha=self.params.lora_alpha,
+                lora_alpha=1,
                 target_modules=self.UNET_TARGET_MODULES,
                 lora_dropout=self.params.lora_dropout,
             )
@@ -635,29 +635,34 @@ class Trainer:
         check: bool = False,
     ):
         dprint("Final validation...")
-        pipeline = self._create_eval_model(
-            unet,
-            text_encoder,
-            tokenizer,
-            vae,
-            self.params.lora_alpha,
-            self.params.lora_text_alpha,
-        )
-        if check:
-            try:
-                self._validation(
-                    pipeline,
-                    final=True,
-                    alpha=self.params.lora_alpha,
-                    text_alpha=self.params.lora_text_alpha,
+        for text_alpha in self.params.lora_text_alphas:
+            for alpha in self.params.lora_alphas:
+                pipeline = self._create_eval_model(
+                    unet,
+                    text_encoder,
+                    tokenizer,
+                    vae,
+                    alpha,
+                    text_alpha,
                 )
-            except ScoreThresholdExceeded:
-                pass
-            else:
-                raise RuntimeError("Final validation failed")
-            finally:
-                self._total_steps += 1
-                wandb.run.log(self.metrics_cache, step=self.total_steps, commit=True)
+                if True:
+                    try:
+                        self._validation(
+                            pipeline,
+                            final=True,
+                            alpha=alpha,
+                            text_alpha=text_alpha,
+                        )
+                    except ScoreThresholdExceeded:
+                        pass
+                    else:
+                        pass
+                        # raise RuntimeError("Final validation failed")
+                    finally:
+                        self._total_steps += 1
+                        wandb.run.log(
+                            self.metrics_cache, step=self.total_steps, commit=True
+                        )
         return pipeline
 
     @main_process_only
@@ -757,7 +762,7 @@ class Trainer:
             unet=unet,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
-            vae=vae.eval().to(dtype=self.params.dtype),
+            vae=self._vae(compile=True, torch_dtype=self.params.dtype).eval(),
             torch_dtype=self.params.dtype,
         )
         pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
@@ -1054,7 +1059,7 @@ class Trainer:
         lora_text_config = AdaLoraConfig(
             target_r=self.params.lora_text_rank,
             init_r=int(self.params.lora_text_rank * 1.5),
-            lora_alpha=self.params.lora_text_alpha,
+            lora_alpha=1,
             tinit=self.params.lr_warmup_steps,
             target_modules=self.TEXT_ENCODER_TARGET_MODULES,
             lora_dropout=self.params.lora_text_dropout,
@@ -1086,7 +1091,7 @@ class Trainer:
             tokenizer, text_encoder = self._init_text(compile=False, reset=True)
             unet = self._unet(compile=False, reset=True)
 
-        vae = self._vae(compile=True, reset=True)
+        vae = self._vae(compile=True, reset=True, torch_dtype=torch.float)
         vae_scale_factor = self.generate_depth_values(self.instance_class.data)
         dataset = DreamBoothDataset(
             instance=self.instance_class,

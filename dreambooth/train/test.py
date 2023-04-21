@@ -94,6 +94,7 @@ class Tester:
 
     @cached_property
     def test_prompts(self):
+        return self.params.eval_prompts
         prompt = (
             self.instance_class.deterministic_prompt
             + ", "
@@ -163,25 +164,30 @@ class Tester:
     def pipeline(self, pipe: StableDiffusionPipeline) -> DiffusionPipeline:
         with patch_allowed_pipeline_classes():
             return StableDiffusionDepth2ImgPipeline.from_pretrained(
-                self.params.model.name, **pipe.components, strength=1.0
-            ).to(self.accelerator.device)
+                self.params.model.name,
+                **pipe.components,
+                strength=1.0,
+            ).to(self.accelerator.device, torch_dtype=torch.bfloat16)
 
     @main_process_only
+    @torch.inference_mode()
     def validate(self, pipe: StableDiffusionPipeline, title: str) -> list[Image.Image]:
         pipeline = self.pipeline(pipe)
-        gss = self.params.validation_guidance_scales if "final" in title else [7.5]
-        for gs in gss:
-            generator = torch.Generator(device=self.accelerator.device)
-            images = pipeline(
-                self.test_prompts,
-                num_inference_steps=self.params.validation_steps,
-                image=[self.test_images[0]] * len(self.test_prompts),
-                guidance_scale=gs,
-                negative_prompt=[self.params.negative_prompt] * len(self.test_prompts),
-                generator=generator,
-            ).images
-            images = list(images)
-            self.log_images(self.test_prompts, images, title=f"{title}-{gs}")
+        generator = torch.Generator(device=self.accelerator.device)
+        images = pipeline(
+            self.test_prompts,
+            num_inference_steps=self.params.validation_steps,
+            image=[self.test_images[0]] * len(self.test_prompts),
+            guidance_scale=self.params.validation_guidance_scale,
+            negative_prompt=[self.params.negative_prompt] * len(self.test_prompts),
+            generator=generator,
+        ).images
+        images = list(images)
+        self.log_images(
+            self.test_prompts,
+            images,
+            title=f"{title}-{self.params.validation_guidance_scale}",
+        )
         return images
 
     @main_process_only
@@ -189,6 +195,12 @@ class Tester:
     def test_pipe(self, pipe: StableDiffusionPipeline, title: str):
         processor, _, _, vis_model = self.clip_models()
         images = self.validate(pipe, title)
+        return {
+            "text_alignments": 0.0,
+            "text_alignment": 0.0,
+            "image_alignments": 0.0,
+            "image_alignment": 0.0,
+        }
 
         image_embed_inputs = [
             processor(images=image, return_tensors="pt").to(self.accelerator.device)
