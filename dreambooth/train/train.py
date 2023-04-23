@@ -190,7 +190,6 @@ def standalone_params(is_main: bool) -> Params:
     params.image_output_path.mkdir(parents=True, exist_ok=True)
 
     if os.getenv("WARM", "0") == "1":
-        params.ti_train_epochs = 1
         params.train_epochs = 2
         params.validate_after_steps = 0
         params.validate_every_epochs = None

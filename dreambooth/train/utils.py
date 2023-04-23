@@ -7,9 +7,10 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import timedelta
-from functools import cached_property, lru_cache
-from operator import itemgetter
+from functools import lru_cache
 from pathlib import Path
+from queue import Empty
+from threading import Event
 from typing import Any, Callable, Optional, Type, TypeVar, cast
 
 import peft.tuners.adalora
@@ -25,10 +26,11 @@ import torch.backends.cudnn
 import torch.distributed
 import torch.distributed.elastic.multiprocessing.errors
 import torch.jit
+import torch.multiprocessing as multiprocessing
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from accelerate.utils import InitProcessGroupKwargs, release_memory
+from accelerate.utils import InitProcessGroupKwargs
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
@@ -39,17 +41,17 @@ from diffusers import (
     get_scheduler,
 )
 from diffusers.loaders import AttnProcsLayers
-from diffusers.models.attention_processor import AttnProcessor2_0
-from diffusers.models.cross_attention import LoRACrossAttnProcessor
+from diffusers.models.attention_processor import AttnProcessor2_0, LoRAAttnProcessor
 from peft import (
     AdaLoraConfig,
+    PeftType,
     get_peft_model,
     get_peft_model_state_dict,
     set_peft_model_state_dict,
 )
 from PIL import Image
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import (
@@ -62,17 +64,21 @@ from transformers import (
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.registry import CompiledModelsRegistry
 from dreambooth.train.accelerators import BaseAccelerator
+from dreambooth.train.datasets import (
+    CachedLatentsDataset,
+    DreamBoothDataset,
+    PromptDataset,
+)
 from dreambooth.train.eval import Evaluator
 from dreambooth.train.shared import (
+    Mode,
     compile_model,
-    depth_image_path,
-    depth_transforms,
     dprint,
-    image_transforms,
     images,
     main_process_only,
     partition,
     patch_allowed_pipeline_classes,
+    unpack_collate,
 )
 from dreambooth.train.test import Tester
 
@@ -85,7 +91,7 @@ torch._dynamo.config.cache_size_limit = 512
 torch._inductor.config.triton.store_cubin = True
 torch._inductor.config.dce = True
 torch._inductor.config.reordering = True
-torch._dynamo.config.verbose = True
+torch._dynamo.config.verbose = False
 torch._dynamo.config.skip_nnmodule_hook_guards = True
 
 get_logger("torch._dynamo.eval_frame").setLevel("ERROR")
@@ -105,188 +111,60 @@ class ScoreThresholdExceeded(Exception):
     pass
 
 
-class PromptDataset(Dataset):
-    def __init__(self, prompt: str, n: int):
-        self.prompt = prompt
-        self.n = n
+class TrainingProcess:
+    METHOD = "forkserver"
+    TIMEOUT = 60 * 3
 
-    def __len__(self):
-        return self.n
-
-    def __getitem__(self, i: int):
-        return {"prompt": self.prompt, "index": i}
-
-
-class CachedLatentsDataset(Dataset):
-    def __init__(
-        self,
-        accelerator: BaseAccelerator,
-        dataset: Dataset,
-        params: HyperParams,
-        vae: AutoencoderKL,
-    ):
-        self.dataset = dataset
-        self.params = params
-        self.vae = vae
-        self.accelerator = accelerator
-        self._length = len(self.dataset)
-        self._cached_latents = {}
-        self._warmed = False
-
-    def _compute_latents(self, batch: list[dict[str, torch.FloatTensor]]):
-        images = list(
-            itertools.chain(
-                map(itemgetter("instance_image"), batch),
-                map(itemgetter("prior_image"), batch),
-            )
-        )
-        images = torch.stack(images).to(
-            self.accelerator.device, memory_format=torch.contiguous_format
-        )
-
-        depth_images = list(
-            itertools.chain(
-                map(itemgetter("instance_depth_image"), batch),
-                map(itemgetter("prior_depth_image"), batch),
-            )
-        )
-        depth_images = (
-            torch.stack(depth_images)
-            .to("cpu", memory_format=torch.contiguous_format)
-            .float()
-            .pin_memory()
-        )
-
-        latents = self.vae.encode(images).latent_dist.sample()
-        latents = latents * self.vae.config.scaling_factor
-        latents = latents.squeeze(0).to("cpu").float().pin_memory()
-
-        input_ids = list(
-            itertools.chain(
-                map(itemgetter("instance_prompt_ids"), batch),
-                map(itemgetter("prior_prompt_ids"), batch),
-            )
-        )
-        input_ids = torch.cat(input_ids, dim=0).to(dtype=torch.long)
-
-        return {
-            "input_ids": input_ids,
-            "latents": latents,
-            "depth_values": depth_images,
-        }
-
-    def __len__(self):
-        return self._length // self.params.batch_size
-
-    def __getitem__(self, i: int):
-        if not self._warmed and i not in self._cached_latents:
-            s = self.params.batch_size
-            self._cached_latents[i] = self._compute_latents(
-                [self.dataset[idx] for idx in range(s * i, s * (i + 1))]
-            )
-        return self._cached_latents[i]
-
-    def warm(self):
-        for i in tqdm(range(len(self)), disable=not self.accelerator.is_main_process):
-            self[i]
-        self._warmed = True
-
-
-class DreamBoothDataset(Dataset):
-    def __init__(
-        self,
-        *,
-        instance: Class,
-        prior: Class,
-        tokenizer: CLIPTokenizer,
-        size: int,
-        vae_scale_factor: float,
-        augment: bool = True,
-    ):
-        self.instance = instance
-        self.prior = prior
-        self.size = size
-        self.vae_scale_factor = vae_scale_factor
-        self.tokenizer = tokenizer
-        self.augment = augment
-
-        self._length = max(len(self.instance_images), len(self.prior_images))
+    process: multiprocessing.ProcessContext
 
     @staticmethod
-    def depth_image_path(path):
-        return depth_image_path(path)
+    def _loop(
+        _i,
+        recv: multiprocessing.Queue,
+        send: multiprocessing.Queue,
+        event: Event,
+    ):
+        while True:
+            fn, args = recv.get()
+            if args is None:
+                break
+            result = fn(*args)
+            send.put_nowait(result)
+            event.wait(10)
+            event.clear()
 
-    @cached_property
-    def prior_images(self):
-        path = self.prior.data
-        return images(path)
+    def __init__(self) -> None:
+        ctx = multiprocessing.get_context(self.METHOD)
+        self.send = ctx.Queue(1)
+        self.recv = ctx.Queue(1)
+        self.event = ctx.Event()
+        self.process = None
 
-    @cached_property
-    def instance_images(self):
-        path = self.instance.data
-        return images(path)
+    def start(self) -> None:
+        if self.process:
+            raise RuntimeError("Process already started")
+        self.process = multiprocessing.start_processes(
+            self._loop,
+            args=(self.send, self.recv, self.event),
+            join=False,
+            start_method=self.METHOD,
+        )
 
-    def depth_transform(self):
-        return depth_transforms(self.size, self.vae_scale_factor)
+    def __call__(self, fn: Callable, *args):
+        self.send.put_nowait((fn, args))
 
-    def image_transforms(self, augment: bool = True):
-        return image_transforms(self.size, self.augment and augment)
+        def wait(extract: Callable):
+            try:
+                response = self.recv.get(timeout=self.TIMEOUT)
+            except Empty:
+                self.process.join(1)
+                raise
 
-    def __len__(self):
-        return self._length
+            result = extract(response)
+            self.event.set()
+            return result
 
-    def __iter__(self):
-        return (self[i] for i in range(self._length))
-
-    @staticmethod
-    def open_image(path: Path, convert: bool = True):
-        img = Image.open(path)
-        if not convert or img.mode == "RGB":
-            return img
-        else:
-            return img.convert("RGB")
-
-    def _instance_image(self, index):
-        path = self.instance_images[index % len(self.instance_images)]
-        do_augment, index = divmod(index, len(self.instance_images))
-        image = self.image_transforms(do_augment)(self.open_image(path))
-
-        depth_path = self.depth_image_path(path)
-        depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
-
-        return {
-            "instance_image": image,
-            "instance_depth_image": depth_image,
-            "instance_prompt_ids": self.tokenizer(
-                self.instance.prompt,
-                truncation=True,
-                padding="max_length",
-                max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
-            ).input_ids,
-        }
-
-    def _prior_image(self, index):
-        path = self.prior_images[index % len(self.prior_images)]
-        image = self.image_transforms(False)(self.open_image(path))
-
-        depth_path = self.depth_image_path(path)
-        depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
-
-        return {
-            "prior_image": image,
-            "prior_depth_image": depth_image,
-            "prior_prompt_ids": self.tokenizer(
-                self.prior.prompt,
-                truncation=True,
-                padding="max_length",
-                max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
-            ).input_ids,
-        }
-
-    def __getitem__(self, index):
-        return {**self._instance_image(index), **self._prior_image(index)}
+        return wait
 
 
 def hash_bytes(b: bytes) -> str:
@@ -322,6 +200,13 @@ class Trainer:
 
     accelerator: BaseAccelerator
 
+    @classmethod
+    def _process(cls):
+        if not hasattr(cls, "__process"):
+            cls.__process = TrainingProcess()
+            cls.__process.start()
+        return cls.__process
+
     def __init__(self, *, instance_class: Class, params: HyperParams):
         self.instance_class = instance_class
         self.params = params
@@ -330,21 +215,7 @@ class Trainer:
         self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
         self.metrics_cache = {}
 
-        try:
-            from dreambooth.train.accelerators.colossal import (
-                ColossalAccelerator as Accelerator,
-            )
-        except Exception:
-            print("ColossalAI not installed, using default Accelerator")
-            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
-
-        self.accelerator = Accelerator(
-            params=self.params,
-            mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
-            log_with=["wandb"],
-            gradient_accumulation_steps=self.params.gradient_accumulation_steps,
-            kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(minutes=5))],
-        )
+        self.accelerator = self._accelerator()
         self.logger = get_logger(__name__)
         self.tester = Tester(self.params, self.accelerator, instance_class)
 
@@ -355,6 +226,23 @@ class Trainer:
         self.logger.warning(self.params.dict(), main_process_only=True)
 
         self._total_steps = 0
+
+    def _accelerator(self) -> BaseAccelerator:
+        try:
+            from dreambooth.train.accelerators.colossal import (
+                ColossalAccelerator as Accelerator,
+            )
+        except Exception:
+            print("ColossalAI not installed, using default Accelerator")
+            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
+
+        return Accelerator(
+            params=self.params,
+            mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
+            log_with=["wandb"],
+            gradient_accumulation_steps=self.params.gradient_accumulation_steps,
+            kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(minutes=5))],
+        )
 
     @property
     def total_steps(self):
@@ -392,7 +280,7 @@ class Trainer:
                 safety_checker=None,
                 low_cpu_mem_usage=True,
                 vae=vae or self._vae(compile=True).eval(),
-                unet=(unet or self._unet(eval=True, compile=True)).eval(),
+                unet=(unet or self._unet(mode=Mode.TI, compile=True)).eval(),
                 text_encoder=(
                     (text_encoder or self._text_encoder(compile=True)).eval()
                 ),
@@ -441,7 +329,7 @@ class Trainer:
 
         vae.requires_grad_(False)
         # vae.enable_slicing()
-        vae.enable_xformers_memory_efficient_attention()
+        # vae.enable_xformers_memory_efficient_attention()
         if "device_map" not in kwargs:
             vae.to(self.accelerator.device, non_blocking=True)
         return vae
@@ -449,72 +337,78 @@ class Trainer:
     def _tokenizer(self) -> CLIPTokenizer:
         return self._spawn(AutoTokenizer, subfolder="tokenizer", use_fast=False)
 
+    def _unet_config(self) -> AdaLoraConfig:
+        return AdaLoraConfig(
+            target_r=self.params.lora_rank,
+            init_r=int(self.params.lora_rank * 1.5),
+            tinit=self.params.lr_warmup_steps,
+            lora_alpha=1,
+            target_modules=self.UNET_TARGET_MODULES,
+            lora_dropout=self.params.lora_dropout,
+            peft_type=PeftType.ADALORA,
+        )
+
     def _unet(
-        self, eval: bool = False, compile: bool = False, **kwargs
+        self,
+        compile: bool = False,
+        mode: Mode = Mode.LORA,
+        **kwargs,
     ) -> UNet2DConditionModel:
         unet: UNet2DConditionModel = self._spawn(
             UNet2DConditionModel,
             subfolder="unet",
             tap=lambda x: x.requires_grad_(False),
-            compile=False,
+            compile=compile and mode != Mode.LORA,
+            mode=mode,
             **kwargs,
         )
         if "device_map" not in kwargs:
             unet.to(self.accelerator.device, non_blocking=True)
 
-        if self.params.use_diffusers_unet:
-            lora_attn_procs = {}
-            for name in unet.attn_processors.keys():
-                cross_attention_dim = (
-                    None
-                    if name.endswith("attn1.processor")
-                    else unet.config.cross_attention_dim
-                )
-                if name.startswith("mid_block"):
-                    hidden_size = unet.config.block_out_channels[-1]
-                elif name.startswith("up_blocks"):
-                    block_id = int(name[len("up_blocks.")])
-                    hidden_size = list(reversed(unet.config.block_out_channels))[
-                        block_id
-                    ]
-                elif name.startswith("down_blocks"):
-                    block_id = int(name[len("down_blocks.")])
-                    hidden_size = unet.config.block_out_channels[block_id]
-                else:
-                    raise RuntimeError(f"Unknown attn processor name: {name}")
+        if mode == Mode.LORA:
+            if self.params.use_diffusers_unet:
+                lora_attn_procs = {}
+                for name in unet.attn_processors.keys():
+                    cross_attention_dim = (
+                        None
+                        if name.endswith("attn1.processor")
+                        else unet.config.cross_attention_dim
+                    )
+                    if name.startswith("mid_block"):
+                        hidden_size = unet.config.block_out_channels[-1]
+                    elif name.startswith("up_blocks"):
+                        block_id = int(name[len("up_blocks.")])
+                        hidden_size = list(reversed(unet.config.block_out_channels))[
+                            block_id
+                        ]
+                    elif name.startswith("down_blocks"):
+                        block_id = int(name[len("down_blocks.")])
+                        hidden_size = unet.config.block_out_channels[block_id]
+                    else:
+                        raise RuntimeError(f"Unknown attn processor name: {name}")
 
-                lora_attn_procs[name] = LoRACrossAttnProcessor(
-                    hidden_size=hidden_size,
-                    cross_attention_dim=cross_attention_dim,
-                    rank=self.params.lora_rank,
-                )
-                if "device_map" not in kwargs:
-                    lora_attn_procs[name].to(self.accelerator.device, non_blocking=True)
-            unet.set_attn_processor(lora_attn_procs)
-            unet.enable_xformers_memory_efficient_attention()
-        else:
-            unet.set_attn_processor(AttnProcessor2_0())
-
-            lora_config = AdaLoraConfig(
-                target_r=self.params.lora_rank,
-                init_r=int(self.params.lora_rank * 1.5),
-                tinit=self.params.lr_warmup_steps,
-                lora_alpha=1,
-                target_modules=self.UNET_TARGET_MODULES,
-                lora_dropout=self.params.lora_dropout,
-            )
-
-            if eval:
-                unet = unet.eval()
+                    lora_attn_procs[name] = LoRAAttnProcessor(
+                        hidden_size=hidden_size,
+                        cross_attention_dim=cross_attention_dim,
+                        rank=self.params.lora_rank,
+                    )
+                    if "device_map" not in kwargs:
+                        lora_attn_procs[name].to(
+                            self.accelerator.device, non_blocking=True
+                        )
+                unet.set_attn_processor(lora_attn_procs)
+                unet.enable_xformers_memory_efficient_attention()
             else:
+                unet.set_attn_processor(AttnProcessor2_0())
+                lora_config = self._unet_config()
                 unet = CompiledModelsRegistry.wrap(
                     get_peft_model(CompiledModelsRegistry.unwrap(unet), lora_config)
                 )
 
-            unet = compile_model(unet, do=compile)
+                if "device_map" not in kwargs:
+                    unet.to(self.accelerator.device, non_blocking=True)
 
-            if "device_map" not in kwargs:
-                unet.to(self.accelerator.device, non_blocking=True)
+            unet = compile_model(unet, do=compile)
 
         return unet
 
@@ -630,8 +524,7 @@ class Trainer:
         self,
         unet: UNet2DConditionModel,
         text_encoder: CLIPTextModel,
-        tokenizer: CLIPTokenizer,
-        vae: AutoencoderKL,
+        input_embeddings: torch.Tensor,
         check: bool = False,
     ):
         dprint("Final validation...")
@@ -640,8 +533,7 @@ class Trainer:
                 pipeline = self._create_eval_model(
                     unet,
                     text_encoder,
-                    tokenizer,
-                    vae,
+                    input_embeddings,
                     alpha,
                     text_alpha,
                 )
@@ -699,11 +591,11 @@ class Trainer:
         self,
         unet_0: UNet2DConditionModel,
         text_encoder_0: CLIPTextModel,
-        tokenizer: CLIPTokenizer,
-        vae: AutoencoderKL,
+        input_embeddings: torch.Tensor,
         alpha: float,
         alpha_txt: float,
     ):
+        unet_0.peft_config["default"] = self._unet_config()
         unet_state = get_peft_model_state_dict(
             unet_0, state_dict=self.accelerator.get_state_dict(unet_0)
         )
@@ -711,7 +603,11 @@ class Trainer:
         unet_config["lora_alpha"] = alpha
         unet_config["lora_dropout"] = sys.float_info.epsilon
 
-        unet = self._unet(eval=True, compile=False, reset=True).requires_grad_(False)
+        unet = (
+            self._unet(mode=Mode.TI, compile=False, reset=True)
+            .requires_grad_(False)
+            .eval()
+        )
         unet = cast(
             UNet2DConditionModel,
             (
@@ -725,16 +621,18 @@ class Trainer:
         set_peft_model_state_dict(unet, unet_state)
         unet = compile_model(unet.merge_and_unload().to(self.params.dtype))
 
+        tokenizer = self._tokenizer()
+        tokenizer.add_tokens(self.params.token)
         text_encoder = (
             self._text_encoder(compile=False, reset=True).eval().requires_grad_(False)
         )
         text_encoder.resize_token_embeddings(len(tokenizer))
 
-        embeds_0 = text_encoder_0.model.get_input_embeddings().weight.data
         embeds: torch.Tensor = text_encoder.get_input_embeddings().weight.data
         token_id = self.token_id(tokenizer)
-        embeds[token_id] = embeds_0[token_id]
+        embeds[token_id] = input_embeddings[token_id]
 
+        text_encoder_0.peft_config["default"] = self._text_config()
         text_state = get_peft_model_state_dict(
             text_encoder_0, state_dict=self.accelerator.get_state_dict(text_encoder_0)
         )
@@ -833,7 +731,7 @@ class Trainer:
 
     def _do_epoch(
         self,
-        epoch: int,
+        mode: Mode,
         unet: UNet2DConditionModel,
         loader: DataLoader,
         optimizer: Optimizer,
@@ -844,11 +742,9 @@ class Trainer:
 
         for batch in loader:
             # Convert images to latent space
-            latents = batch["latents"].to(
-                self.accelerator.device, dtype=torch.float, non_blocking=True
-            )
+            latents = batch["latents"].to(self.accelerator.device, non_blocking=True)
             depth_values = batch["depth_values"].to(
-                self.accelerator.device, dtype=torch.float, non_blocking=True
+                self.accelerator.device, non_blocking=True
             )
 
             # Sample noise that we'll add to the latents
@@ -925,34 +821,40 @@ class Trainer:
 
             models["lr_scheduler"].step()
 
-            if epoch < self.params.ti_train_epochs:
-                with torch.no_grad():
-                    idx = torch.arange(len(models["tokenizer"])) != self.token_id(
-                        models["tokenizer"]
-                    )
-                    source = models["input_embeddings"][idx]
-                    self.accelerator.unwrap_model(
-                        models["text_encoder"]
-                    ).get_input_embeddings().weight[idx] = source
+            if mode == Mode.TI:
+                self._do_textual_inversion(models)
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
 
-            self.accelerator.log(
-                {
-                    "ti_lr": models["lr_scheduler"].get_last_lr()[0],
-                    "text_lr": models["lr_scheduler"].get_last_lr()[1],
-                    "unet_lr": models["lr_scheduler"].get_last_lr()[2],
-                    "instance_loss": instance_loss.detach().item(),
-                    "prior_loss": prior_loss.detach().item(),
-                    **self.metrics_cache,
-                },
-                step=self.total_steps,
-            )
+            metrics = {
+                f"{mode.name}_instance_loss": instance_loss.detach().item(),
+                f"{mode.name}_prior_loss": prior_loss.detach().item(),
+                f"{mode.name}_steps": self.total_steps,
+                **self.metrics_cache,
+            }
+
+            if mode == Mode.TI:
+                metrics["ti_lr"] = models["lr_scheduler"].get_last_lr()[0]
+            elif mode == Mode.LORA:
+                metrics["text_lr"] = models["lr_scheduler"].get_last_lr()[0]
+                metrics["unet_lr"] = models["lr_scheduler"].get_last_lr()[1]
+
+            self.accelerator.log(metrics)
             self.metrics_cache = {}
 
             if self.exceeded_max_steps():
                 break
+
+    @torch.no_grad()
+    def _do_textual_inversion(self, models: dict):
+        idx = torch.arange(len(models["tokenizer"])) != self.token_id(
+            models["tokenizer"]
+        )
+        source = models["input_embeddings"][idx]
+        self.accelerator.unwrap_model(
+            models["text_encoder"]
+        ).get_input_embeddings().weight[idx] = source
 
     def exceeded_max_steps(self):
         return (
@@ -1030,17 +932,30 @@ class Trainer:
 
         wandb.save(str(self.params.model_output_path / "*"), policy="end")
 
+    def _text_config(self):
+        return AdaLoraConfig(
+            target_r=self.params.lora_text_rank,
+            init_r=int(self.params.lora_text_rank * 1.5),
+            lora_alpha=1,
+            tinit=self.params.lr_warmup_steps,
+            target_modules=self.TEXT_ENCODER_TARGET_MODULES,
+            lora_dropout=self.params.lora_text_dropout,
+        )
+
+    @torch.no_grad()
     def _init_text(
         self,
         init: Optional[torch.Tensor] = None,
-        eval: bool = False,
         compile: bool = False,
+        mode: Mode = Mode.LORA,
         **kwargs,
     ):
         tokenizer = self._tokenizer()
         tokenizer.add_tokens(self.params.token)
 
-        text_encoder: CLIPTextModel = self._text_encoder(compile=False, **kwargs)
+        text_encoder: CLIPTextModel = self._text_encoder(
+            compile=compile and mode != Mode.LORA, **kwargs
+        )
         text_encoder.get_input_embeddings().requires_grad_(True)
         text_encoder.resize_token_embeddings(len(tokenizer))
 
@@ -1056,25 +971,16 @@ class Trainer:
         tkn_id = self.token_id(tokenizer)
         embeds[tkn_id] = init
 
-        lora_text_config = AdaLoraConfig(
-            target_r=self.params.lora_text_rank,
-            init_r=int(self.params.lora_text_rank * 1.5),
-            lora_alpha=1,
-            tinit=self.params.lr_warmup_steps,
-            target_modules=self.TEXT_ENCODER_TARGET_MODULES,
-            lora_dropout=self.params.lora_text_dropout,
-        )
-
-        if eval:
-            text_encoder = text_encoder.eval()
-        else:
+        if mode == Mode.LORA:
+            lora_text_config = self._text_config()
             text_encoder = CompiledModelsRegistry.wrap(
                 get_peft_model(
                     CompiledModelsRegistry.unwrap(text_encoder),
                     lora_text_config,
                 )
             )
-        text_encoder = compile_model(text_encoder, do=compile)
+            text_encoder = compile_model(text_encoder, do=compile)
+
         text_encoder = text_encoder.to(self.accelerator.device, non_blocking=True)
         return (tokenizer, text_encoder)
 
@@ -1086,10 +992,10 @@ class Trainer:
         else:
             return unet
 
-    def _prepare_models(self):
-        with self.accelerator.init():
-            tokenizer, text_encoder = self._init_text(compile=False, reset=True)
-            unet = self._unet(compile=False, reset=True)
+    @torch.no_grad()
+    def _prepare_dataset(self):
+        tokenizer = self._tokenizer()
+        tokenizer.add_tokens(self.params.token)
 
         vae = self._vae(compile=True, reset=True, torch_dtype=torch.float)
         vae_scale_factor = self.generate_depth_values(self.instance_class.data)
@@ -1103,34 +1009,44 @@ class Trainer:
         self.generate_depth_values(dataset.prior.data)
         dprint("Caching latents...")
         dataset = CachedLatentsDataset(self.accelerator, dataset, self.params, vae)
-        dataset.warm()
+        warmed = dataset.warm()
+
+        return {"dataset": warmed, "tokenizer": tokenizer}
+
+    def _prepare_models(self, models: dict, mode: Mode):
+        with self.accelerator.init():
+            tokenizer, text_encoder = self._init_text(
+                compile=mode != Mode.LORA, mode=mode, reset=True
+            )
+            unet = self._unet(compile=mode != Mode.LORA, mode=mode, reset=True)
+
         loader = DataLoader(
-            dataset,
+            models["dataset"],
             batch_size=1,
-            collate_fn=lambda b: b[0],
+            collate_fn=unpack_collate,
             shuffle=True,
             pin_memory=True,
-            pin_memory_device=self.accelerator.device,
-            num_workers=self.params.loading_workers,
+            num_workers=0,
         )
 
         ti_params = [
-            p.requires_grad_(True)
+            p.requires_grad_(True or mode == Mode.TI)
             for p in text_encoder.get_input_embeddings().parameters()
         ]
-        unet_param_src = self._unet_param_source(unet)
+        text_params = list(set(text_encoder.parameters()) - set(ti_params))
+        unet_params = self._unet_param_source(unet).parameters()
 
-        params = [
-            {
-                "lr": self.params.ti_learning_rate,
-                "params": ti_params,
-            },
-            {
-                "lr": self.params.text_learning_rate,
-                "params": list(set(text_encoder.parameters()) - set(ti_params)),
-            },
-            {"lr": self.params.learning_rate, "params": unet_param_src.parameters()},
-        ]
+        if mode == Mode.TI:
+            params = [
+                {"lr": self.params.ti_learning_rate, "params": ti_params},
+            ]
+        elif mode == Mode.LORA:
+            params = [
+                {"lr": self.params.text_learning_rate, "params": text_params},
+                {"lr": self.params.learning_rate, "params": unet_params},
+            ]
+        else:
+            raise ValueError(f"Unknown mode {mode}")
 
         steps_per_epoch = math.ceil(
             len(loader)
@@ -1139,14 +1055,11 @@ class Trainer:
         )
         max_train_steps = self.params.train_epochs * steps_per_epoch
 
-        total_lora_steps = (
-            max_train_steps - self.params.ti_train_epochs * steps_per_epoch
-        )
-        unet.base_model.peft_config["default"].total_step = total_lora_steps
-        text_encoder.base_model.peft_config["default"].total_step = total_lora_steps
+        if mode == Mode.LORA:
+            unet.base_model.peft_config["default"].total_step = max_train_steps
+            text_encoder.base_model.peft_config["default"].total_step = max_train_steps
 
-        loader = self.accelerator.prepare(loader)
-
+        # loader = self.accelerator.prepare(loader)
         optimizer = self.accelerator.optimizer(
             params,
             betas=self.params.betas,
@@ -1154,7 +1067,7 @@ class Trainer:
             eps=self.params.epsilon,
         )
 
-        optimizer = self.accelerator.prepare(optimizer)
+        # optimizer = self.accelerator.prepare(optimizer)
 
         steps_per_epoch = math.ceil(
             len(loader)
@@ -1164,13 +1077,23 @@ class Trainer:
         epochs = math.ceil(max_train_steps / steps_per_epoch)
 
         lr_scheduler = get_scheduler(
-            self.params.lr_scheduler,
+            "constant" if mode == Mode.TI else self.params.lr_scheduler,
             optimizer=optimizer,
             num_warmup_steps=self.params.lr_warmup_steps,
             num_training_steps=max_train_steps,
             num_cycles=self.params.lr_cycles,
         )
-        lr_scheduler.lr_lambdas[0] = lambda _: 1
+
+        input_embeddings = (
+            (
+                self.accelerator.unwrap_model(text_encoder)
+                .get_input_embeddings()
+                .weight.data.clone()
+                .to(self.accelerator.device, non_blocking=True)
+            )
+            if mode == Mode.TI
+            else None
+        )
 
         return {
             "epochs": epochs,
@@ -1180,64 +1103,38 @@ class Trainer:
             "loader": loader,
             "tokenizer": tokenizer,
             "optimizer": optimizer,
-            "vae": vae,
+            "vae": self._vae(compile=True),
             "lr_scheduler": lr_scheduler,
             "noise_scheduler": self._noise_scheduler(),
-            "unet_params": unet_param_src.parameters(),
-            "input_embeddings": (
-                self.accelerator.unwrap_model(text_encoder)
-                .get_input_embeddings()
-                .weight.data.clone()
-                .to(self.accelerator.device, non_blocking=True)
-            ),
+            "unet_params": unet_params,
+            "input_embeddings": input_embeddings,
         }
 
-    def _prepare_to_train(self):
-        models = self._prepare_models()
-        dprint(
-            f"Training for {models['epochs']} epochs. Max steps: {models['max_train_steps']}."
-        )
-
-        if self.accelerator.is_main_process:
-            self._init_trackers()
-
-        self.tester.log_images(
-            self.instance_class.deterministic_prompt,
-            list(map(str, images(self.instance_class.data))),
-            title="data",
-        )
-        return models
-
-    def _train(self, models: dict):
-        dprint("Starting training...")
-        unet, text_encoder, epochs, optimizer, loader, tokenizer, lr_scheduler = (
+    def _train(self, models: dict, mode: Mode):
+        dprint(f"Starting {mode} training...")
+        unet, text_encoder, epochs, optimizer, loader, lr_scheduler = (
             models["unet"],
             models["text_encoder"],
             models["epochs"],
             models["optimizer"],
             models["loader"],
-            models["tokenizer"],
             models["lr_scheduler"],
         )
+
         for epoch in range(epochs):
             if self.accelerator.is_main_process:
-                dprint(f"Epoch {epoch + 1}/{epochs} (Step {self.total_steps})")
+                dprint(
+                    f"[{mode.name}] Epoch {epoch + 1}/{epochs} (Step {self.total_steps})"
+                )
 
             pg, blr = optimizer.param_groups, lr_scheduler.base_lrs
-            if epoch < self.params.ti_train_epochs:
+            if mode == Mode.TI:
                 pg[0]["lr"] = blr[0] = self.params.ti_learning_rate
-                pg[1]["lr"] = blr[1] = 0.0
-                pg[2]["lr"] = blr[2] = 0.0
-            else:
-                pg[0]["lr"] = blr[0] = self.params.ti_continuted_learning_rate
-                pg[1]["lr"] = blr[1] = self.params.text_learning_rate
-                pg[2]["lr"] = blr[2] = self.params.learning_rate
-                if epoch == self.params.ti_train_epochs:
-                    dprint(f"Finished TI training at epoch {epoch}.")
-                    del models["input_embeddings"]
-                    torch.cuda.empty_cache()
+            elif mode == Mode.LORA:
+                pg[0]["lr"] = blr[0] = self.params.text_learning_rate
+                pg[1]["lr"] = blr[1] = self.params.learning_rate
 
-            self._do_epoch(epoch, unet, loader, optimizer, models)
+            self._do_epoch(mode, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
                 dprint("Max steps exceeded. Stopping training.")
                 break
@@ -1254,24 +1151,60 @@ class Trainer:
                     break
 
         self.accelerator.wait_for_everyone()
-        unet = self.accelerator.unwrap_model(unet, keep_fp32_wrapper=False)
-        text_encoder = self.accelerator.unwrap_model(
-            text_encoder, keep_fp32_wrapper=False
+        unet = CompiledModelsRegistry.unwrap(unet)
+        text_encoder = CompiledModelsRegistry.unwrap(text_encoder)
+        return unet, text_encoder
+
+    def _init_and_train(self, dataset: dict, mode: Mode):
+        models = self._prepare_models(dataset, mode)
+        dprint(
+            f"Training for {models['epochs']} epochs. Max steps: {models['max_train_steps']}."
         )
-        return tokenizer, unet, text_encoder, models["vae"]
+        unet, text_encoder = self._train(models, mode)
+        return {
+            "unet": CompiledModelsRegistry.unwrap(unet),
+            "text_encoder": CompiledModelsRegistry.unwrap(text_encoder),
+        }
+
+    def _spawn_train_mode(self, *args):
+        accelerator = self._accelerator()
+        accelerator.trackers = self.accelerator.trackers
+        self.accelerator = accelerator
+        return self._init_and_train(*args)
+
+    def _train_and_combine(self):
+        dataset = self._prepare_dataset()
+
+        get_ti_models = self._process()(self._spawn_train_mode, dataset, Mode.TI)
+        lora_models = self._init_and_train(dataset, Mode.LORA)
+        input_embeddings = get_ti_models(
+            lambda models: models["text_encoder"]
+            .eval()
+            .get_input_embeddings()
+            .weight.data.clone()
+        )
+
+        return (lora_models["unet"], lora_models["text_encoder"], input_embeddings)
+
+    @main_process_only
+    def _prepare_to_train(self):
+        self._init_trackers()
+        self.tester.log_images(
+            self.instance_class.deterministic_prompt,
+            list(map(str, images(self.instance_class.data))),
+            title="data",
+        )
 
     def train(self):
         self.accelerator.free_memory()
-        objs = self._prepare_to_train()
-        release_memory()
-        tokenizer, unet, text_encoder, vae = self._train(objs)
+        self._prepare_to_train()
+        unet, text_encoder, input_embeddings = self._train_and_combine()
         self.accelerator.free_memory()
         self.accelerator.wait_for_everyone()
         return self._do_final_validation(
-            unet, text_encoder, tokenizer, vae, check=False
+            unet, text_encoder, input_embeddings, check=False
         )
 
-    @torch.distributed.elastic.multiprocessing.errors.record
     def eval(self, pipeline: StableDiffusionPipeline):
         self.accelerator.wait_for_everyone()
         self.accelerator.free_memory()

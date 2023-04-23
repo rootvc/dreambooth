@@ -3,21 +3,35 @@ from typing import Type
 
 import torch
 from accelerate.utils import convert_outputs_to_fp32
+from accelerate.utils.operations import ConvertOutputsToFp32
+from torch._dynamo.eval_frame import OptimizedModule
 
-from dreambooth.train.shared import compile_model, dprint, hash_dict
+from dreambooth.train.shared import Mode, compile_model, dprint, hash_dict
 
 
 class CompiledModelsRegistryMeta(type):
     models: dict[tuple[Type[torch.nn.Module], str], torch.nn.Module]
 
     @staticmethod
+    def is_wrapped(model: torch.nn.Module):
+        if not hasattr(model, "forward"):
+            return True
+        if isinstance(model, OptimizedModule):
+            model = model._orig_mod
+        return isinstance(model.forward, ConvertOutputsToFp32)
+
+    @staticmethod
     def wrap(model: torch.nn.Module):
+        if isinstance(model, OptimizedModule):
+            model = model._orig_mod
         model.forward = torch.cuda.amp.autocast(dtype=torch.bfloat16)(model.forward)
         model.forward = convert_outputs_to_fp32(model.forward)
         return model
 
     @staticmethod
     def unwrap(model: torch.nn.Module):
+        if isinstance(model, OptimizedModule):
+            model = model._orig_mod
         try:
             model.forward = model.forward.__wrapped__.model_forward
         except AttributeError:
@@ -45,12 +59,27 @@ class CompiledModelsRegistryMeta(type):
                     continue
         return False
 
-    def get(self, klass: Type[torch.nn.Module], *args, reset: bool = False, **kwargs):
+    def get(
+        self,
+        klass: Type[torch.nn.Module],
+        *args,
+        reset: bool = False,
+        mode: Mode = Mode.LORA,
+        **kwargs,
+    ):
         key = (
             klass,
-            hash_dict({**kwargs, "args": args, "is_inference": self._is_inference()}),
+            hash_dict(
+                {
+                    **kwargs,
+                    "args": args,
+                    "mode": mode,
+                    "is_inference": self._is_inference(),
+                }
+            ),
         )
         do_compile = kwargs.pop("compile", isinstance(klass, torch.nn.Module))
+
         if key not in self.models:
             dprint(f"Loading model, compile={do_compile}", klass.__name__)
             load = klass.from_pretrained if hasattr(klass, "from_pretrained") else klass
@@ -61,6 +90,10 @@ class CompiledModelsRegistryMeta(type):
             fresh.state_dict(self.models[key].state_dict())
         else:
             dprint("Using cached model", klass.__name__)
+
+        if not self.is_wrapped(self.models[key]):
+            dprint("Wrapping model", klass.__name__)
+            self.models[key] = self.wrap(self.models[key])
         return self.models[key]
 
 

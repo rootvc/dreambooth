@@ -5,6 +5,7 @@ import logging
 from contextlib import contextmanager
 from ctypes import c_int
 from datetime import datetime
+from enum import Enum, auto
 from hashlib import sha1
 from inspect import isfunction
 from pathlib import Path
@@ -230,3 +231,12 @@ def depth_transforms(size: int, scale_factor: float):
             TT.ToTensor(),
         ]
     )
+
+
+def unpack_collate(batch):
+    return batch[0]
+
+
+class Mode(Enum):
+    TI = auto()
+    LORA = auto()

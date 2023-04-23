@@ -167,7 +167,7 @@ class Tester:
                 self.params.model.name,
                 **pipe.components,
                 strength=1.0,
-            ).to(self.accelerator.device, torch_dtype=torch.bfloat16)
+            ).to(self.accelerator.device, torch_dtype=torch.float)
 
     @main_process_only
     @torch.inference_mode()

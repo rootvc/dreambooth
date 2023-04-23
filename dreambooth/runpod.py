@@ -37,7 +37,8 @@ def prepare():
     trainer.generate_depth_values(params["instance_path"])
     trainer.generate_depth_values(params["params"].prior_class.data)
 
-    trainer._prepare_models()
+    # trainer._prepare_models(trainer._prepare_dataset(), Mode.TI)
+    # trainer._prepare_models(trainer._prepare_dataset(), Mode.LORA)
     tester.clip_models()
     evaluator._upsampler()
     evaluator._restorer()

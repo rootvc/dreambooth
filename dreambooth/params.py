@@ -114,7 +114,6 @@ class HyperParams(BaseModel):
     learning_rate: float = 2e-3
     text_learning_rate: float = 2e-4
     ti_learning_rate: float = 8e-3
-    ti_continuted_learning_rate: float = 1e-4
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
     epsilon: float = 1e-8
@@ -123,8 +122,7 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    ti_train_epochs: int = 4
-    train_epochs: int = 7
+    train_epochs: int = 4
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0  # 50
     lr_cycles: int = 2
@@ -132,13 +130,13 @@ class HyperParams(BaseModel):
     max_grad_norm: float = 1.0
 
     # LoRA
-    lora_rank: int = 4
+    lora_rank: int = 8
     lora_alpha = 0.14
     lora_alphas: list[float] = [0.15]
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 4
+    lora_text_rank: int = 8
     lora_text_alpha: float = 3.0
     lora_text_alphas: list[float] = [1.0]
     lora_text_dropout: float = 0.1
