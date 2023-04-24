@@ -10,7 +10,7 @@ export default defineFunction(
   async ({
     tools: { run, send },
     event: {
-      data: { id },
+      data: { id, phone },
     },
   }) => {
     const payload = {
@@ -38,6 +38,10 @@ export default defineFunction(
           })
           .json()
     )) as { id: string };
-    await send("dreambooth/train.monitor", { id, requestId: request.id });
+    await send("dreambooth/train.monitor", {
+      id,
+      phone,
+      requestId: request.id,
+    });
   }
 );

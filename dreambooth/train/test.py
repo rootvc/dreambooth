@@ -166,7 +166,7 @@ class Tester:
             return StableDiffusionDepth2ImgPipeline.from_pretrained(
                 self.params.model.name,
                 **pipe.components,
-                strength=1.0,
+                strength=self.params.test_strength,
             ).to(self.accelerator.device, torch_dtype=torch.float)
 
     @main_process_only

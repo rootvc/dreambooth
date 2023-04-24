@@ -14,6 +14,9 @@ import wandb
 from basicsr.utils import img2tensor, tensor2img
 from diffusers import StableDiffusionLatentUpscalePipeline
 from diffusers.pipelines.stable_diffusion import StableDiffusionDepth2ImgPipeline
+from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_depth2img import (
+    preprocess,
+)
 from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
@@ -91,7 +94,9 @@ class Evaluator:
             self.params.model.resolution, self.pipeline.vae_scale_factor
         )
         return [
-            transforms(Image.open(depth_image_path(p)))
+            transforms(Image.open(depth_image_path(p))).to(
+                self.device, dtype=self.params.dtype
+            )
             for p in get_images(self.instance_class.data)
         ]
 
@@ -170,12 +175,13 @@ class Evaluator:
             collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
             batch_size=len(self.params.eval_prompts),
         )
+        image = preprocess(self.test_images[0]).to(self.device, dtype=self.params.dtype)
 
         all_images = []
         for batch in loader:
             images = self.pipeline(
                 batch,
-                image=[self.test_images[0]] * len(batch),
+                image=[image] * len(batch),
                 depth_map=self.depth_images[0],
                 negative_prompt=[self.params.negative_prompt] * len(batch),
                 num_inference_steps=self.params.test_steps,

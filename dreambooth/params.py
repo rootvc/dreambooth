@@ -111,9 +111,9 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 2e-3
-    text_learning_rate: float = 2e-4
-    ti_learning_rate: float = 8e-3
+    learning_rate: float = 3e-3
+    text_learning_rate: float = 3e-4
+    ti_learning_rate: float = 8.5e-3
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
     epsilon: float = 1e-8
@@ -122,23 +122,23 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    train_epochs: int = 4
+    train_epochs: int = 6
     lr_scheduler: str = "cosine_with_restarts"
-    lr_warmup_steps: int = 0  # 50
-    lr_cycles: int = 2
+    lr_warmup_steps: int = 0
+    lr_cycles: int = 5
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
 
     # LoRA
-    lora_rank: int = 8
-    lora_alpha = 0.14
-    lora_alphas: list[float] = [0.15]
+    lora_rank: int = 16
+    lora_alpha = 0.125
+    lora_alphas: list[float] = [0.135]
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 8
-    lora_text_alpha: float = 3.0
-    lora_text_alphas: list[float] = [1.0]
+    lora_text_rank: int = 80
+    lora_text_alpha: float = 3.5
+    lora_text_alphas: list[float] = [1.5]
     lora_text_dropout: float = 0.1
 
     # Validation
@@ -170,8 +170,8 @@ class HyperParams(BaseModel):
     restore_faces: bool = False
     debug_outputs: bool = False
     fidelity_weight: float = 0.5
-    test_steps: int = 250
-    test_guidance_scale: float = 16.5
+    test_steps: int = 100
+    test_guidance_scale: float = 20.5
     test_strength = 0.93
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")

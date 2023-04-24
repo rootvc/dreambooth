@@ -1,18 +1,20 @@
-import site
-from pathlib import Path
-
-src = Path(__file__).absolute.parent.parent.parent
-site.addsitedir(src)
+import asyncio
+import subprocess
 
 from sanic import Sanic, response
 
-from dreambooth.train.trainer import TrainJob
+PRINTER_NAME = "dreambooth"
 
 app = Sanic()
 
 
-@app.route("/api/start", methods=["POST"])
+def _send_to_printer(id):
+    print("Sending to printer")
+    subprocess.run(["lpr", "-P", PRINTER_NAME])
+
+
+@app.route("/print", methods=["POST"])
 async def start(request):
-    id = request.json["id"]
-    resp = await TrainJob(id).run_and_report()
+    request.json["id"]
+    asyncio.to_thread()
     return response.json(resp)

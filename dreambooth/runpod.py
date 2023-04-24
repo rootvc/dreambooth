@@ -6,6 +6,7 @@ from collections import namedtuple
 import runpod.serverless
 
 from dreambooth.train.eval import Evaluator
+from dreambooth.train.shared import Mode
 from dreambooth.train.test import Tester
 from dreambooth.train.train import main as train
 from dreambooth.train.train import standalone_params
@@ -26,8 +27,8 @@ def prepare():
     trainer = get_model(**params)
     pipe = trainer._pipeline()
 
-    tester = Tester(params["params"], Acc(device="cuda"), None)
-    evaluator = Evaluator(
+    Tester(params["params"], Acc(device="cuda"), None)
+    Evaluator(
         trainer.accelerator.device,
         params["params"],
         Class(data=params["instance_path"]),
@@ -37,11 +38,11 @@ def prepare():
     trainer.generate_depth_values(params["instance_path"])
     trainer.generate_depth_values(params["params"].prior_class.data)
 
-    # trainer._prepare_models(trainer._prepare_dataset(), Mode.TI)
-    # trainer._prepare_models(trainer._prepare_dataset(), Mode.LORA)
-    tester.clip_models()
-    evaluator._upsampler()
-    evaluator._restorer()
+    trainer._prepare_models(trainer._prepare_dataset(), Mode.TI)
+    trainer._prepare_models(trainer._prepare_dataset(), Mode.LORA)
+    # tester.clip_models()
+    # evaluator._upsampler()
+    # evaluator._restorer()
 
     del os.environ["WANDB_MODE"]
     del os.environ["DREAMBOOTH_ID"]

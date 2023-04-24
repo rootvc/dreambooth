@@ -38,6 +38,7 @@ from diffusers import (
     StableDiffusionDepth2ImgPipeline,
     StableDiffusionPipeline,
     UNet2DConditionModel,
+    UniPCMultistepScheduler,
     get_scheduler,
 )
 from diffusers.loaders import AttnProcsLayers
@@ -292,7 +293,7 @@ class Trainer:
             )
         if "device_map" not in kwargs:
             pipe.to(self.accelerator.device)
-        pipe.enable_xformers_memory_efficient_attention()
+        # pipe.enable_xformers_memory_efficient_attention()
         return pipe
 
     def _text_encoder(self, compile: bool = False, **kwargs) -> CLIPTextModel:
@@ -537,7 +538,7 @@ class Trainer:
                     alpha,
                     text_alpha,
                 )
-                if True:
+                if check:
                     try:
                         self._validation(
                             pipeline,
@@ -603,7 +604,7 @@ class Trainer:
         unet_config["lora_alpha"] = alpha
         unet_config["lora_dropout"] = sys.float_info.epsilon
 
-        unet = (
+        unet = CompiledModelsRegistry.unwrap(
             self._unet(mode=Mode.TI, compile=False, reset=True)
             .requires_grad_(False)
             .eval()
@@ -619,11 +620,11 @@ class Trainer:
             ),
         )
         set_peft_model_state_dict(unet, unet_state)
-        unet = compile_model(unet.merge_and_unload().to(self.params.dtype))
+        unet = compile_model(unet.merge_and_unload())
 
         tokenizer = self._tokenizer()
         tokenizer.add_tokens(self.params.token)
-        text_encoder = (
+        text_encoder = CompiledModelsRegistry.unwrap(
             self._text_encoder(compile=False, reset=True).eval().requires_grad_(False)
         )
         text_encoder.resize_token_embeddings(len(tokenizer))
@@ -652,22 +653,24 @@ class Trainer:
             ),
         )
         set_peft_model_state_dict(text_encoder, text_state)
-        text_encoder = compile_model(
-            text_encoder.merge_and_unload().to(self.params.dtype)
+        text_encoder = compile_model(text_encoder.merge_and_unload())
+
+        vae = compile_model(
+            CompiledModelsRegistry.unwrap(self._vae(compile=False)).eval()
         )
 
         pipeline = self._pipeline(
             unet=unet,
             text_encoder=text_encoder,
             tokenizer=tokenizer,
-            vae=self._vae(compile=True, torch_dtype=self.params.dtype).eval(),
-            torch_dtype=self.params.dtype,
+            vae=vae,
         )
-        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+        pipeline.scheduler = UniPCMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
-        pipeline.to(self.accelerator.device)
-        return pipeline
+        return CompiledModelsRegistry.wrap(
+            pipeline.to(self.accelerator.device), method="__call__"
+        )
 
     @torch.inference_mode()
     def _load_model(self, tokenizer: CLIPTokenizer):
@@ -808,6 +811,8 @@ class Trainer:
 
             self.accelerator.backward(loss)
 
+            self._do_textual_inversion(models, mode)
+
             if self.accelerator.sync_gradients:
                 params_to_clip = itertools.chain(
                     models["unet_params"],
@@ -817,12 +822,9 @@ class Trainer:
                     params_to_clip, self.params.max_grad_norm
                 )
             optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad()
 
             models["lr_scheduler"].step()
-
-            if mode == Mode.TI:
-                self._do_textual_inversion(models)
 
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
@@ -847,14 +849,15 @@ class Trainer:
                 break
 
     @torch.no_grad()
-    def _do_textual_inversion(self, models: dict):
-        idx = torch.arange(len(models["tokenizer"])) != self.token_id(
-            models["tokenizer"]
-        )
-        source = models["input_embeddings"][idx]
-        self.accelerator.unwrap_model(
-            models["text_encoder"]
-        ).get_input_embeddings().weight[idx] = source
+    def _do_textual_inversion(self, models: dict, mode: Mode):
+        grad = models["text_encoder"].get_input_embeddings().weight.grad
+        ids = torch.arange(len(models["tokenizer"]))
+        tk_id = self.token_id(models["tokenizer"])
+        if mode == Mode.TI:
+            idx = ids != tk_id
+        else:
+            idx = ids == tk_id
+        grad.data[idx, :] = grad.data[idx, :].fill_(0)
 
     def exceeded_max_steps(self):
         return (
@@ -1077,22 +1080,11 @@ class Trainer:
         epochs = math.ceil(max_train_steps / steps_per_epoch)
 
         lr_scheduler = get_scheduler(
-            "constant" if mode == Mode.TI else self.params.lr_scheduler,
+            self.params.lr_scheduler,
             optimizer=optimizer,
             num_warmup_steps=self.params.lr_warmup_steps,
             num_training_steps=max_train_steps,
             num_cycles=self.params.lr_cycles,
-        )
-
-        input_embeddings = (
-            (
-                self.accelerator.unwrap_model(text_encoder)
-                .get_input_embeddings()
-                .weight.data.clone()
-                .to(self.accelerator.device, non_blocking=True)
-            )
-            if mode == Mode.TI
-            else None
         )
 
         return {
@@ -1107,7 +1099,6 @@ class Trainer:
             "lr_scheduler": lr_scheduler,
             "noise_scheduler": self._noise_scheduler(),
             "unet_params": unet_params,
-            "input_embeddings": input_embeddings,
         }
 
     def _train(self, models: dict, mode: Mode):
@@ -1202,7 +1193,7 @@ class Trainer:
         self.accelerator.free_memory()
         self.accelerator.wait_for_everyone()
         return self._do_final_validation(
-            unet, text_encoder, input_embeddings, check=False
+            unet, text_encoder, input_embeddings, check=True
         )
 
     def eval(self, pipeline: StableDiffusionPipeline):

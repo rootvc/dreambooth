@@ -20,7 +20,6 @@ export default defineFunction(
       "increment sequence",
       async () => await redis.incr(`dataset/${id}`)
     );
-    const key = await run("calculate ID", () => `dataset/${id}/${seq}.jpg`);
 
     await run("upload to S3", async () => {
       const s3 = new S3Client({ region: AWS_REGION });
@@ -28,7 +27,7 @@ export default defineFunction(
         new PutObjectCommand({
           Bucket: BUCKET,
           Body: blob,
-          Key: key,
+          Key: `dataset/${id}/${seq}.jpg`,
         })
       );
     });
@@ -38,7 +37,7 @@ export default defineFunction(
     }
     await run("delete sequence", async () => await redis.del(`dataset/${id}`));
     await run("store ts", async () => await redis.set(`ts/${id}`, Date.now()));
-    await send("dreambooth/train.start", { id });
+    await send("dreambooth/train.start", { id, phone });
     await send("dreambooth/sms.notify", { phone, key: "STARTED" });
   }
 );

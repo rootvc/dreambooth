@@ -14,9 +14,9 @@ export default defineFunction(
   "Monitor a training run",
   "dreambooth/train.monitor",
   async ({
-    tools: { run, send, redis, sleep },
+    tools: { run, send, sleep },
     event: {
-      data: { id, requestId },
+      data: { id, phone, requestId },
     },
   }) => {
     while (true) {
@@ -34,9 +34,9 @@ export default defineFunction(
       if (["COMPLETED", "FAILED"].includes(response.status)) {
         break;
       }
-      await sleep("1 minute");
+      await sleep("1 second");
     }
 
-    await send("dreambooth/train.complete", { id });
+    await send("dreambooth/train.complete", { phone, id });
   }
 );

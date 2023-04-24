@@ -21,11 +21,13 @@ class CompiledModelsRegistryMeta(type):
         return isinstance(model.forward, ConvertOutputsToFp32)
 
     @staticmethod
-    def wrap(model: torch.nn.Module):
+    def wrap(model: torch.nn.Module, method: str = "forward"):
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
-        model.forward = torch.cuda.amp.autocast(dtype=torch.bfloat16)(model.forward)
-        model.forward = convert_outputs_to_fp32(model.forward)
+        forward = getattr(model, method)
+        forward = torch.cuda.amp.autocast(dtype=torch.bfloat16)(forward)
+        forward = convert_outputs_to_fp32(forward)
+        setattr(model, method, forward)
         return model
 
     @staticmethod
@@ -88,11 +90,8 @@ class CompiledModelsRegistryMeta(type):
             dprint("Resetting model", klass.__name__)
             fresh = klass.from_pretrained(*args, **kwargs)
             fresh.state_dict(self.models[key].state_dict())
-        else:
-            dprint("Using cached model", klass.__name__)
 
         if not self.is_wrapped(self.models[key]):
-            dprint("Wrapping model", klass.__name__)
             self.models[key] = self.wrap(self.models[key])
         return self.models[key]
 

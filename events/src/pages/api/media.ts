@@ -17,6 +17,7 @@ const media = async (request: NextApiRequest, response: NextApiResponse) => {
   inngest.send("dreambooth/booth.photos", {
     data: {
       email: fields.email as string,
+      phone: fields.phone as string,
       blob: (await pify(readFile)(media.filepath)).toString("base64"),
     },
   });
