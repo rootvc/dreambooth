@@ -131,13 +131,13 @@ class HyperParams(BaseModel):
 
     # LoRA
     lora_rank: int = 16
-    lora_alpha = 0.125
-    lora_alphas: list[float] = [0.135]
+    lora_alpha = 0.1
+    lora_alphas: list[float] = [0.125]
     lora_dropout: float = 0.1
 
     # Text Encoder
     lora_text_rank: int = 80
-    lora_text_alpha: float = 3.5
+    lora_text_alpha: float = 1.5
     lora_text_alphas: list[float] = [1.5]
     lora_text_dropout: float = 0.1
 

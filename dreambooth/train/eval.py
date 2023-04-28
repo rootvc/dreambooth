@@ -21,7 +21,8 @@ from facexlib.utils.face_restoration_helper import FaceRestoreHelper
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms as TT
-from torchvision.transforms.functional import normalize
+from torchvision.transforms.functional import normalize, pil_to_tensor, to_pil_image
+from torchvision.utils import make_grid
 
 from dreambooth.params import Class, HyperParams
 from dreambooth.registry import CompiledModelsRegistry
@@ -243,6 +244,11 @@ class Evaluator:
                 }
             )
 
+    def _grid(self, images: list[Image.Image]) -> Image.Image:
+        tensors = torch.stack([pil_to_tensor(img) for img in images])
+        grid = make_grid(tensors, nrow=2)
+        return to_pil_image(grid)
+
     def _paths(self):
         paths = [
             self.params.image_output_path / "prompt",
@@ -302,6 +308,10 @@ class Evaluator:
                 continue
             path = str(restored_path / f"{slug}.png")
             cv2.imwrite(path, restored)
+
+        dprint("Saving grid...")
+        grid = self._grid(images)
+        grid.save(self.params.image_output_path / "grid.png")
 
         dprint("Waiting for upload...")
         self.wait_for_everyone()
