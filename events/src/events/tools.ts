@@ -18,6 +18,8 @@ type Events = GenEvents<{
 type Event = keyof Events;
 type Tools<E extends Event> = ReturnType<typeof createStepTools<Events, E>>[0];
 
+const redisClient = new Redis(process.env.REDIS_URL || "");
+
 const _run = async <E extends Event, T>(
   tools: Tools<E>,
   name: string,
@@ -28,7 +30,10 @@ const _run = async <E extends Event, T>(
     return result as PreserveNonNullable<T>;
   }) as T;
 
-const _log = async <E extends Event, T>(tools: Tools<E>, obj: T): void => {
+const _log = async <E extends Event, T>(
+  tools: Tools<E>,
+  obj: T
+): Promise<void> => {
   const h = hash(obj as any, { unorderedArrays: true });
   await _run<E, T>(tools, `log:${h}`, () => obj);
 };
@@ -66,7 +71,7 @@ const _send = async <S extends Event, D extends Event>(
   user: {} = {}
 ) => {
   const h = hash(body, { unorderedArrays: true });
-  await _run<S, any>(tools, `send ${dest}:${h}`, async () => {
+  await _run<S, any>(tools, `send ${String(dest)}:${h}`, async () => {
     await inngest.send<any>({ name: dest, data: body, user: user });
   });
 };
@@ -103,7 +108,7 @@ const getTools = <E extends Event>(
     log: partial(tools, _log),
     collect: partial(tools, _collect),
     send: partialRun(tools, partialRun(inngest, _send)),
-    redis: new Redis(process.env.REDIS_URL),
+    redis: redisClient,
   };
 };
 
@@ -122,7 +127,7 @@ const _defineFunction = <E extends Event>(
   >(
     { name, ...opts },
     trigger,
-    ({ event, step }: { event: Events[E]?; step: Tools<E> }) => {
+    ({ event, step }: { event: Events[E]; step: Tools<E> }) => {
       const { run, ...rest } = step;
       return fn({ event, tools: { ...getTools<E>(inngest, step), ...rest } });
     }

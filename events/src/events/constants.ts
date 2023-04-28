@@ -1,8 +1,8 @@
 export const SMS_COPY: {
-  [key: string]: (...args: any[]) => string;
+  [key: string]: (args: { [k: string]: string }) => string;
 } = {
   STARTED: () => "Hey from RootVC! Stay tuned for your AI avatars shortly.",
-  FINISHED: (id: string) =>
+  FINISHED: ({ id }) =>
     `Your AI avatars are ready! Check them out at https://dreambooth.root.vc/${id}`,
 };
 

@@ -81,9 +81,9 @@ class Evaluator:
                     self.params.model.resolution,
                     augment=False,
                     to_pil=True,
-                    normalize=True,
+                    normalize=False,
                 ),
-                TT.Grayscale(num_output_channels=3),
+                # TT.Grayscale(num_output_channels=3),
                 TT.GaussianBlur(5, sigma=2.0),
             ]
         )
@@ -246,7 +246,7 @@ class Evaluator:
 
     def _grid(self, images: list[Image.Image]) -> Image.Image:
         tensors = torch.stack([pil_to_tensor(img) for img in images])
-        grid = make_grid(tensors, nrow=2)
+        grid = make_grid(tensors, nrow=2, pad_value=255, padding=10)
         return to_pil_image(grid)
 
     def _paths(self):

@@ -14,7 +14,7 @@ export default defineFunction(
     },
   }) => {
     const copy = await run("get copy", () =>
-      SMS_COPY[key as keyof typeof SMS_COPY](...args)
+      SMS_COPY[key as keyof typeof SMS_COPY](args)
     );
     await run("send SMS", () => {
       twilio.messages.create({

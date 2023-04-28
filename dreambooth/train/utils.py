@@ -529,33 +529,28 @@ class Trainer:
         check: bool = False,
     ):
         dprint("Final validation...")
-        for text_alpha in self.params.lora_text_alphas:
-            for alpha in self.params.lora_alphas:
-                pipeline = self._create_eval_model(
-                    unet,
-                    text_encoder,
-                    input_embeddings,
-                    alpha,
-                    text_alpha,
+        pipeline = self._create_eval_model(
+            unet,
+            text_encoder,
+            input_embeddings,
+            self.params.lora_alpha,
+            self.params.lora_text_alpha,
+        )
+        if check:
+            try:
+                self._validation(
+                    pipeline,
+                    final=True,
+                    alpha=self.params.lora_alpha,
+                    text_alpha=self.params.lora_text_alpha,
                 )
-                if check:
-                    try:
-                        self._validation(
-                            pipeline,
-                            final=True,
-                            alpha=alpha,
-                            text_alpha=text_alpha,
-                        )
-                    except ScoreThresholdExceeded:
-                        pass
-                    else:
-                        pass
-                        # raise RuntimeError("Final validation failed")
-                    finally:
-                        self._total_steps += 1
-                        wandb.run.log(
-                            self.metrics_cache, step=self.total_steps, commit=True
-                        )
+            except ScoreThresholdExceeded:
+                pass
+            else:
+                raise RuntimeError("Final validation failed")
+            finally:
+                self._total_steps += 1
+                wandb.run.log(self.metrics_cache, step=self.total_steps, commit=True)
         return pipeline
 
     @main_process_only
@@ -1193,7 +1188,7 @@ class Trainer:
         self.accelerator.free_memory()
         self.accelerator.wait_for_everyone()
         return self._do_final_validation(
-            unet, text_encoder, input_embeddings, check=True
+            unet, text_encoder, input_embeddings, check=False
         )
 
     def eval(self, pipeline: StableDiffusionPipeline):

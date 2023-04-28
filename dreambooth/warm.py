@@ -15,3 +15,6 @@ def main():
     parser = launch_command_parser()
     args = parser.parse_args([str(Path(__file__).parent / "train" / "train.py")])
     launch_command(args)
+
+    del os.environ["DREAMBOOTH_ID"]
+    del os.environ["WARM"]

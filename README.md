@@ -1,20 +1,9 @@
 
-# 🍌 Banana Serverless
+# RootVC Dreambooth
 
-This repo gives a framework to serve ML models in production using simple HTTP servers.
+## Setup Instructions
 
-# Quickstart
-**[Follow the quickstart guide in Banana's documentation to use this repo](https://docs.banana.dev/banana-docs/quickstart).** 
-
-*(choose "GitHub Repository" deployment method)*
-
-<br>
-
-# Helpful Links
-Understand the 🍌 [Serverless framework](https://docs.banana.dev/banana-docs/core-concepts/inference-server/serverless-framework) and functionality of each file within it.
-
-Generalize this framework to [deploy anything on Banana](https://docs.banana.dev/banana-docs/resources/how-to-serve-anything-on-banana).
-
-<br>
-
-## Use Banana for scale.
+1. Clone the repo, and pip install everything in `requirements.txt`, `requirements-dev.txt`, and `environment.txt`.
+2. Set the printer device name (use `lpstat` to find) [here](https://github.com/rootvc/dreambooth/blob/null/print-server/print_server/api/index.py#L9).
+3. Start the print server by `cd`ing into `print-server` and running `python -m print_server`
+4. Set the Photobooth to POST photos to https://dreambooth.vercel.app/api/media

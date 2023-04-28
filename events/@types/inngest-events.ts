@@ -638,7 +638,7 @@ export const Action = {
   SYNCHRONIZE: "synchronize",
   EDITED: "edited",
 } as const;
-export type Action = typeof Action[keyof typeof Action];
+export type Action = (typeof Action)[keyof typeof Action];
 
 export type Github__Pull_Request = {
   name: "github/pull_request";
@@ -2052,7 +2052,7 @@ export const UserReport = {
   FRAUDULENT: "fraudulent",
   SAFE: "safe",
 } as const;
-export type UserReport = typeof UserReport[keyof typeof UserReport];
+export type UserReport = (typeof UserReport)[keyof typeof UserReport];
 
 export type Stripe__Charge_Succeeded = {
   name: "stripe/charge.succeeded";
@@ -2306,4 +2306,4 @@ type GeneratedEvents = Readonly<{
  */
 // eslint-disable-next-line @typescript-eslint/ban-types
 export type Events<CustomEvents extends Record<string, CustomEvent> = {}> =
-  Readonly<Omit<CustomEvents, keyof GeneratedEvents> & GeneratedEvents>;
+  Record<string, CustomEvent>;

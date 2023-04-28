@@ -12,24 +12,27 @@ export default defineFunction(
   async ({
     tools: { run, send, redis },
     event: {
-      data: { phone, blob },
+      data: { phone, key },
     },
   }) => {
     const id = await run("calculate ID", () => hash({ phone }));
+
     const seq = await run(
       "increment sequence",
       async () => await redis.incr(`dataset/${id}`)
     );
 
     await run("upload to S3", async () => {
+      const blob = (await redis.get(key))!;
       const s3 = new S3Client({ region: AWS_REGION });
       await s3.send(
         new PutObjectCommand({
           Bucket: BUCKET,
-          Body: blob,
+          Body: Buffer.from(blob, "base64"),
           Key: `dataset/${id}/${seq}.jpg`,
         })
       );
+      await redis.del(key);
     });
 
     if (seq !== EXPECTED_COUNT) {

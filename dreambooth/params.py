@@ -111,9 +111,9 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 3e-3
-    text_learning_rate: float = 3e-4
-    ti_learning_rate: float = 8.5e-3
+    learning_rate: float = 1e-3
+    text_learning_rate: float = 2e-3
+    ti_learning_rate: float = 5e-4
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
     epsilon: float = 1e-8
@@ -125,20 +125,18 @@ class HyperParams(BaseModel):
     train_epochs: int = 6
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
-    lr_cycles: int = 5
+    lr_cycles: int = 9
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
 
     # LoRA
     lora_rank: int = 16
-    lora_alpha = 0.1
-    lora_alphas: list[float] = [0.125]
+    lora_alpha = 0.095
     lora_dropout: float = 0.1
 
     # Text Encoder
     lora_text_rank: int = 80
-    lora_text_alpha: float = 1.5
-    lora_text_alphas: list[float] = [1.5]
+    lora_text_alpha: float = 1.0
     lora_text_dropout: float = 0.1
 
     # Validation
@@ -148,7 +146,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft"
+    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, eyes closed"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
     image_alignment_threshold: float = 0.82
@@ -159,10 +157,14 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"closeup portrait painting of a {token}, as a viking, ultra realistic, concept art, intricate details, powerful and fierce, highly detailed, octane render, 8 k, art by artgerm and greg rutkowski and charlie bowater and magali villeneuve and alphonse mucha, golden hour, horns and braids in hair, fur-lined cape and helmet, axe in hand",
-        f"closeup portrait of a {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
-        f"{token} photo, futuristic cyberpunk portrait cyborg deep look by edwin longben, craig mullins, j. c. leyendecker, artgerm, fantasy, cosmic horror, dramatic lighting 4 k 8 k 4 k",
+        f"a closeup portrait of {token} as a zombie, decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
+        f"a closeup portrait of {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
+        f"a closeup portrait of {token} as a cyberpunk, dark and gritty, highly detailed, retro-futuristic style, neon lighting, cyberpunk city in the background, art by wlop, greg rutkowski, and charlie bowater, 8 k resolution, ultra-realistic, octane render, unreal engine.",
+        f"a trippy psychedelic portrait of {token}, pastel colors, highly detailed, in the style of romanticism, cinematic, artstation, moebius, greg rutkowsk",
+        f"8k portrait of {token}, pop art style, incredibly detailed faces, wearing a colorful men's suit, 🎨🖌️, idol, ios",
         f"8k linkedin professional profile photo of {token} in a suit with studio lighting, bokeh, corporate portrait headshot photograph best corporate photography photo winner, meticulous detail, hyperrealistic, centered uncropped symmetrical beautiful",
+        f"closeup portrait of {token} as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
+        f"Closeup portrait of {token} as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
     ]
 
     upscale_model = "stabilityai/sd-x2-latent-upscaler"
@@ -170,9 +172,9 @@ class HyperParams(BaseModel):
     restore_faces: bool = False
     debug_outputs: bool = False
     fidelity_weight: float = 0.5
-    test_steps: int = 100
-    test_guidance_scale: float = 20.5
-    test_strength = 0.93
+    test_steps: int = 30
+    test_guidance_scale: float = 14.5
+    test_strength = 0.55
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
     image_output_path: Path = Path("output/images")

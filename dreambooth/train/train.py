@@ -172,14 +172,17 @@ def cache_path():
 def standalone_params(is_main: bool) -> Params:
     from cloudpathlib import CloudPath
 
-    base_dir = Path("/opt/ml")
-    train_data = base_dir / "train"
-    prior_data = base_dir / "prior"
-    output_data = base_dir / "output"
-    model_data = base_dir / "model"
-
     id = os.environ["DREAMBOOTH_ID"]
     bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
+
+    base_dir = Path("/opt/ml")
+    base_tmp_dir = Path("/tmp/ml") / id
+    base_tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    train_data = base_tmp_dir / "train"
+    output_data = base_tmp_dir / "output"
+    model_data = base_tmp_dir / "model"
+    prior_data = base_dir / "prior"
 
     params = get_params()
     params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
@@ -250,36 +253,37 @@ def standalone_cleanup():
     bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
 
     (bucket / "output" / id).upload_from(
-        Path("/opt/ml/output"), force_overwrite_to_cloud=True
+        Path("/tmp/ml") / id / "output", force_overwrite_to_cloud=True
     )
 
-    dprint("Persisting global cache...")
-    _persist_global_cache()
-    dprint("Copying cache back to S3...")
-    subprocess.run(
-        [
-            "rclone",
-            "copy",
-            "--progress",
-            "--checksum",
-            "--fast-list",
-            "--human-readable",
-            "--stats-one-line",
-            "--transfers=64",
-            "--disable-http2",
-            "--checkers=64",
-            "--s3-upload-concurrency=8",
-            "--s3-env-auth",
-            "--s3-region=us-west-2",
-            "--s3-use-accelerate-endpoint",
-            "--s3-no-check-bucket",
-            "--s3-no-head",
-            os.environ["CACHE_DIR"],
-            cache_path(),
-        ],
-        capture_output=True,
-        check=True,
-    )
+    if os.getenv("WARM", "0") == "1":
+        dprint("Persisting global cache...")
+        _persist_global_cache()
+        dprint("Copying cache back to S3...")
+        subprocess.run(
+            [
+                "rclone",
+                "copy",
+                "--progress",
+                "--checksum",
+                "--fast-list",
+                "--human-readable",
+                "--stats-one-line",
+                "--transfers=64",
+                "--disable-http2",
+                "--checkers=64",
+                "--s3-upload-concurrency=8",
+                "--s3-env-auth",
+                "--s3-region=us-west-2",
+                "--s3-use-accelerate-endpoint",
+                "--s3-no-check-bucket",
+                "--s3-no-head",
+                os.environ["CACHE_DIR"],
+                cache_path(),
+            ],
+            capture_output=True,
+            check=True,
+        )
 
 
 def main():
@@ -293,7 +297,8 @@ def main():
         env.is_main = is_main
         params = sagemaker_params(env)
         cleanup_fn = partial(sagemaker_cleanup, env)
-    elif os.getenv("DREAMBOOTH_ID") is not None:
+    elif (id := os.getenv("DREAMBOOTH_ID")) is not None:
+        dprint(f"Running standalone job {id}")
         params = standalone_params(is_main)
         cleanup_fn = standalone_cleanup
     else:

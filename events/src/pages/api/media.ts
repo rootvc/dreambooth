@@ -1,10 +1,23 @@
+import { randomUUID } from "crypto";
 import { Fields, File, Files, IncomingForm } from "formidable";
 import { readFile } from "fs";
 import { Inngest } from "inngest";
+import { Redis } from "ioredis";
 import { NextApiRequest, NextApiResponse } from "next";
 import pify from "pify";
 
-const inngest = new Inngest({ name: "rootvc-fn-media" });
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+const redisClient = new Redis(process.env.REDIS_URL || "");
+
+const inngest = new Inngest({
+  name: "rootvc-fn-media",
+  inngestBaseUrl: "http://localhost:3000/api/inngest",
+});
 
 const media = async (request: NextApiRequest, response: NextApiResponse) => {
   const form = new IncomingForm();
@@ -14,13 +27,21 @@ const media = async (request: NextApiRequest, response: NextApiResponse) => {
   const [fields, files] = await parse(request);
   const media = files.media as File;
 
+  const key = `media/${randomUUID()}`;
+  await redisClient.setex(
+    key,
+    60 * 5,
+    (await pify(readFile)(media.filepath)).toString("base64")
+  );
+
   inngest.send("dreambooth/booth.photos", {
     data: {
-      email: fields.email as string,
       phone: fields.phone as string,
-      blob: (await pify(readFile)(media.filepath)).toString("base64"),
+      key: key,
     },
   });
+
+  response.end("ok");
 };
 
 export default media;
