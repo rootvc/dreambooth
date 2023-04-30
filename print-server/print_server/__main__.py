@@ -19,8 +19,8 @@ def main():
         ).stdout.decode("utf-8")
     ]
 
-    if PRINTER_NAME[0] not in printers:
-        raise RuntimeError(f"Printer {PRINTER_NAME[0]} not found")
+    if PRINTER_NAME not in printers:
+        raise RuntimeError(f"Printer {PRINTER_NAME} not found")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         procs = []

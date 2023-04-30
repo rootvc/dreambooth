@@ -16,7 +16,7 @@ const redisClient = new Redis(process.env.REDIS_URL || "");
 
 const inngest = new Inngest({
   name: "rootvc-fn-media",
-  inngestBaseUrl: "https://print.root.vc/api/inngest",
+  inngestBaseUrl: "http://localhost:3000/api/inngest",
 });
 
 const media = async (request: NextApiRequest, response: NextApiResponse) => {
@@ -36,12 +36,12 @@ const media = async (request: NextApiRequest, response: NextApiResponse) => {
 
   inngest.send("dreambooth/booth.photos", {
     data: {
-      phone: fields.name as string,
+      phone: fields.phone as string,
       key: key,
     },
   });
 
-  response.end('{"status": true}');
+  response.end({ status: true });
 };
 
 export default media;

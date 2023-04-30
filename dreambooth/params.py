@@ -157,14 +157,11 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"a closeup portrait of {token} as a zombie, decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
+        f"a closeup portrait of {token}, as a zombie, decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
         f"a closeup portrait of {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
-        f"a closeup portrait of {token} as a cyberpunk, dark and gritty, highly detailed, retro-futuristic style, neon lighting, cyberpunk city in the background, art by wlop, greg rutkowski, and charlie bowater, 8 k resolution, ultra-realistic, octane render, unreal engine.",
-        f"a trippy psychedelic portrait of {token}, pastel colors, highly detailed, in the style of romanticism, cinematic, artstation, moebius, greg rutkowsk",
+        f"Closeup portrait of {token}, as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
         f"8k portrait of {token}, pop art style, incredibly detailed faces, wearing a colorful men's suit, 🎨🖌️, idol, ios",
-        f"8k linkedin professional profile photo of {token} in a suit with studio lighting, bokeh, corporate portrait headshot photograph best corporate photography photo winner, meticulous detail, hyperrealistic, centered uncropped symmetrical beautiful",
-        f"closeup portrait of {token} as a paladin, wearing brilliant white armor and a crown, fantasy concept art, artstation trending, highly detailed, beautiful landscape in the background, art by wlop, greg rutkowski, thierry doizon, charlie bowater, alphonse mucha, golden hour lighting, ultra realistic.",
-        f"Closeup portrait of {token} as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
+        f"closeup portrait of {token} as a superhero, dynamic lighting, intense colors, detailed costume, artstation trending, art by alphonse mucha, greg rutkowski, ross tran, leesha hannigan, ignacio fernandez rios, kai carpenter, noir photorealism, film",
     ]
 
     upscale_model = "stabilityai/sd-x2-latent-upscaler"
@@ -172,9 +169,9 @@ class HyperParams(BaseModel):
     restore_faces: bool = False
     debug_outputs: bool = False
     fidelity_weight: float = 0.5
-    test_steps: int = 30
-    test_guidance_scale: float = 14.5
-    test_strength = 0.55
+    test_steps: int = 120
+    test_guidance_scale: float = 16.5
+    test_strength = 0.70  # 0.70
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
     image_output_path: Path = Path("output/images")
