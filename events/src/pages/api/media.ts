@@ -16,7 +16,7 @@ const redisClient = new Redis(process.env.REDIS_URL || "");
 
 const inngest = new Inngest({
   name: "rootvc-fn-media",
-  inngestBaseUrl: "http://localhost:3000/api/inngest",
+  inngestBaseUrl: "https://print.root.vc/api/inngest",
 });
 
 const media = async (request: NextApiRequest, response: NextApiResponse) => {
