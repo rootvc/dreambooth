@@ -13,13 +13,14 @@ def main():
     from print_server.api.index import PRINTER_NAME
 
     printers = [
-        printer.split(" ")[1]
+        printer.split(" ")[0]
         for printer in subprocess.run(
-            ["lpstat", "-p"], capture_output=True
+            ["lpstat", "-a"], capture_output=True
         ).stdout.decode("utf-8")
     ]
-    if PRINTER_NAME not in printers:
-        raise RuntimeError(f"Printer {PRINTER_NAME} not found")
+
+    if PRINTER_NAME[0] not in printers:
+        raise RuntimeError(f"Printer {PRINTER_NAME[0]} not found")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         procs = []
