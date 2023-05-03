@@ -36,7 +36,7 @@ const media = async (request: NextApiRequest, response: NextApiResponse) => {
 
   inngest.send("dreambooth/booth.photos", {
     data: {
-      phone: fields.phone as string,
+      phone: fields.name as string,
       key: key,
     },
   });
