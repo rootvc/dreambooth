@@ -41,7 +41,7 @@ const media = async (request: NextApiRequest, response: NextApiResponse) => {
     },
   });
 
-  response.end("ok");
+  response.end('{"status": true}');
 };
 
 export default media;
