@@ -128,6 +128,7 @@ class HyperParams(BaseModel):
     lr_cycles: int = 9
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
+    snr_gamma: float = 5.0
 
     # LoRA
     lora_rank: int = 16
