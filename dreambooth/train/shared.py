@@ -106,7 +106,7 @@ def compile_model(
         return model
     elif model.__class__.__name__ in ignore and model.training:
         return model
-    if do:
+    if False and do:
         if is_main():
             dprint(f"Compiling {model.__class__.__name__} with {backend}...")
         model = torch.compile(model, backend=backend, **kwargs)
@@ -225,7 +225,7 @@ def depth_transforms(size: int, scale_factor: float):
     return TT.Compose(
         [
             TT.Resize(
-                size // scale_factor,
+                int(size // scale_factor),
                 interpolation=TT.InterpolationMode.BILINEAR,
             ),
             TT.ToTensor(),

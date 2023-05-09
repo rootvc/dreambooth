@@ -54,21 +54,14 @@ def _unpack_model(env: environment.Environment, name: str):
 
 
 def _unpack_eval_models(model_dir: Path):
-    import facexlib.utils.misc
-
     params = get_params()
     models = model_dir / params.eval_model_path
-    facexlib_path = Path(facexlib.utils.misc.ROOT_DIR) / "facexlib" / "weights"
 
     if not models.exists():
         raise ValueError(f"Model directory {models} does not exist!")
 
     if not Path("weights").is_symlink():
         os.symlink(models, "weights", target_is_directory=True)
-
-    if not facexlib_path.is_symlink():
-        shutil.rmtree(facexlib_path, ignore_errors=True)
-        os.symlink(models / "facexlib", facexlib_path, target_is_directory=True)
 
 
 def _setup_global_cache():
@@ -193,7 +186,8 @@ def standalone_params(is_main: bool) -> Params:
     params.image_output_path.mkdir(parents=True, exist_ok=True)
 
     if os.getenv("WARM", "0") == "1":
-        params.train_epochs = 2
+        params.ti_train_epochs = 2
+        params.lora_train_epochs = 2
         params.validate_after_steps = 0
         params.validate_every_epochs = None
         params.eval_prompts = params.eval_prompts[:1]
@@ -237,7 +231,6 @@ def standalone_params(is_main: bool) -> Params:
         if params.model.vae:
             params.model.vae = cache / params.model.vae
         params.test_model = cache / params.test_model
-        params.upscale_model = cache / params.upscale_model
 
         _unpack_eval_models(Path(hf_model_cache))
 

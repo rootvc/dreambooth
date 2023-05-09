@@ -119,12 +119,9 @@ const _defineFunction = <E extends Event>(
     event: Events[E];
     tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
   }) => any,
-  opts: Omit<FunctionOptions, "name"> = {}
+  opts: Omit<FunctionOptions<Events, E>, "name"> = {}
 ) => {
-  return inngest.createFunction<
-    { event: E } | { cron: string },
-    { name: typeof name } & typeof opts
-  >(
+  return inngest.createFunction<{}, { event: E } | { cron: string }>(
     { name, ...opts },
     trigger,
     ({ event, step }: { event: Events[E]; step: Tools<E> }) => {
@@ -140,7 +137,7 @@ export const defineFunction = <E extends Event>(
     event: Events[E];
     tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
   }) => any,
-  opts: Omit<FunctionOptions, "name"> = {}
+  opts: Omit<FunctionOptions<Events, E>, "name"> = {}
 ) => _defineFunction<E>(name, { event }, fn, opts);
 
 export const defineCronFunction = <E extends Event>(
@@ -150,5 +147,5 @@ export const defineCronFunction = <E extends Event>(
     event: Events[E];
     tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
   }) => any,
-  opts: Omit<FunctionOptions, "name"> = {}
+  opts: Omit<FunctionOptions<Events, E>, "name"> = {}
 ) => _defineFunction<E>(name, { cron }, fn, opts);

@@ -4,8 +4,8 @@ from typing import Type
 
 from diffusers import (
     AutoencoderKL,
-    StableDiffusionDepth2ImgPipeline,
-    StableDiffusionLatentUpscalePipeline,
+    ControlNetModel,
+    StableDiffusionControlNetPipeline,
 )
 from transformers import (
     CLIPModel,
@@ -13,6 +13,7 @@ from transformers import (
     CLIPTextModelWithProjection,
     CLIPTokenizer,
     CLIPVisionModelWithProjection,
+    DPTForDepthEstimation,
 )
 
 from dreambooth.params import HyperParams
@@ -46,10 +47,11 @@ def download_model():
     params = HyperParams()
     models = [
         download(
-            StableDiffusionDepth2ImgPipeline,
+            StableDiffusionControlNetPipeline,
             params.model.name,
             revision=params.model.revision,
             torch_dtype=params.dtype,
+            controlnet=download(ControlNetModel, "lllyasviel/control_v11p_sd15_canny"),
         )
     ]
     if params.model.vae:
@@ -59,5 +61,5 @@ def download_model():
 
 if __name__ == "__main__":
     download_model()
-    download_test_models(None, HyperParams().test_model)
-    download(StableDiffusionLatentUpscalePipeline, HyperParams().upscale_model)
+    # download_test_models(None, HyperParams().test_model)
+    download(DPTForDepthEstimation, "Intel/dpt-large")

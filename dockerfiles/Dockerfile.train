@@ -3,8 +3,9 @@ FROM rootventures/pytorch:latest AS build-base
 
 WORKDIR /
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-  apt-get update && \
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && \
   apt-get install -y build-essential cmake pkg-config wget unzip && \
   apt-get install -y libjpeg-dev libtiff-dev libpng-dev libswscale-dev && \
   apt-get install -y libatlas-base-dev gfortran && \
@@ -100,13 +101,6 @@ ADD requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre -r requirements.txt
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --no-dependencies lpips
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-  BASICSR_EXT=True pip install --no-deps basicsr && \
-  pip install --no-deps facexlib realesrgan
-
 # RUN git clone https://github.com/hpcaitech/ColossalAI.git && \
 #   cd ColossalAI && \
 #   CUDA_EXT=1 pip install .
@@ -121,6 +115,7 @@ ENV ACCELERATE_MIXED_PRECISION fp16
 ENV PATH "/opt/conda/bin:${PATH}"
 ENV LD_LIBRARY_PATH="/opt/conda/lib:${LD_LIBRARY_PATH}"
 ENV CUDA_HOME /opt/conda
+ENV TF_CUDA_PATHS /opt/conda
 ENV FORCE_CUDA 1
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -132,7 +127,7 @@ WORKDIR /
 RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
 
 # Triton needs build-essential for JIT
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+RUN \
   apt-get update && \
   apt-get install -y pixz pigz build-essential && \
   rm -rf /var/lib/apt/lists/*

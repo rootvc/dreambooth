@@ -16,7 +16,7 @@ const redisClient = new Redis(process.env.REDIS_URL || "");
 
 const inngest = new Inngest({
   name: "rootvc-fn-media",
-  inngestBaseUrl: "http://localhost:3000/api/inngest",
+  inngestBaseUrl: process.env.INNGEST_BASE_URL,
 });
 
 const media = async (request: NextApiRequest, response: NextApiResponse) => {
@@ -34,14 +34,14 @@ const media = async (request: NextApiRequest, response: NextApiResponse) => {
     (await pify(readFile)(media.filepath)).toString("base64")
   );
 
-  inngest.send("dreambooth/booth.photos", {
+  await inngest.send("dreambooth/booth.photos", {
     data: {
-      phone: fields.phone as string,
+      phone: fields.name as string,
       key: key,
     },
   });
 
-  response.end({ status: true });
+  response.status(200).json({ status: true });
 };
 
 export default media;

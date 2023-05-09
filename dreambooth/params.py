@@ -91,7 +91,7 @@ class Class(BaseModel):
 
 
 class Model(BaseModel):
-    name: Union[str, Path] = "stabilityai/stable-diffusion-2-depth"
+    name: Union[str, Path] = "runwayml/stable-diffusion-v1-5"
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-mse"
     resolution: int = 512
     revision: Optional[str] = "fp16"
@@ -111,34 +111,36 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-3
-    text_learning_rate: float = 2e-3
-    ti_learning_rate: float = 5e-4
-    betas: tuple[float, float] = (0.9, 0.99)
+    learning_rate: float = 2e-3
+    text_learning_rate: float = 6e-4
+    ti_learning_rate: float = 1e-3
+    ti_continued_learning_rate: float = 8e-4
+    betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
 
     # Training
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    train_epochs: int = 6
+    ti_train_epochs: int = 4
+    lora_train_epochs: int = 2
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
-    lr_cycles: int = 9
+    lr_cycles: int = 5
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
-    input_perterbation: float = 0.01
+    input_perterbation: float = 0.001
 
     # LoRA
-    lora_rank: int = 16
-    lora_alpha = 0.095
-    lora_dropout: float = 0.1
+    lora_rank: int = 24
+    lora_alpha = 7.5
+    lora_dropout: float = 0.01
 
     # Text Encoder
-    lora_text_rank: int = 80
-    lora_text_alpha: float = 1.0
-    lora_text_dropout: float = 0.1
+    lora_text_rank: int = 24
+    lora_text_alpha: float = 3.0
+    lora_text_dropout: float = 0.01
 
     # Validation
     validate_after_steps: int = 2500
@@ -158,21 +160,31 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
+        f"{token}",
+        f"a closeup portrait of {token}",
+        f"{token} as a zombie with decaying skin and clothing",
+        "a zombie with decaying skin and clothing",
+        "dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve",
+        f"{token} as a zombie with decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
         f"a closeup portrait of {token}, as a zombie, decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
         f"a closeup portrait of {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
         f"Closeup portrait of {token}, as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
         f"8k portrait of {token}, pop art style, incredibly detailed faces, wearing a colorful men's suit, 🎨🖌️, idol, ios",
-        f"closeup portrait of {token} as a superhero, dynamic lighting, intense colors, detailed costume, artstation trending, art by alphonse mucha, greg rutkowski, ross tran, leesha hannigan, ignacio fernandez rios, kai carpenter, noir photorealism, film",
+        f"a closeup portrait of {token}, as a Naruto character, anime, manga, concept art, realistic, highly detailed, cartoonish",
+        f"a painted portrait of {token}, in the style of van gogh, post-impressionist, abstract, accurate details, oil painting",
+        f"a oil painting of {token}, italian renaissance art",
+        f"a closeup portrait of {token}, as a Disney character, cartoonish, highly detailed, photorealistic, digital painting, concept art.",
+        f"a closeup portrait of {token}, cloudy sky background lush landscape illustration concept art anime key visual trending pixiv fanbox by wlop and greg rutkowski and makoto shinkai and studio ghibli",
+        f"a closeup portrait of {token}, listening to music in cycle in the street of rural Japaneses city, wide angle, anime, sunset, relaxed, pink and purple cloud, starts, soft light",
+        f"a closeup portrait of {token}, old worker in 19th century, beautiful painting with highly detailed face by greg rutkowski and magali villanueve",
+        f"complex 3d render ultra detailed of a profile {token} android face, cyborg, robotic parts, 150 mm, beautiful studio soft light, rim light, vibrant details, luxurious cyberpunk, lace, hyperrealistic, anatomical, facial muscles, cable electric wires, microchip, elegant, beautiful background, octane render, H. R. Giger style, 8k",
     ]
 
-    upscale_model = "stabilityai/sd-x2-latent-upscaler"
-    upscale_factor: int = 1
-    restore_faces: bool = False
-    debug_outputs: bool = False
-    fidelity_weight: float = 0.5
-    test_steps: int = 120
-    test_guidance_scale: float = 16.5
-    test_strength = 0.70  # 0.70
+    debug_outputs: bool = True
+    test_steps: int = 20
+    test_guidance_scale: float = 20.0
+    test_strength = 1.0  # 0.70
+    mask_padding = 0.15
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
     image_output_path: Path = Path("output/images")

@@ -23,7 +23,7 @@ RUN mkdir -p $HF_MODEL_CACHE/CodeFormer && python3 -m dreambooth.train.download_
 
 FROM rootventures/train-dreambooth:latest AS rclone
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+RUN \
   apt-get update && \
   apt-get install -y wget unzip && \
   rm -rf /var/lib/apt/lists/*
@@ -39,10 +39,10 @@ FROM rootventures/train-dreambooth-sagemaker:latest
 WORKDIR /dreambooth
 ENV PYTHONUNBUFFERED 1
 ENV RUNPOD_DEBUG_LEVEL WARN
-ENV TOKENIZERS_PARALLELISM false
+ENV TOKENIZERS_PARALLELISM true
 ENV HF_MODEL_CACHE /root/.cache/huggingface/models
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+RUN \
   apt-get update && \
   apt-get install -y git && \
   rm -rf /var/lib/apt/lists/*

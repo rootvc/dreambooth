@@ -87,24 +87,24 @@ class CachedLatentsDataset(Dataset):
             memory_format=torch.contiguous_format,
         )
 
-        depth_images = list(
-            itertools.chain(
-                map(itemgetter("instance_depth_image"), batch),
-                map(itemgetter("prior_depth_image"), batch),
-            )
-        )
-        depth_images = (
-            torch.stack(depth_images)
-            .float()
-            .to(
-                self.accelerator.device,
-                memory_format=torch.contiguous_format,
-            )
-        )
+        # depth_images = list(
+        #     itertools.chain(
+        #         map(itemgetter("instance_depth_image"), batch),
+        #         map(itemgetter("prior_depth_image"), batch),
+        #     )
+        # )
+        # depth_images = (
+        #     torch.stack(depth_images)
+        #     .float()
+        #     .to(
+        #         self.accelerator.device,
+        #         memory_format=torch.contiguous_format,
+        #     )
+        # )
 
         latents = self.vae.encode(images).latent_dist.sample()
         latents = latents * self.vae.config.scaling_factor
-        latents = latents.squeeze(0).float()
+        latents = latents.squeeze(0).to(self.accelerator.device).float()
 
         input_ids = list(
             itertools.chain(
@@ -119,7 +119,7 @@ class CachedLatentsDataset(Dataset):
         return {
             "input_ids": input_ids,
             "latents": latents,
-            "depth_values": depth_images,
+            # "depth_values": depth_images,
         }
 
     def __len__(self):
@@ -199,12 +199,12 @@ class DreamBoothDataset(Dataset):
         do_augment, index = divmod(index, len(self.instance_images))
         image = self.image_transforms(do_augment)(self.open_image(path))
 
-        depth_path = self.depth_image_path(path)
-        depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
+        # depth_path = self.depth_image_path(path)
+        # depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
 
         return {
             "instance_image": image,
-            "instance_depth_image": depth_image,
+            # "instance_depth_image": depth_image,
             "instance_prompt_ids": self.tokenizer(
                 self.instance.prompt,
                 truncation=True,
@@ -218,12 +218,12 @@ class DreamBoothDataset(Dataset):
         path = self.prior_images[index % len(self.prior_images)]
         image = self.image_transforms(False)(self.open_image(path))
 
-        depth_path = self.depth_image_path(path)
-        depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
+        # depth_path = self.depth_image_path(path)
+        # depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
 
         return {
             "prior_image": image,
-            "prior_depth_image": depth_image,
+            # "prior_depth_image": depth_image,
             "prior_prompt_ids": self.tokenizer(
                 self.prior.prompt,
                 truncation=True,

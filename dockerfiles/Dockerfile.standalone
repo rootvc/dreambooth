@@ -7,12 +7,12 @@ ENV SM_CHANNEL_TRAIN /opt/ml/input/data/train
 ENV SM_CHANNEL_PRIOR /opt/ml/input/data/prior
 ENV SM_CHANNEL_OUTPUT /opt/ml/input/data/output
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+RUN \
   apt-get update && \
   apt-get install -y wget openssh-server openssh-client && \
   rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+RUN \
   mkdir -p /etc/apt/keyrings && \
   wget -qO - https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /etc/apt/keyrings/charm.gpg && \
   echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | tee /etc/apt/sources.list.d/charm.list && \

@@ -10,15 +10,8 @@ from dreambooth.params import HyperParams
 BUCKET = "s3://rootvc-photobooth"
 
 URLS = {
-    "realesrgan": [
-        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth"
-    ],
-    "CodeFormer": [
-        "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth"
-    ],
-    "facexlib": [
-        "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth",
-        "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth",
+    "mediapipe": [
+        "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
     ],
 }
 

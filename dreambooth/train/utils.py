@@ -13,6 +13,7 @@ from queue import Empty
 from threading import Event
 from typing import Any, Callable, Optional, Type, TypeVar, cast
 
+import numpy as np
 import peft.tuners.adalora
 import peft.utils
 import torch
@@ -33,9 +34,10 @@ from accelerate.logging import get_logger
 from accelerate.utils import InitProcessGroupKwargs
 from diffusers import (
     AutoencoderKL,
+    ControlNetModel,
     DDPMScheduler,
     DPMSolverMultistepScheduler,
-    StableDiffusionDepth2ImgPipeline,
+    StableDiffusionControlNetPipeline,
     StableDiffusionPipeline,
     UNet2DConditionModel,
     UniPCMultistepScheduler,
@@ -45,8 +47,7 @@ from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import AttnProcessor2_0, LoRAAttnProcessor
 from diffusers.training_utils import EMAModel
 from peft import (
-    AdaLoraConfig,
-    PeftType,
+    LoraConfig,
     get_peft_model,
     get_peft_model_state_dict,
     set_peft_model_state_dict,
@@ -54,14 +55,13 @@ from peft import (
 from PIL import Image
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import (
     AutoTokenizer,
     CLIPTextModel,
     CLIPTokenizer,
-    DPTForDepthEstimation,
 )
+from transformers import pipeline as transformers_pipeline
 
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.registry import CompiledModelsRegistry
@@ -269,21 +269,24 @@ class Trainer:
         vae: Optional[AutoencoderKL] = None,
         tokenizer: Optional[CLIPTokenizer] = None,
         **kwargs,
-    ) -> StableDiffusionDepth2ImgPipeline:
+    ) -> StableDiffusionControlNetPipeline:
         with patch_allowed_pipeline_classes():
-            pipe = self._spawn(
-                StableDiffusionDepth2ImgPipeline,
+            pipe: StableDiffusionControlNetPipeline = self._spawn(
+                StableDiffusionControlNetPipeline,
                 safety_checker=None,
-                low_cpu_mem_usage=True,
                 vae=vae or self._vae(compile=True).eval(),
                 unet=(unet or self._unet(mode=Mode.TI, compile=True)).eval(),
                 text_encoder=(
                     (text_encoder or self._text_encoder(compile=True)).eval()
                 ),
                 tokenizer=tokenizer or self._tokenizer(),
-                depth_estimator=self._spawn(
-                    DPTForDepthEstimation, subfolder="depth_estimator"
-                ),
+                controlnet=CompiledModelsRegistry.get(
+                    ControlNetModel,
+                    "lllyasviel/control_v11p_sd15_canny",
+                    compile=True,
+                    # local_files_only=True,
+                    torch_dtype=torch.float16,
+                ).to(self.accelerator.device),
                 **kwargs,
             )
         if "device_map" not in kwargs:
@@ -333,15 +336,14 @@ class Trainer:
     def _tokenizer(self) -> CLIPTokenizer:
         return self._spawn(AutoTokenizer, subfolder="tokenizer", use_fast=False)
 
-    def _unet_config(self) -> AdaLoraConfig:
-        return AdaLoraConfig(
-            target_r=self.params.lora_rank,
-            init_r=int(self.params.lora_rank * 1.5),
-            tinit=self.params.lr_warmup_steps,
-            lora_alpha=1,
+    def _unet_config(self) -> LoraConfig:
+        return LoraConfig(
+            r=self.params.lora_rank,
+            # init_r=int(self.params.lora_rank * 1.5),
+            # tinit=self.params.lr_warmup_steps,
+            lora_alpha=self.params.lora_alpha,
             target_modules=self.UNET_TARGET_MODULES,
             lora_dropout=self.params.lora_dropout,
-            peft_type=PeftType.ADALORA,
         )
 
     def _unet(
@@ -449,29 +451,23 @@ class Trainer:
     def generate_depth_values(self, path: Path) -> float:
         dprint("Generating depth values...")
 
-        pipeline: StableDiffusionDepth2ImgPipeline = self._pipeline(
-            unet=self._unet(compile=True),
-            text_encoder=self._text_encoder(compile=True),
+        depth_estimator = transformers_pipeline(
+            "depth-estimation",
             torch_dtype=self.params.dtype,
-        ).to(self.accelerator.device)
+        )
 
         for img_path in (progress := tqdm(images(path))):
             depth_path = DreamBoothDataset.depth_image_path(img_path)
-            if depth_path.exists():
-                continue
+            # if depth_path.exists():
+            #     continue
             progress.set_description(f"Processing {img_path.name}")
             image = DreamBoothDataset.open_image(img_path)
-            pixel_values = pipeline.feature_extractor(
-                image, return_tensors="pt"
-            ).pixel_values.to(self.accelerator.device)
-            depth_map = pipeline.depth_estimator(pixel_values).predicted_depth
-            depth_min = torch.amin(depth_map, dim=[0, 1, 2], keepdim=True)
-            depth_max = torch.amax(depth_map, dim=[0, 1, 2], keepdim=True)
-            depth_map = 2.0 * (depth_map - depth_min) / (depth_max - depth_min) - 1.0
-            depth_map = depth_map[0, :, :]
-            depth_map_image = transforms.ToPILImage()(depth_map)
-            depth_map_image.save(depth_path)
-        return 2 ** (len(pipeline.vae.config.block_out_channels) - 1)
+            depth = depth_estimator(image)["depth"]
+            depth = np.array(depth)
+            depth = depth[:, :, None]
+            depth = np.concatenate([depth, depth, depth], axis=2)
+            depth_image = Image.fromarray(depth)
+            depth_image.save(depth_path)
 
     @main_process_only
     @torch.no_grad()
@@ -606,7 +602,7 @@ class Trainer:
             UNet2DConditionModel,
             (
                 get_peft_model(
-                    self.accelerator.unwrap_model(unet), AdaLoraConfig(**unet_config)
+                    self.accelerator.unwrap_model(unet), LoraConfig(**unet_config)
                 )
                 .to(unet_0.device, non_blocking=True)
                 .requires_grad_(False)
@@ -639,7 +635,7 @@ class Trainer:
             (
                 get_peft_model(
                     self.accelerator.unwrap_model(text_encoder),
-                    AdaLoraConfig(**text_config),
+                    LoraConfig(**text_config),
                 )
                 .to(text_encoder_0.device, non_blocking=True)
                 .requires_grad_(False)
@@ -653,11 +649,11 @@ class Trainer:
         )
 
         pipeline = self._pipeline(
-            unet=unet.to(dtype=self.params.dtype),
-            text_encoder=text_encoder.to(dtype=self.params.dtype),
+            unet=unet.to(dtype=torch.float16),
+            text_encoder=text_encoder.to(dtype=torch.float16),
             tokenizer=tokenizer,
-            vae=vae.to(dtype=self.params.dtype),
-            torch_dtype=self.params.dtype,
+            vae=vae.to(dtype=torch.float16),
+            torch_dtype=torch.float16,
         )
         pipeline.scheduler = UniPCMultistepScheduler.from_config(
             pipeline.scheduler.config
@@ -682,7 +678,7 @@ class Trainer:
             unet = cast(
                 UNet2DConditionModel,
                 (
-                    get_peft_model(unet, AdaLoraConfig(**config["unet_peft"]))
+                    get_peft_model(unet, LoraConfig(**config["unet_peft"]))
                     .to(unet.device, non_blocking=True)
                     .requires_grad_(False)
                     .eval()
@@ -700,7 +696,7 @@ class Trainer:
         embedding[self.token_id(tokenizer)] = token_embedding
 
         text_encoder = get_peft_model(
-            text_encoder, AdaLoraConfig(**config["text_peft"])
+            text_encoder, LoraConfig(**config["text_peft"])
         ).to(self.accelerator.device, non_blocking=True)
         set_peft_model_state_dict(
             text_encoder,
@@ -724,7 +720,7 @@ class Trainer:
 
         return pipeline
 
-    @torch.compile()
+    # @torch.compile()
     @torch.no_grad()
     def _compute_snr(self, models, timesteps):
         """
@@ -766,7 +762,7 @@ class Trainer:
 
         for batch in loader:
             # Convert images to latent space
-            latents, depth_values = batch["latents"], batch["depth_values"]
+            latents = batch["latents"]
 
             # Sample noise that we'll add to the latents
             noise = torch.randn_like(latents)
@@ -788,7 +784,7 @@ class Trainer:
                 noise + self.params.input_perterbation * torch.randn_like(latents),
                 timesteps,
             )
-            noisy_latents = torch.cat([noisy_latents, depth_values], dim=1)
+            # noisy_latents = torch.cat([noisy_latents, depth_values], dim=1)
 
             # Get the text embedding for conditioning
             encoder_hidden_states = models["text_encoder"](
@@ -853,7 +849,8 @@ class Trainer:
 
             self.accelerator.backward(loss)
 
-            self._do_textual_inversion(models, mode)
+            if mode == Mode.TI:
+                self._do_textual_inversion(models)
 
             if self.accelerator.sync_gradients:
                 params_to_clip = itertools.chain(
@@ -884,8 +881,9 @@ class Trainer:
             if mode == Mode.TI:
                 metrics["ti_lr"] = models["lr_scheduler"].get_last_lr()[0]
             elif mode == Mode.LORA:
-                metrics["text_lr"] = models["lr_scheduler"].get_last_lr()[0]
-                metrics["unet_lr"] = models["lr_scheduler"].get_last_lr()[1]
+                metrics["ti_lr"] = models["lr_scheduler"].get_last_lr()[0]
+                metrics["text_lr"] = models["lr_scheduler"].get_last_lr()[1]
+                metrics["unet_lr"] = models["lr_scheduler"].get_last_lr()[2]
 
             self.accelerator.log(metrics)
             self.metrics_cache = {}
@@ -894,14 +892,11 @@ class Trainer:
                 break
 
     @torch.no_grad()
-    def _do_textual_inversion(self, models: dict, mode: Mode):
+    def _do_textual_inversion(self, models: dict):
         grad = models["text_encoder"].get_input_embeddings().weight.grad
         ids = torch.arange(len(models["tokenizer"]))
         tk_id = self.token_id(models["tokenizer"])
-        if mode == Mode.TI:
-            idx = ids != tk_id
-        else:
-            idx = ids == tk_id
+        idx = ids != tk_id
         grad.data[idx, :] = grad.data[idx, :].fill_(0)
 
     def exceeded_max_steps(self):
@@ -981,11 +976,11 @@ class Trainer:
         wandb.save(str(self.params.model_output_path / "*"), policy="end")
 
     def _text_config(self):
-        return AdaLoraConfig(
-            target_r=self.params.lora_text_rank,
-            init_r=int(self.params.lora_text_rank * 1.5),
-            lora_alpha=1,
-            tinit=self.params.lr_warmup_steps,
+        return LoraConfig(
+            r=self.params.lora_text_rank,
+            # init_r=int(self.params.lora_text_rank * 1.5),
+            lora_alpha=self.params.lora_text_alpha,
+            # tinit=self.params.lr_warmup_steps,
             target_modules=self.TEXT_ENCODER_TARGET_MODULES,
             lora_dropout=self.params.lora_text_dropout,
         )
@@ -1046,27 +1041,49 @@ class Trainer:
         tokenizer.add_tokens(self.params.token)
 
         vae = self._vae(compile=True, reset=True, torch_dtype=self.params.dtype)
-        vae_scale_factor = self.generate_depth_values(self.instance_class.data)
+        # self.generate_depth_values(self.instance_class.data)
         dataset = DreamBoothDataset(
             instance=self.instance_class,
             prior=self.params.prior_class or self.generate_priors(),
             tokenizer=tokenizer,
             size=self.params.model.resolution,
-            vae_scale_factor=vae_scale_factor,
+            vae_scale_factor=self._vae().config.scaling_factor,
         )
-        self.generate_depth_values(dataset.prior.data)
+        # self.generate_depth_values(dataset.prior.data)
         dprint("Caching latents...")
         dataset = CachedLatentsDataset(self.accelerator, dataset, self.params, vae)
         warmed = dataset.warm()
 
         return {"dataset": warmed, "tokenizer": tokenizer}
 
-    def _prepare_models(self, models: dict, mode: Mode):
+    def _load_models(self, models: dict, mode: Mode):
         with self.accelerator.init():
             tokenizer, text_encoder = self._init_text(
-                compile=mode != Mode.LORA, mode=mode, reset=True
+                compile=mode != Mode.LORA,
+                mode=mode,
+                reset=True,
+                torch_dtype=torch.float,
             )
-            unet = self._unet(compile=mode != Mode.LORA, mode=mode, reset=True)
+            unet = self._unet(
+                compile=mode != Mode.LORA,
+                mode=mode,
+                reset=True,
+                torch_dtype=torch.float,
+            )
+
+        return {
+            **models,
+            "tokenizer": tokenizer,
+            "text_encoder": text_encoder,
+            "unet": unet,
+        }
+
+    def _prepare_models(self, models: dict, mode: Mode):
+        tokenizer, unet, text_encoder = (
+            models["tokenizer"],
+            models["unet"],
+            models["text_encoder"],
+        )
 
         loader = DataLoader(
             models["dataset"],
@@ -1077,7 +1094,9 @@ class Trainer:
         )
 
         ti_params = [
-            p.requires_grad_(True or mode == Mode.TI)
+            p.requires_grad_(
+                mode == Mode.TI or self.params.ti_continued_learning_rate > 0.0
+            )
             for p in text_encoder.get_input_embeddings().parameters()
         ]
         text_params = list(set(text_encoder.parameters()) - set(ti_params))
@@ -1087,11 +1106,14 @@ class Trainer:
             params = [
                 {"lr": self.params.ti_learning_rate, "params": ti_params},
             ]
+            epochs = self.params.ti_train_epochs
         elif mode == Mode.LORA:
             params = [
+                {"lr": self.params.ti_continued_learning_rate, "params": ti_params},
                 {"lr": self.params.text_learning_rate, "params": text_params},
                 {"lr": self.params.learning_rate, "params": unet_params},
             ]
+            epochs = self.params.lora_train_epochs
         else:
             raise ValueError(f"Unknown mode {mode}")
 
@@ -1100,7 +1122,7 @@ class Trainer:
             * self.params.batch_size
             / self.params.gradient_accumulation_steps
         )
-        max_train_steps = self.params.train_epochs * steps_per_epoch
+        max_train_steps = epochs * steps_per_epoch
 
         if mode == Mode.LORA:
             unet.base_model.peft_config["default"].total_step = max_train_steps
@@ -1131,8 +1153,6 @@ class Trainer:
         )
 
         vae = self._vae(compile=True)
-        if mode == Mode.LORA:
-            vae = vae.to(dtype=self.params.dtype)
 
         return {
             "epochs": epochs,
@@ -1173,8 +1193,9 @@ class Trainer:
             if mode == Mode.TI:
                 pg[0]["lr"] = blr[0] = self.params.ti_learning_rate
             elif mode == Mode.LORA:
-                pg[0]["lr"] = blr[0] = self.params.text_learning_rate
-                pg[1]["lr"] = blr[1] = self.params.learning_rate
+                pg[0]["lr"] = blr[0] = self.params.ti_continued_learning_rate
+                pg[1]["lr"] = blr[1] = self.params.text_learning_rate
+                pg[2]["lr"] = blr[2] = self.params.learning_rate
 
             self._do_epoch(mode, unet, loader, optimizer, models)
             if self.exceeded_max_steps():
@@ -1196,13 +1217,33 @@ class Trainer:
         unet = CompiledModelsRegistry.unwrap(unet)
         text_encoder = CompiledModelsRegistry.unwrap(text_encoder)
 
-        models["unet_ema"].copy_to(unet.parameters())
-        models["text_encoder_ema"].copy_to(text_encoder.parameters())
+        # models["unet_ema"].copy_to(unet.parameters())
+        # models["text_encoder_ema"].copy_to(text_encoder.parameters())
 
         return unet, text_encoder
 
+    def _train_sequentially(self):
+        dataset = self._prepare_dataset()
+
+        models = self._prepare_models(self._load_models(dataset, Mode.TI), Mode.TI)
+        _, text_encoder = self._train(models, Mode.TI)
+        input_embeddings = text_encoder.get_input_embeddings().weight.data
+
+        models = self._load_models(dataset, Mode.LORA)
+        token_id = self.token_id(models["tokenizer"])
+        models["text_encoder"].get_input_embeddings().weight.data[
+            token_id
+        ] = input_embeddings[token_id]
+
+        models = self._prepare_models(models, Mode.LORA)
+
+        unet, text_encoder = self._train(models, Mode.LORA)
+        input_embeddings = text_encoder.eval().get_input_embeddings().weight.data
+
+        return (unet, text_encoder, input_embeddings)
+
     def _init_and_train(self, dataset: dict, mode: Mode):
-        models = self._prepare_models(dataset, mode)
+        models = self._prepare_models(self._load_models(dataset, mode), mode)
         dprint(
             f"Training for {models['epochs']} epochs. Max steps: {models['max_train_steps']}."
         )
@@ -1244,7 +1285,8 @@ class Trainer:
     def train(self):
         self.accelerator.free_memory()
         self._prepare_to_train()
-        unet, text_encoder, input_embeddings = self._train_and_combine()
+        # unet, text_encoder, input_embeddings = self._train_and_combine()
+        unet, text_encoder, input_embeddings = self._train_sequentially()
         self.accelerator.free_memory()
         self.accelerator.wait_for_everyone()
         return self._do_final_validation(
@@ -1280,7 +1322,8 @@ def get_params() -> HyperParams:
 
     match torch.cuda.device_count():
         case int(n) if n > 1:
-            params.train_epochs //= n
+            params.ti_train_epochs //= n
+            params.lora_train_epochs //= n
 
     match torch.cuda.get_device_capability():
         case (8, _):
@@ -1298,7 +1341,7 @@ def get_params() -> HyperParams:
 
     match os.getenv("ACCELERATE_MIXED_PRECISION"):
         case "bf16":
-            params.dtype = torch.bfloat16
+            params.dtype = torch.float
             params.model.revision = None
         case "fp16":
             params.dtype = torch.float16

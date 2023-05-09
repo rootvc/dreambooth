@@ -1,13 +1,15 @@
 # syntax = docker/dockerfile:experimental
 
-FROM ghcr.io/pytorch/pytorch-nightly:2.1.0.dev20230508-devel AS nightly
+FROM ghcr.io/pytorch/pytorch-nightly:2.1.0.dev20230515-devel AS nightly
 
 ENV TORCH_CUDA_ARCH_LIST "7.0;7.2;7.5;8.0;8.6;8.7"
+ENV TF_CUDA_PATHS /usr/local/cuda
 ENV CUDA_HOME /usr/local/cuda
 ENV FORCE_CUDA 1
 ENV CCACHE_DIR /opt/ccache
+ENV DEBIAN_FRONTEND noninteractive
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+RUN \
   apt-get update && \
   apt-get install -y curl git build-essential ccache && \
   rm -rf /var/lib/apt/lists/*

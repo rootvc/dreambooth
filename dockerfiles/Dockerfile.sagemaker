@@ -9,7 +9,7 @@ ENV PYTORCH_KERNEL_CACHE_PATH $CACHE_DIR/torch
 
 RUN mkdir -p $CACHE_DIR
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+RUN \
   apt-get update && \
   apt-get install -y rsync && \
   rm -rf /var/lib/apt/lists/*
