@@ -784,7 +784,9 @@ class Trainer:
             # Add noise to the latents according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_latents = models["noise_scheduler"].add_noise(
-                latents, noise, timesteps
+                latents,
+                noise + self.params.input_perterbation * torch.randn_like(latents),
+                timesteps,
             )
             noisy_latents = torch.cat([noisy_latents, depth_values], dim=1)
 
