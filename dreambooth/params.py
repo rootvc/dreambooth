@@ -129,7 +129,7 @@ class HyperParams(BaseModel):
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
-    input_perterbation: float = 0.05
+    input_perterbation: float = 0.01
 
     # LoRA
     lora_rank: int = 16

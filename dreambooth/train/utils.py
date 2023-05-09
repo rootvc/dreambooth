@@ -397,7 +397,10 @@ class Trainer:
                 unet.set_attn_processor(AttnProcessor2_0())
                 lora_config = self._unet_config()
                 unet = CompiledModelsRegistry.wrap(
-                    get_peft_model(CompiledModelsRegistry.unwrap(unet), lora_config)
+                    get_peft_model(
+                        CompiledModelsRegistry.unwrap(unet).to(dtype=self.params.dtype),
+                        lora_config,
+                    )
                 )
 
                 if "device_map" not in kwargs:
@@ -1020,7 +1023,7 @@ class Trainer:
             lora_text_config = self._text_config()
             text_encoder = CompiledModelsRegistry.wrap(
                 get_peft_model(
-                    CompiledModelsRegistry.unwrap(text_encoder),
+                    CompiledModelsRegistry.unwrap(text_encoder).to(dtype=self.params.dtype),
                     lora_text_config,
                 )
             )
@@ -1129,6 +1132,10 @@ class Trainer:
             num_cycles=self.params.lr_cycles,
         )
 
+        vae = self._vae(compile=True)
+        if mode == Mode.LORA:
+            vae = vae.to(dtype=self.params.dtype)
+
         return {
             "epochs": epochs,
             "max_train_steps": max_train_steps,
@@ -1137,7 +1144,7 @@ class Trainer:
             "loader": loader,
             "tokenizer": tokenizer,
             "optimizer": optimizer,
-            "vae": self._vae(compile=True),
+            "vae": vae,
             "lr_scheduler": lr_scheduler,
             "noise_scheduler": self._noise_scheduler(),
             "unet_params": unet_params,
