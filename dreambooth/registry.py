@@ -24,6 +24,9 @@ class CompiledModelsRegistryMeta(type):
     def wrap(model: torch.nn.Module, method: str = "forward"):
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
+        if next(model.parameters()).dtype in (torch.float16, torch.bfloat16):
+            dprint("Skipping model wrapping", model.__class__.__name__)
+            return model
         forward = getattr(model, method)
         forward = torch.cuda.amp.autocast(dtype=torch.bfloat16)(forward)
         forward = convert_outputs_to_fp32(forward)

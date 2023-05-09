@@ -62,7 +62,7 @@ class Tester:
             }
         )
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def clip_models(self) -> TClipModels:
         processor = CLIPProcessor.from_pretrained(
             self.params.test_model, local_files_only=True
@@ -170,7 +170,7 @@ class Tester:
             ).to(self.accelerator.device, torch_dtype=torch.float)
 
     @main_process_only
-    @torch.inference_mode()
+    @torch.no_grad()
     def validate(self, pipe: StableDiffusionPipeline, title: str) -> list[Image.Image]:
         pipeline = self.pipeline(pipe)
         generator = torch.Generator(device=self.accelerator.device)

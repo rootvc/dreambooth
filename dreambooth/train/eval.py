@@ -193,7 +193,7 @@ class Evaluator:
 
         return all_images
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def _process_image(self, pil_image: Image.Image) -> Optional[np.ndarray]:
         s = torch.cuda.Stream()
         with torch.cuda.stream(s):
@@ -266,7 +266,7 @@ class Evaluator:
             dprint("Waiting for other processes to finish...")
             torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def generate(self):
         dprint("Generating images...")
         prompts, images = cast(

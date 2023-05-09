@@ -73,6 +73,7 @@ class CachedLatentsDataset(Dataset):
         self._cached_latents = {}
         self._warmed = False
 
+    @torch.no_grad()
     def _compute_latents(self, batch: list[dict[str, torch.FloatTensor]]):
         images = list(
             itertools.chain(
@@ -81,7 +82,9 @@ class CachedLatentsDataset(Dataset):
             )
         )
         images = torch.stack(images).to(
-            self.accelerator.device, memory_format=torch.contiguous_format
+            self.accelerator.device,
+            dtype=self.params.dtype,
+            memory_format=torch.contiguous_format,
         )
 
         depth_images = list(
@@ -93,13 +96,15 @@ class CachedLatentsDataset(Dataset):
         depth_images = (
             torch.stack(depth_images)
             .float()
-            .to("cpu", memory_format=torch.contiguous_format)
-            .pin_memory()
+            .to(
+                self.accelerator.device,
+                memory_format=torch.contiguous_format,
+            )
         )
 
         latents = self.vae.encode(images).latent_dist.sample()
         latents = latents * self.vae.config.scaling_factor
-        latents = latents.squeeze(0).float().to("cpu").pin_memory()
+        latents = latents.squeeze(0).float()
 
         input_ids = list(
             itertools.chain(
@@ -107,7 +112,9 @@ class CachedLatentsDataset(Dataset):
                 map(itemgetter("prior_prompt_ids"), batch),
             )
         )
-        input_ids = torch.cat(input_ids, dim=0).to("cpu", dtype=torch.long).pin_memory()
+        input_ids = torch.cat(input_ids, dim=0).to(
+            self.accelerator.device, dtype=torch.long
+        )
 
         return {
             "input_ids": input_ids,

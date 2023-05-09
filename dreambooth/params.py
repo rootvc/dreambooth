@@ -114,9 +114,8 @@ class HyperParams(BaseModel):
     learning_rate: float = 1e-3
     text_learning_rate: float = 2e-3
     ti_learning_rate: float = 5e-4
-    betas: tuple[float, float] = (0.9, 0.999)
+    betas: tuple[float, float] = (0.9, 0.99)
     weight_decay: float = 1e-2
-    epsilon: float = 1e-8
 
     # Training
     dynamo_backend: Optional[str] = None
@@ -129,11 +128,11 @@ class HyperParams(BaseModel):
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
-    input_perterbation: float = 0.10
+    input_perterbation: float = 0.01
 
     # LoRA
     lora_rank: int = 16
-    lora_alpha = 0.10
+    lora_alpha = 0.095
     lora_dropout: float = 0.1
 
     # Text Encoder

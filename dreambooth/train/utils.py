@@ -260,7 +260,7 @@ class Trainer:
         tap(instance)
         return instance
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def _pipeline(
         self,
         unet: Optional[UNet2DConditionModel] = None,
@@ -398,7 +398,7 @@ class Trainer:
                 lora_config = self._unet_config()
                 unet = CompiledModelsRegistry.wrap(
                     get_peft_model(
-                        CompiledModelsRegistry.unwrap(unet).to(dtype=self.params.dtype),
+                        CompiledModelsRegistry.unwrap(unet),
                         lora_config,
                     )
                 )
@@ -410,7 +410,7 @@ class Trainer:
 
         return unet
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def generate_priors(self, progress_bar: bool = False) -> Class:
         dprint("Generating priors...")
 
@@ -444,7 +444,7 @@ class Trainer:
 
         return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def generate_depth_values(self, path: Path) -> float:
         dprint("Generating depth values...")
 
@@ -579,7 +579,7 @@ class Trainer:
                 del pipeline
                 torch.cuda.empty_cache()
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def _create_eval_model(
         self,
         unet_0: UNet2DConditionModel,
@@ -652,19 +652,18 @@ class Trainer:
         )
 
         pipeline = self._pipeline(
-            unet=unet,
-            text_encoder=text_encoder,
+            unet=unet.to(dtype=self.params.dtype),
+            text_encoder=text_encoder.to(dtype=self.params.dtype),
             tokenizer=tokenizer,
-            vae=vae,
+            vae=vae.to(dtype=self.params.dtype),
+            torch_dtype=self.params.dtype,
         )
         pipeline.scheduler = UniPCMultistepScheduler.from_config(
             pipeline.scheduler.config
         )
-        return CompiledModelsRegistry.wrap(
-            pipeline.to(self.accelerator.device), method="__call__"
-        )
+        return pipeline.to(self.accelerator.device)
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def _load_model(self, tokenizer: CLIPTokenizer):
         config = json.loads(
             (self.params.model_output_path / "lora_config.json").read_text()
@@ -766,10 +765,7 @@ class Trainer:
 
         for batch in loader:
             # Convert images to latent space
-            latents = batch["latents"].to(self.accelerator.device, non_blocking=True)
-            depth_values = batch["depth_values"].to(
-                self.accelerator.device, non_blocking=True
-            )
+            latents, depth_values = batch["latents"], batch["depth_values"]
 
             # Sample noise that we'll add to the latents
             noise = torch.randn_like(latents)
@@ -1023,7 +1019,7 @@ class Trainer:
             lora_text_config = self._text_config()
             text_encoder = CompiledModelsRegistry.wrap(
                 get_peft_model(
-                    CompiledModelsRegistry.unwrap(text_encoder).to(dtype=self.params.dtype),
+                    CompiledModelsRegistry.unwrap(text_encoder),
                     lora_text_config,
                 )
             )
@@ -1045,7 +1041,7 @@ class Trainer:
         tokenizer = self._tokenizer()
         tokenizer.add_tokens(self.params.token)
 
-        vae = self._vae(compile=True, reset=True, torch_dtype=torch.float)
+        vae = self._vae(compile=True, reset=True, torch_dtype=self.params.dtype)
         vae_scale_factor = self.generate_depth_values(self.instance_class.data)
         dataset = DreamBoothDataset(
             instance=self.instance_class,
@@ -1073,7 +1069,6 @@ class Trainer:
             batch_size=1,
             collate_fn=unpack_collate,
             shuffle=True,
-            pin_memory=True,
             num_workers=0,
         )
 
@@ -1112,7 +1107,6 @@ class Trainer:
             params,
             betas=self.params.betas,
             weight_decay=self.params.weight_decay,
-            eps=self.params.epsilon,
         )
 
         # optimizer = self.accelerator.prepare(optimizer)
