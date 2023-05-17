@@ -230,6 +230,8 @@ def standalone_params(is_main: bool) -> Params:
         params.model.name = cache / params.model.name
         if params.model.vae:
             params.model.vae = cache / params.model.vae
+        if params.model.control_net:
+            params.model.control_net = cache / params.model.control_net
         params.test_model = cache / params.test_model
 
         _unpack_eval_models(Path(hf_model_cache))

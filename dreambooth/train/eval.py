@@ -1,5 +1,6 @@
 import hashlib
 import itertools
+import random
 import shutil
 from datetime import timedelta
 from functools import cached_property
@@ -54,7 +55,12 @@ class PromptDataset(Dataset):
         return len(self.params.eval_prompts)
 
     def __getitem__(self, i: int):
-        return self.compel([self.params.eval_prompts[i]])
+        return [
+            (
+                self.params.eval_prompts[i],
+                self.compel([self.params.eval_prompts[i]])[0],
+            )
+        ]
 
 
 class Evaluator:
@@ -100,7 +106,7 @@ class Evaluator:
         masked[y, x] = dest[y, x]
         return masked
 
-    def _canny(self, image: np.ndarray, sigma=0.5):
+    def _canny(self, image: np.ndarray, sigma=0.75):
         med = np.median(image)
         lower = int(max(0.0, (1.0 - sigma) * med))
         upper = int(min(255.0, (1.0 + sigma) * med))
@@ -133,8 +139,9 @@ class Evaluator:
         return images
 
     def _gen_images(self) -> list[tuple[str, Image.Image]]:
+        ds = PromptDataset(self.params, self.pipeline)
         loader = DataLoader(
-            PromptDataset(self.params, self.pipeline),
+            ds,
             collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
             batch_size=4,  # len(self.params.eval_prompts),
         )
@@ -142,17 +149,20 @@ class Evaluator:
 
         all_images = []
         for batch in tqdm.tqdm(loader):
+            prompts, embeddings = zip(*batch)
             images = self.pipeline(
-                batch,
+                prompt_embeds=torch.stack(embeddings, dim=0).to(self.device),
                 width=self.params.model.resolution,
                 height=self.params.model.resolution,
-                image=[self.cond_images[0]] * len(batch),
-                negative_prompt=[self.params.negative_prompt] * len(batch),
+                image=random.choices(self.cond_images, k=len(prompts)),
+                negative_prompt_embeds=ds.compel(
+                    [self.params.negative_prompt] * len(prompts)
+                ).to(self.device),
                 num_inference_steps=self.params.test_steps,
                 guidance_scale=self.params.test_guidance_scale,
                 controlnet_conditioning_scale=self.params.test_strength,
             ).images
-            all_images.extend(zip(batch, images))
+            all_images.extend(zip(prompts, images))
 
         return all_images
 
@@ -203,8 +213,18 @@ class Evaluator:
             dprint("Waiting for other processes to finish...")
             torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
 
+    def _prepare_pipeline(self):
+        import requests
+
+        r = requests.get("https://civitai.com/api/download/models/42247")
+        open("42247.pt", "wb").write(r.content)
+        self.pipeline.load_textual_inversion("42247.pt", "<bad_bad_bad>")
+
     @torch.no_grad()
     def generate(self):
+        dprint("Preparing pipeline...")
+        self._prepare_pipeline()
+
         dprint("Generating images...")
         prompts, images = cast(
             tuple[tuple[str], tuple[Image.Image]], list(zip(*self._gen_images()))

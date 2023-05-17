@@ -91,10 +91,11 @@ class Class(BaseModel):
 
 
 class Model(BaseModel):
-    name: Union[str, Path] = "runwayml/stable-diffusion-v1-5"
+    name: Union[str, Path] = "Lykon/DreamShaper"
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-mse"
+    control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
     resolution: int = 512
-    revision: Optional[str] = "fp16"
+    revision: Optional[str] = None
 
 
 class HyperParams(BaseModel):
@@ -126,7 +127,7 @@ class HyperParams(BaseModel):
     lora_train_epochs: int = 2
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
-    lr_cycles: int = 5
+    lr_cycles: int = 3
     prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
@@ -134,12 +135,12 @@ class HyperParams(BaseModel):
 
     # LoRA
     lora_rank: int = 24
-    lora_alpha = 7.5
+    lora_alpha = 16.0
     lora_dropout: float = 0.01
 
     # Text Encoder
     lora_text_rank: int = 24
-    lora_text_alpha: float = 3.0
+    lora_text_alpha: float = 10.0
     lora_text_dropout: float = 0.01
 
     # Validation
@@ -149,7 +150,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, eyes closed"
+    negative_prompt: str = "(ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, eyes closed)0.2"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
     image_alignment_threshold: float = 0.82
@@ -160,31 +161,28 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"{token}",
-        f"a closeup portrait of {token}",
-        f"{token} as a zombie with decaying skin and clothing",
-        "a zombie with decaying skin and clothing",
-        "dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve",
-        f"{token} as a zombie with decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
-        f"a closeup portrait of {token}, as a zombie, decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
-        f"(({token})0.5 as a zombie)0.8 with decaying skin and clothing, dark and eerie, highly detailed, photorealistic, 8k, ultra realistic, horror style, art by greg rutkowski, charlie bowater, and magali villeneuve.",
-        f"(({token})0.5 as a zombie)0.8 with decaying skin and clothing, dark and eerie",
-        f"('{token}', 'as a zombie', 'decaying skin and clothing', 'dark and eerie').blend(0.1, 0.3, 0.3, 0.3)",
-        # f"a closeup portrait of {token}, as a Harry Potter character, magical world, wands, robes, Hogwarts castle in the background, enchanted forest, detailed lighting, art by jim kay, charlie bowater, alphonse mucha, ronald brenzell, digital painting, concept art.",
-        # f"Closeup portrait of {token}, as a clown, highly detailed, surreal, expressionless face, bright colors, contrast lighting, abstract background, art by wlop, greg rutkowski, charlie bowater, magali villeneuve, alphonse mucha, cartoonish, comic book style.",
-        # f"8k portrait of {token}, pop art style, incredibly detailed faces, wearing a colorful men's suit, 🎨🖌️, idol, ios",
-        # f"a closeup portrait of {token}, as a Naruto character, anime, manga, concept art, realistic, highly detailed, cartoonish",
-        # f"a painted portrait of {token}, in the style of van gogh, post-impressionist, abstract, accurate details, oil painting",
-        # f"a oil painting of {token}, italian renaissance art",
-        # f"a closeup portrait of {token}, as a Disney character, cartoonish, highly detailed, photorealistic, digital painting, concept art.",
-        # f"a closeup portrait of {token}, cloudy sky background lush landscape illustration concept art anime key visual trending pixiv fanbox by wlop and greg rutkowski and makoto shinkai and studio ghibli",
-        # f"a closeup portrait of {token}, listening to music in cycle in the street of rural Japaneses city, wide angle, anime, sunset, relaxed, pink and purple cloud, starts, soft light",
-        # f"a closeup portrait of {token}, old worker in 19th century, beautiful painting with highly detailed face by greg rutkowski and magali villanueve",
-        # f"complex 3d render ultra detailed of a profile {token} android face, cyborg, robotic parts, 150 mm, beautiful studio soft light, rim light, vibrant details, luxurious cyberpunk, lace, hyperrealistic, anatomical, facial muscles, cable electric wires, microchip, elegant, beautiful background, octane render, H. R. Giger style, 8k",
+        f"('a closeup portrait of {token}', 'a closeup portrait of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (dark and imposing)---, (high contrast)+",
+        #
+        f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), magical world, wands, robes, (Hogwarts castle in the background)+, (high contrast)+",
+        #
+        f"a closeup portrait of {token}, (as a clown)1.25, expressionless face, (bright, colorful and vibrant)++",
+        #
+        f"8k portrait of {token}, (pop art style)1.3, (wearing a colorful suit)+++, clear and vibrant",
+        #
+        f"a drawing of {token} (from Naruto)1.4, (anime style)+, colorful",
+        #
+        f"an (oil painting)+ of {token} by (van gogh)1.2",
+        #
+        f"('{token}', 'a beautiful Disney princess').blend(0.03, 0.97)",
+        f"{token} as (a Disney princess)++++",
+        #
+        f"a cartoon portrait of {token}, (clouds and sky in background)1.3, (wide angle)-",
+        #
+        f"complex 3d render of {token}'s face, (robot face)1.3, (bright cyberpunk lighting)+++, 150 mm",
     ]
 
     debug_outputs: bool = True
-    test_steps: int = 20
+    test_steps: int = 50
     test_guidance_scale: float = 20.0
     test_strength = 1.0  # 0.70
     mask_padding = 0.15

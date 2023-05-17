@@ -13,7 +13,6 @@ from transformers import (
     CLIPTextModelWithProjection,
     CLIPTokenizer,
     CLIPVisionModelWithProjection,
-    DPTForDepthEstimation,
 )
 
 from dreambooth.params import HyperParams
@@ -26,7 +25,7 @@ def download(klass: Type, name: str, **kwargs):
     if HF_MODEL_CACHE:
         path = Path(HF_MODEL_CACHE) / name
         print(f"Saving {name} to {path}")
-        model.save_pretrained(path)
+        model.save_pretrained(path, safe_serialization=True)
     return model
 
 
@@ -51,7 +50,11 @@ def download_model():
             params.model.name,
             revision=params.model.revision,
             torch_dtype=params.dtype,
-            controlnet=download(ControlNetModel, "lllyasviel/control_v11p_sd15_canny"),
+            controlnet=download(
+                ControlNetModel,
+                params.model.control_net,
+                torch_dtype=params.dtype,
+            ),
         )
     ]
     if params.model.vae:
@@ -62,4 +65,3 @@ def download_model():
 if __name__ == "__main__":
     download_model()
     # download_test_models(None, HyperParams().test_model)
-    download(DPTForDepthEstimation, "Intel/dpt-large")

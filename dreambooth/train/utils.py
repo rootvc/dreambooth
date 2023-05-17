@@ -271,8 +271,10 @@ class Trainer:
         **kwargs,
     ) -> StableDiffusionControlNetPipeline:
         with patch_allowed_pipeline_classes():
-            pipe: StableDiffusionControlNetPipeline = self._spawn(
-                StableDiffusionControlNetPipeline,
+            pipe = StableDiffusionControlNetPipeline.from_pretrained(
+                self.params.model.name,
+                revision=self.params.model.revision,
+                local_files_only=True,
                 safety_checker=None,
                 vae=vae or self._vae(compile=True).eval(),
                 unet=(unet or self._unet(mode=Mode.TI, compile=True)).eval(),
@@ -282,10 +284,11 @@ class Trainer:
                 tokenizer=tokenizer or self._tokenizer(),
                 controlnet=CompiledModelsRegistry.get(
                     ControlNetModel,
-                    "lllyasviel/control_v11p_sd15_canny",
+                    self.params.model.control_net,
                     compile=True,
-                    # local_files_only=True,
-                    torch_dtype=torch.float16,
+                    local_files_only=True,
+                    torch_dtype=torch.float,
+                    reset=True,
                 ).to(self.accelerator.device),
                 **kwargs,
             )
@@ -334,7 +337,13 @@ class Trainer:
         return vae
 
     def _tokenizer(self) -> CLIPTokenizer:
-        return self._spawn(AutoTokenizer, subfolder="tokenizer", use_fast=False)
+        return AutoTokenizer.from_pretrained(
+            self.params.model.name,
+            revision=self.params.model.revision,
+            local_files_only=True,
+            subfolder="tokenizer",
+            use_fast=False,
+        )
 
     def _unet_config(self) -> LoraConfig:
         return LoraConfig(
@@ -649,11 +658,11 @@ class Trainer:
         )
 
         pipeline = self._pipeline(
-            unet=unet.to(dtype=torch.float16),
-            text_encoder=text_encoder.to(dtype=torch.float16),
+            unet=unet.to(dtype=torch.float),
+            text_encoder=text_encoder.to(dtype=torch.float),
             tokenizer=tokenizer,
-            vae=vae.to(dtype=torch.float16),
-            torch_dtype=torch.float16,
+            vae=vae.to(dtype=torch.float),
+            torch_dtype=torch.float,
         )
         pipeline.scheduler = UniPCMultistepScheduler.from_config(
             pipeline.scheduler.config
@@ -828,9 +837,10 @@ class Trainer:
 
             # Compute instance loss
             instance_loss = (
-                F.mse_loss(model_pred.float(), target.float(), reduction="none")
-                .mean([1, 2, 3])
-                .mul(loss_weights)
+                F.mse_loss(model_pred.float(), target.float(), reduction="none").mean(
+                    [1, 2, 3]
+                )
+                # .mul(loss_weights)
                 .mean()
             )
 
@@ -838,9 +848,8 @@ class Trainer:
             prior_loss = (
                 F.mse_loss(
                     model_pred_prior.float(), target_prior.float(), reduction="none"
-                )
-                .mean([1, 2, 3])
-                .mul(loss_weights_prior)
+                ).mean([1, 2, 3])
+                # .mul(loss_weights_prior)
                 .mean()
             )
 
@@ -1344,7 +1353,7 @@ def get_params() -> HyperParams:
             params.dtype = torch.float
             params.model.revision = None
         case "fp16":
-            params.dtype = torch.float16
+            params.dtype = torch.float
             params.model.revision = "fp16"
         case "fp32":
             params.dtype = torch.float32
