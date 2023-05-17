@@ -21,6 +21,14 @@ ADD dreambooth/train/download_eval_models.py dreambooth/train/download_eval_mode
 
 RUN mkdir -p $HF_MODEL_CACHE/CodeFormer && python3 -m dreambooth.train.download_eval_models
 
+RUN \
+  apt-get update && \
+  apt-get install -y wget && \
+  rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  wget https://huggingface.co/datasets/Nerfgun3/bad_prompt/resolve/main/bad_prompt_version2.pt -P $HF_MODEL_CACHE/CodeFormer/embeddings
+
 FROM rootventures/train-dreambooth:latest AS rclone
 
 RUN \

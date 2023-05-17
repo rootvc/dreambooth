@@ -13,6 +13,7 @@ import torch.distributed
 import torch.multiprocessing
 import tqdm
 import wandb
+from compel import Compel
 from diffusers import StableDiffusionControlNetPipeline
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
@@ -40,8 +41,11 @@ T = TypeVar("T", bound=torch.nn.Module)
 
 
 class PromptDataset(Dataset):
-    def __init__(self, params: HyperParams):
+    def __init__(self, params: HyperParams, pipe: StableDiffusionControlNetPipeline):
         self.params = params
+        self.compel = Compel(
+            pipe.tokenizer, pipe.text_encoder, use_penultimate_clip_layer=True
+        )
 
     def __iter__(self):
         return iter(self.params.eval_prompts)
@@ -50,7 +54,7 @@ class PromptDataset(Dataset):
         return len(self.params.eval_prompts)
 
     def __getitem__(self, i: int):
-        return [self.params.eval_prompts[i]]
+        return self.compel([self.params.eval_prompts[i]])
 
 
 class Evaluator:
@@ -130,7 +134,7 @@ class Evaluator:
 
     def _gen_images(self) -> list[tuple[str, Image.Image]]:
         loader = DataLoader(
-            PromptDataset(self.params),
+            PromptDataset(self.params, self.pipeline),
             collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
             batch_size=4,  # len(self.params.eval_prompts),
         )
