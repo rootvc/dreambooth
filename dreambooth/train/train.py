@@ -244,13 +244,6 @@ def standalone_params(is_main: bool) -> Params:
 def standalone_cleanup():
     from cloudpathlib import CloudPath
 
-    id = os.environ["DREAMBOOTH_ID"]
-    bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
-
-    (bucket / "output" / id).upload_from(
-        Path("/tmp/ml") / id / "output", force_overwrite_to_cloud=True
-    )
-
     if os.getenv("WARM", "0") == "1":
         dprint("Persisting global cache...")
         _persist_global_cache()
@@ -278,6 +271,12 @@ def standalone_cleanup():
             ],
             capture_output=True,
             check=True,
+        )
+    else:
+        id = os.environ["DREAMBOOTH_ID"]
+        bucket = CloudPath(os.environ["DREAMBOOTH_BUCKET"])
+        (bucket / "output" / id).upload_from(
+            Path("/tmp/ml") / id / "output", force_overwrite_to_cloud=True
         )
 
 

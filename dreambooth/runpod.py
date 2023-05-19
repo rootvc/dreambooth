@@ -1,42 +1,10 @@
 import os
 import traceback
 import warnings
-from collections import namedtuple
 
 import runpod.serverless
 
-from dreambooth.train.eval import Evaluator
-from dreambooth.train.test import Tester
 from dreambooth.train.train import main as train
-from dreambooth.train.train import standalone_params
-from dreambooth.train.utils import get_model
-
-Acc = namedtuple("Acc", ["device"])
-Class = namedtuple("Acc", ["data"])
-
-
-def _prepare():
-    params = standalone_params(True)
-    trainer = get_model(**params)
-    pipe = trainer._pipeline()
-
-    Tester(params["params"], Acc(device="cuda"), None)
-    Evaluator(
-        trainer.accelerator.device,
-        params["params"],
-        Class(data=params["instance_path"]),
-        pipe,
-    )
-
-    # trainer.generate_depth_values(params["instance_path"])
-    # trainer.generate_depth_values(params["params"].prior_class.data)
-
-    # dataset = trainer._prepare_dataset()
-    # trainer._prepare_models(trainer._load_models(dataset, Mode.TI), Mode.TI)
-    # trainer._prepare_models(trainer._load_models(dataset, Mode.LORA), Mode.LORA)
-    # tester.clip_models()
-    # evaluator._upsampler()
-    # evaluator._restorer()
 
 
 def prepare():
@@ -47,7 +15,8 @@ def prepare():
     os.environ["WANDB_MODE"] = "disabled"
 
     try:
-        _prepare()
+        # train()
+        pass
     finally:
         del os.environ["WANDB_MODE"]
         del os.environ["DREAMBOOTH_ID"]

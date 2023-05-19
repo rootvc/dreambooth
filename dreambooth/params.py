@@ -150,7 +150,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "(ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, eyes closed)0.2"
+    negative_prompt: str = "(<bad_bad_bad>)0.2"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
     image_alignment_threshold: float = 0.82
@@ -161,30 +161,22 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"('a closeup portrait of {token}', 'a closeup portrait of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (dark and imposing)---, (high contrast)+",
-        #
-        f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), magical world, wands, robes, (Hogwarts castle in the background)+, (high contrast)+",
-        #
-        f"a closeup portrait of {token}, (as a clown)1.25, expressionless face, (bright, colorful and vibrant)++",
-        #
-        f"8k portrait of {token}, (pop art style)1.3, (wearing a colorful suit)+++, clear and vibrant",
-        #
+        f"('a closeup portrait of {token}', 'a closeup portrait of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (lit up by flashlight)+++",
+        f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++, high contrast",
+        f"a closeup portrait of ({token})+, (as a clown)1.3, expressionless face, (bright, colorful and vibrant)++",
+        f"8k portrait of {token}, (pop art style)1.2, (wearing a colorful suit)+++, clear and vibrant",
         f"a drawing of {token} (from Naruto)1.4, (anime style)+, colorful",
-        #
-        f"an (oil painting)+ of {token} by (van gogh)1.2",
-        #
-        f"('{token}', 'a beautiful Disney princess').blend(0.03, 0.97)",
-        f"{token} as (a Disney princess)++++",
-        #
-        f"a cartoon portrait of {token}, (clouds and sky in background)1.3, (wide angle)-",
-        #
-        f"complex 3d render of {token}'s face, (robot face)1.3, (bright cyberpunk lighting)+++, 150 mm",
+        f"an (oil painting)++ of {token} by (van gogh)+ with a (starry night sky in background)1.3, (bright)++",
+        f"{token} as (a Marvel superhero)++++, (flying in the sky)++, (nyc skyline in background)+, (sharp and focused)++",
+        f"a cartoon portrait of {token}, (clouds and sky in background)1.3, wide angle shot",
+        f"complex 3d render of {token}'s face, (android)1.4, (bright)++, (high contrast)++, (cyberpunk lighting)+, 150 mm",
     ]
 
     debug_outputs: bool = True
     test_steps: int = 50
+    test_images: int = 4
     test_guidance_scale: float = 20.0
-    test_strength = 1.0  # 0.70
+    test_strength = 1.005  # 0.70
     mask_padding = 0.15
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")

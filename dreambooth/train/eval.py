@@ -42,25 +42,23 @@ T = TypeVar("T", bound=torch.nn.Module)
 
 
 class PromptDataset(Dataset):
-    def __init__(self, params: HyperParams, pipe: StableDiffusionControlNetPipeline):
+    def __init__(
+        self, params: HyperParams, pipe: StableDiffusionControlNetPipeline, n: int
+    ):
         self.params = params
         self.compel = Compel(
             pipe.tokenizer, pipe.text_encoder, use_penultimate_clip_layer=True
         )
-
-    def __iter__(self):
-        return iter(self.params.eval_prompts)
+        self.n = n
+        self.prompts = random.choices(
+            [(p, self.compel([p])[0]) for p in self.params.eval_prompts], k=n
+        )
 
     def __len__(self):
-        return len(self.params.eval_prompts)
+        return self.n
 
     def __getitem__(self, i: int):
-        return [
-            (
-                self.params.eval_prompts[i],
-                self.compel([self.params.eval_prompts[i]])[0],
-            )
-        ]
+        return [self.prompts[i]]
 
 
 class Evaluator:
@@ -106,7 +104,7 @@ class Evaluator:
         masked[y, x] = dest[y, x]
         return masked
 
-    def _canny(self, image: np.ndarray, sigma=0.75):
+    def _canny(self, image: np.ndarray, sigma=0.5):
         med = np.median(image)
         lower = int(max(0.0, (1.0 - sigma) * med))
         upper = int(min(255.0, (1.0 + sigma) * med))
@@ -139,13 +137,12 @@ class Evaluator:
         return images
 
     def _gen_images(self) -> list[tuple[str, Image.Image]]:
-        ds = PromptDataset(self.params, self.pipeline)
+        ds = PromptDataset(self.params, self.pipeline, n=self.params.test_images)
         loader = DataLoader(
             ds,
             collate_fn=lambda x: list(itertools.chain.from_iterable(x)),
-            batch_size=4,  # len(self.params.eval_prompts),
+            batch_size=self.params.test_images,
         )
-        # preprocess(self.test_images[0]).to(self.device, dtype=self.params.dtype)
 
         all_images = []
         for batch in tqdm.tqdm(loader):
