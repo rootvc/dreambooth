@@ -4,7 +4,11 @@ import warnings
 
 import runpod.serverless
 
+from dreambooth.train.shared import Mode
+from dreambooth.train.train import get_model, standalone_params
 from dreambooth.train.train import main as train
+
+PARTY_MODE = os.environ.get("PARTY_MODE", "0") == "1"
 
 
 def prepare():
@@ -12,12 +16,20 @@ def prepare():
 
     os.environ["WARM"] = "1"
     os.environ["DREAMBOOTH_ID"] = "test"
-    os.environ["WANDB_MODE"] = "disabled"
+    if PARTY_MODE:
+        os.environ["WANDB_MODE"] = "disabled"
 
     try:
-        train()
+        if PARTY_MODE:
+            train()
+        else:
+            params = standalone_params(True)
+            model = get_model(**params)
+            dataset = model._prepare_dataset()
+            model._prepare_models(model._load_models(dataset, Mode.TI), Mode.TI)
     finally:
-        del os.environ["WANDB_MODE"]
+        if PARTY_MODE:
+            del os.environ["WANDB_MODE"]
         del os.environ["DREAMBOOTH_ID"]
         del os.environ["WARM"]
 
@@ -36,7 +48,8 @@ def run(job):
 
 def main():
     try:
-        prepare()
+        # prepare()
+        pass
     except Exception:
         traceback.print_exc()
         warnings.warn("Warmup failed. Requests will likely fail too.")

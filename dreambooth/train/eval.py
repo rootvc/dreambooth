@@ -225,7 +225,7 @@ class Evaluator:
             tuple[tuple[str], tuple[Image.Image]], list(zip(*self._gen_images()))
         )
         prompt_path, original_path, restored_path = self._paths()
-        self.wait_for_everyone()
+        # self.wait_for_everyone()
 
         dprint("Cleaning up...")
         del self.pipeline
@@ -250,6 +250,6 @@ class Evaluator:
         grid.save(self.params.image_output_path / "grid.png")
 
         dprint("Waiting for upload...")
-        self.wait_for_everyone()
+        # self.wait_for_everyone()
         self._upload_images()
         dprint("Done!")

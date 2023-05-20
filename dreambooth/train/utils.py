@@ -451,7 +451,7 @@ class Trainer:
             image.save(self.priors_dir / f"{hash}.jpg")
 
         del pipeline
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
 
@@ -485,7 +485,7 @@ class Trainer:
         score = self.tester.test_pipe(
             pipeline, ("final_validation" if final else "validation") + str(kwargs)
         )
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         self.metrics_cache.update(score)
 
@@ -582,7 +582,7 @@ class Trainer:
                 self._validation(pipeline)
             finally:
                 del pipeline
-                torch.cuda.empty_cache()
+                # torch.cuda.empty_cache()
 
     @torch.no_grad()
     def _create_eval_model(
@@ -1217,7 +1217,7 @@ class Trainer:
                     dprint("Score threshold exceeded. Stopping training.")
                     break
 
-        self.accelerator.wait_for_everyone()
+        # self.accelerator.wait_for_everyone()
         unet = CompiledModelsRegistry.unwrap(unet)
         text_encoder = CompiledModelsRegistry.unwrap(text_encoder)
 
@@ -1284,19 +1284,19 @@ class Trainer:
         )
 
     def train(self):
-        self.accelerator.free_memory()
+        # self.accelerator.free_memory()
         self._prepare_to_train()
         # unet, text_encoder, input_embeddings = self._train_and_combine()
         unet, text_encoder, input_embeddings = self._train_sequentially()
-        self.accelerator.free_memory()
-        self.accelerator.wait_for_everyone()
+        # self.accelerator.free_memory()
+        # self.accelerator.wait_for_everyone()
         return self._do_final_validation(
             unet, text_encoder, input_embeddings, check=False
         )
 
     def eval(self, pipeline: StableDiffusionPipeline):
-        self.accelerator.wait_for_everyone()
-        self.accelerator.free_memory()
+        # self.accelerator.wait_for_everyone()
+        # self.accelerator.free_memory()
         Evaluator(
             self.accelerator.device, self.params, self.instance_class, pipeline
         ).generate()

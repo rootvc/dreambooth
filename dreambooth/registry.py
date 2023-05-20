@@ -6,7 +6,7 @@ from accelerate.utils import convert_outputs_to_fp32
 from accelerate.utils.operations import ConvertOutputsToFp32
 from torch._dynamo.eval_frame import OptimizedModule
 
-from dreambooth.train.shared import Mode, compile_model, dprint, hash_dict
+from dreambooth.train.shared import Mode, compile_model, dprint
 
 
 class CompiledModelsRegistryMeta(type):
@@ -22,6 +22,7 @@ class CompiledModelsRegistryMeta(type):
 
     @staticmethod
     def wrap(model: torch.nn.Module, method: str = "forward"):
+        return model
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
         if next(model.parameters()).dtype in (torch.float16, torch.bfloat16):
@@ -35,6 +36,7 @@ class CompiledModelsRegistryMeta(type):
 
     @staticmethod
     def unwrap(model: torch.nn.Module):
+        return model
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
         try:
@@ -73,31 +75,35 @@ class CompiledModelsRegistryMeta(type):
         mode: Mode = Mode.LORA,
         **kwargs,
     ):
-        key = (
-            klass,
-            hash_dict(
-                {
-                    **kwargs,
-                    "args": args,
-                    "mode": mode,
-                    "is_inference": self._is_inference(),
-                }
-            ),
-        )
+        # key = (
+        #     klass,
+        #     hash_dict(
+        #         {
+        #             **kwargs,
+        #             "args": args,
+        #             "mode": mode,
+        #             "is_inference": self._is_inference(),
+        #         }
+        #     ),
+        # )
         do_compile = kwargs.pop("compile", isinstance(klass, torch.nn.Module))
         do_wrap = kwargs.pop("wrap", False)
 
-        if key not in self.models:
-            dprint(f"Loading model, compile={do_compile}", klass.__name__)
-            load = klass.from_pretrained if hasattr(klass, "from_pretrained") else klass
-            self.models[key] = self.compile(
-                load(*args, **kwargs), do=do_compile, wrap=do_wrap
-            )
-        elif reset:
-            dprint("Resetting model", klass.__name__)
-            fresh = klass.from_pretrained(*args, **kwargs)
-            fresh.state_dict(self.models[key].state_dict())
-        return self.models[key]
+        dprint(f"Loading model, compile={do_compile}", klass.__name__)
+        load = klass.from_pretrained if hasattr(klass, "from_pretrained") else klass
+        return self.compile(load(*args, **kwargs), do=do_compile, wrap=do_wrap)
+
+        # if key not in self.models:
+        #     dprint(f"Loading model, compile={do_compile}", klass.__name__)
+        #     load = klass.from_pretrained if hasattr(klass, "from_pretrained") else klass
+        #     self.models[key] = self.compile(
+        #         load(*args, **kwargs), do=do_compile, wrap=do_wrap
+        #     )
+        # elif reset:
+        #     dprint("Resetting model", klass.__name__)
+        #     fresh = klass.from_pretrained(*args, **kwargs)
+        #     fresh.state_dict(self.models[key].state_dict())
+        # return self.models[key]
 
 
 class CompiledModelsRegistry(metaclass=CompiledModelsRegistryMeta):

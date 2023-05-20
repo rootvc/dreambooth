@@ -134,14 +134,14 @@ class HyperParams(BaseModel):
     input_perterbation: float = 0.001
 
     # LoRA
-    lora_rank: int = 24
+    lora_rank: int = 32
     lora_alpha = 16.0
-    lora_dropout: float = 0.01
+    lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 24
+    lora_text_rank: int = 32
     lora_text_alpha: float = 10.0
-    lora_text_dropout: float = 0.01
+    lora_text_dropout: float = 0.1
 
     # Validation
     validate_after_steps: int = 2500
@@ -166,7 +166,7 @@ class HyperParams(BaseModel):
         f"a closeup portrait of ({token})++, (as a clown)1.2, face makeup, red nose, (bright, colorful and vibrant)+",
         f"8k portrait of {token}, (pop art style)1.2, (wearing a colorful suit)++, clear and vibrant",
         f"a drawing of {token} (from Naruto)1.2, (anime style)+, colorful",
-        f"an (oil painting)++ of {token} by (van gogh)++, (starry night sky in background)1.2, (vibrant)+",
+        f"an (oil painting)+ of {token} by (van gogh)+, (starry night sky in background)+, (vibrant)+",
         f"{token} as (a Marvel superhero)++, flying in the sky, (nyc skyline in background)+, (sharp and focused)+",
         f"a cartoon portrait of {token}, (clouds and sky in background)1.2, wide angle shot",
         f"complex 3d render of {token}'s face, (android)1.2, (high contrast)+, (bright cyberpunk lighting)+, (clear face)+, 150 mm",

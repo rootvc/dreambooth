@@ -6,7 +6,7 @@ from pathlib import Path
 from cloudpathlib import S3Path
 from sanic import Sanic, response
 
-PRINTER_NAME = "QW410_4x4___dnpwcm"  # "Send_to_Preview___yasyf_"
+PRINTER_NAME = "Send_to_Preview___yasyf_"  # "QW410_4x4___dnpwcm"
 BUCKET = "rootvc-photobooth"
 
 app = Sanic(name="print-server")
