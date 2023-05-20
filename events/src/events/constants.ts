@@ -1,9 +1,10 @@
 export const SMS_COPY: {
   [key: string]: (args: { [k: string]: string }) => string;
 } = {
-  STARTED: () => "Hey from RootVC! Stay tuned for your AI avatars shortly.",
+  STARTED: () =>
+    "Hey from RootVC! Stay tuned for your AI avatars shortly. This should take about 90 seconds...",
   FINISHED: ({ id }) =>
-    `Your AI avatars are ready! Check them out at https://dreambooth.root.vc/${id}`,
+    `Your AI avatars are ready! Go grab them from the printer :)`,
 };
 
 export const KEYS = {

@@ -150,7 +150,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "(<bad_bad_bad>)0.2"
+    negative_prompt: str = "(<bad_bad_bad>)0.05"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
     image_alignment_threshold: float = 0.82
@@ -161,14 +161,14 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (lit up)+++ (by flashlight)++, (clear face)++",
+        f"('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (lit up by flashlight)+, (clearly visible face)++",
         f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++, high contrast",
-        f"a closeup portrait of ({token})++, (as a clown)1.3, expressionless face, (bright, colorful and vibrant)++",
+        f"a closeup portrait of ({token})++, (as a clown)1.2, face makeup, red nose, (bright, colorful and vibrant)+",
         f"8k portrait of {token}, (pop art style)1.2, (wearing a colorful suit)+++, clear and vibrant",
-        f"a drawing of {token} (from Naruto)1.4, (anime style)+, colorful",
-        f"an (oil painting)++ of {token} by (van gogh)+ with a (starry night sky in background)1.3, (bright)++",
+        f"a drawing of {token} (from Naruto)1.35, anime style, colorful",
+        f"an (oil painting)++ of {token} by (van gogh)+ with a (starry night sky in background)1.2, (vibrant)+",
         f"{token} as (a Marvel superhero)++, flying in the sky, (nyc skyline in background)+, (sharp and focused)++",
-        f"a cartoon portrait of {token}, (clouds and sky in background)1.3, wide angle shot",
+        f"a cartoon portrait of {token}, (clouds and sky in background)1.2, wide angle shot",
         f"complex 3d render of {token}'s face, (android)1.4, (bright)++, (high contrast)++, (cyberpunk lighting)+, (clear face)+, 150 mm",
     ]
 

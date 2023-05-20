@@ -618,7 +618,7 @@ class Trainer:
             ),
         )
         set_peft_model_state_dict(unet, unet_state)
-        unet = compile_model(unet.merge_and_unload())
+        unet = compile_model(CompiledModelsRegistry.wrap(unet.merge_and_unload()))
 
         tokenizer = self._tokenizer()
         tokenizer.add_tokens(self.params.token)
@@ -651,7 +651,9 @@ class Trainer:
             ),
         )
         set_peft_model_state_dict(text_encoder, text_state)
-        text_encoder = compile_model(text_encoder.merge_and_unload())
+        text_encoder = compile_model(
+            CompiledModelsRegistry.wrap(text_encoder.merge_and_unload())
+        )
 
         vae = compile_model(
             CompiledModelsRegistry.unwrap(self._vae(compile=False)).eval()
@@ -818,18 +820,18 @@ class Trainer:
             # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
             # Since we predict the noise instead of x_0, the original formulation is slightly changed.
             # This is discussed in Section 4.2 of the same paper.
-            snr = self._compute_snr(models, timesteps)
-            loss_weights = (
-                torch.stack(
-                    [snr, self.params.snr_gamma * torch.ones_like(timesteps)], dim=1
-                ).min(dim=1)[0]
-                / snr
-            )
+            # snr = self._compute_snr(models, timesteps)
+            # loss_weights = (
+            #     torch.stack(
+            #         [snr, self.params.snr_gamma * torch.ones_like(timesteps)], dim=1
+            #     ).min(dim=1)[0]
+            #     / snr
+            # )
 
             # Chunk the noise and model_pred into two parts and compute the loss on each part separately.
             model_pred, model_pred_prior = torch.chunk(model_pred, 2, dim=0)
             target, target_prior = torch.chunk(target, 2, dim=0)
-            loss_weights, loss_weights_prior = torch.chunk(loss_weights, 2, dim=0)
+            # loss_weights, loss_weights_prior = torch.chunk(loss_weights, 2, dim=0)
 
             # We first calculate the original loss. Then we mean over the non-batch dimensions and
             # rebalance the sample-wise losses with their respective loss weights.
@@ -1075,6 +1077,7 @@ class Trainer:
             )
             unet = self._unet(
                 compile=mode != Mode.LORA,
+                wrap=mode != Mode.LORA,
                 mode=mode,
                 reset=True,
                 torch_dtype=torch.float,
