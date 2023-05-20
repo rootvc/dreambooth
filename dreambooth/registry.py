@@ -22,7 +22,6 @@ class CompiledModelsRegistryMeta(type):
 
     @staticmethod
     def wrap(model: torch.nn.Module, method: str = "forward"):
-        return model
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
         if next(model.parameters()).dtype in (torch.float16, torch.bfloat16):
@@ -36,7 +35,6 @@ class CompiledModelsRegistryMeta(type):
 
     @staticmethod
     def unwrap(model: torch.nn.Module):
-        return model
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
         try:
@@ -52,7 +50,8 @@ class CompiledModelsRegistryMeta(type):
     def compile(self, model: torch.nn.Module, **kwargs):
         if not hasattr(model, "forward"):
             return model
-        model = self.wrap(model)
+        if kwargs.pop("wrap", False):
+            model = self.wrap(model)
         if kwargs.get("do", True):
             model = compile_model(model, **kwargs)
         return model.to("cuda")
@@ -86,18 +85,18 @@ class CompiledModelsRegistryMeta(type):
             ),
         )
         do_compile = kwargs.pop("compile", isinstance(klass, torch.nn.Module))
+        do_wrap = kwargs.pop("wrap", False)
 
         if key not in self.models:
             dprint(f"Loading model, compile={do_compile}", klass.__name__)
             load = klass.from_pretrained if hasattr(klass, "from_pretrained") else klass
-            self.models[key] = self.compile(load(*args, **kwargs), do=do_compile)
+            self.models[key] = self.compile(
+                load(*args, **kwargs), do=do_compile, wrap=do_wrap
+            )
         elif reset:
             dprint("Resetting model", klass.__name__)
             fresh = klass.from_pretrained(*args, **kwargs)
             fresh.state_dict(self.models[key].state_dict())
-
-        if not self.is_wrapped(self.models[key]):
-            self.models[key] = self.wrap(self.models[key])
         return self.models[key]
 
 

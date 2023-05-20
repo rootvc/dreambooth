@@ -174,7 +174,7 @@ class HyperParams(BaseModel):
 
     debug_outputs: bool = True
     test_steps: int = 50
-    test_images: int = 8
+    test_images: int = 4
     test_guidance_scale: float = 20.0
     test_strength = 1.005  # 0.70
     mask_padding = 0.15
