@@ -123,7 +123,7 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    ti_train_epochs: int = 5
+    ti_train_epochs: int = 4
     lora_train_epochs: int = 2
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0

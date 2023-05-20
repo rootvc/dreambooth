@@ -188,9 +188,7 @@ def standalone_params(is_main: bool) -> Params:
     if os.getenv("WARM", "0") == "1":
         params.ti_train_epochs = 2
         params.lora_train_epochs = 2
-        params.validate_after_steps = 0
-        params.validate_every_epochs = None
-        params.eval_prompts = params.eval_prompts[:1]
+        params.test_images = 1
 
         dprint("Downloading cache from S3...")
         subprocess.run(

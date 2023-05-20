@@ -212,7 +212,7 @@ class Evaluator:
 
     def _prepare_pipeline(self):
         self.pipeline.load_textual_inversion(
-            "weights/embeddings/bad_prompt.pt", "<bad_features>"
+            "weights/embeddings/bad_features.pt", "<bad_features>"
         )
 
     @torch.no_grad()

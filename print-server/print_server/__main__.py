@@ -8,7 +8,9 @@ DOMAIN = "print.root.vc"
 
 def main():
     os.chdir(Path(__file__).parent.parent)
-    subprocess.run(["pip", "install", "-r", "requirements.txt"])
+    subprocess.run(
+        ["/Users/rootventures/.asdf/shims/pip", "install", "-r", "requirements.txt"]
+    )
 
     from print_server.api.index import PRINTER_NAME
 
@@ -28,11 +30,15 @@ def main():
         def _launch(command):
             procs.append(subprocess.Popen(command))
 
-        _launch(["sanic", "print_server.api.index:app"])
-        _launch(["ngrok", "http", "8000", "--domain", DOMAIN])
+        _launch(["/Users/rootventures/.asdf/shims/sanic", "print_server.api.index:app"])
+        _launch(["/opt/homebrew/bin/ngrok", "http", "8000", "--domain", DOMAIN])
 
-        for proc in procs:
-            proc.wait()
+        try:
+            for proc in procs:
+                proc.wait()
+        finally:
+            for proc in procs:
+                proc.kill()
 
 
 if __name__ == "__main__":

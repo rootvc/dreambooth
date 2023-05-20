@@ -45,7 +45,6 @@ from diffusers import (
 )
 from diffusers.loaders import AttnProcsLayers
 from diffusers.models.attention_processor import AttnProcessor2_0, LoRAAttnProcessor
-from diffusers.training_utils import EMAModel
 from peft import (
     LoraConfig,
     get_peft_model,
@@ -876,9 +875,6 @@ class Trainer:
 
             models["lr_scheduler"].step()
 
-            models["unet_ema"].step(unet.parameters())
-            models["text_encoder_ema"].step(models["text_encoder"].parameters())
-
             if self.accelerator.sync_gradients:
                 self._total_steps += 1
 
@@ -1170,11 +1166,7 @@ class Trainer:
             "epochs": epochs,
             "max_train_steps": max_train_steps,
             "unet": unet,
-            "unet_ema": EMAModel(unet.parameters(), device=self.accelerator.device),
             "text_encoder": text_encoder,
-            "text_encoder_ema": EMAModel(
-                text_encoder.parameters(), device=self.accelerator.device
-            ),
             "loader": loader,
             "tokenizer": tokenizer,
             "optimizer": optimizer,
@@ -1228,9 +1220,6 @@ class Trainer:
         self.accelerator.wait_for_everyone()
         unet = CompiledModelsRegistry.unwrap(unet)
         text_encoder = CompiledModelsRegistry.unwrap(text_encoder)
-
-        # models["unet_ema"].copy_to(unet.parameters())
-        # models["text_encoder_ema"].copy_to(text_encoder.parameters())
 
         return unet, text_encoder
 
