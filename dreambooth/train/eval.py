@@ -211,11 +211,9 @@ class Evaluator:
             torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
 
     def _prepare_pipeline(self):
-        import requests
-
-        r = requests.get("https://civitai.com/api/download/models/42247")
-        open("42247.pt", "wb").write(r.content)
-        self.pipeline.load_textual_inversion("42247.pt", "<bad_bad_bad>")
+        self.pipeline.load_textual_inversion(
+            "weights/embeddings/bad_prompt.pt", "<bad_features>"
+        )
 
     @torch.no_grad()
     def generate(self):

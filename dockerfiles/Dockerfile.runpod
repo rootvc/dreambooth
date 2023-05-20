@@ -27,7 +27,8 @@ RUN \
   rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  wget https://huggingface.co/datasets/Nerfgun3/bad_prompt/resolve/main/bad_prompt_version2.pt -P $HF_MODEL_CACHE/CodeFormer/embeddings
+  wget https://civitai.com/api/download/models/42247 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  mv $HF_MODEL_CACHE/CodeFormer/embeddings/42247 $HF_MODEL_CACHE/CodeFormer/embeddings/bad_features.pt
 
 FROM rootventures/train-dreambooth:latest AS rclone
 

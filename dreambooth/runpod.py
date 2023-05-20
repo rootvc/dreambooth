@@ -15,8 +15,7 @@ def prepare():
     os.environ["WANDB_MODE"] = "disabled"
 
     try:
-        # train()
-        pass
+        train()
     finally:
         del os.environ["WANDB_MODE"]
         del os.environ["DREAMBOOTH_ID"]
