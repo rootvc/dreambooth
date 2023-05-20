@@ -50,7 +50,7 @@ class PromptDataset(Dataset):
             pipe.tokenizer, pipe.text_encoder, use_penultimate_clip_layer=True
         )
         self.n = n
-        self.prompts = random.choices(
+        self.prompts = random.sample(
             [(p, self.compel([p])[0]) for p in self.params.eval_prompts], k=n
         )
 

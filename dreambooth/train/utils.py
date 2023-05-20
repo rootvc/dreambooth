@@ -665,7 +665,7 @@ class Trainer:
             torch_dtype=torch.float,
         )
         pipeline.scheduler = UniPCMultistepScheduler.from_config(
-            pipeline.scheduler.config
+            pipeline.scheduler.config, disable_corrector=[0]
         )
         return pipeline.to(self.accelerator.device)
 
