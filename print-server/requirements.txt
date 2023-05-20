@@ -1,2 +1,4 @@
 sanic==22.12.0
 cloudpathlib[s3]>=0.13.0
+watchdog
+requests

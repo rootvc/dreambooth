@@ -104,7 +104,7 @@ class Evaluator:
         masked[y, x] = dest[y, x]
         return masked
 
-    def _canny(self, image: np.ndarray, sigma=0.5):
+    def _canny(self, image: np.ndarray, sigma=0.333):
         med = np.median(image)
         lower = int(max(0.0, (1.0 - sigma) * med))
         upper = int(min(255.0, (1.0 + sigma) * med))

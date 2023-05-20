@@ -3,3 +3,4 @@ git+https://github.com/jarvislabsai/jlclient.git@main#egg=jlclient
 git+https://github.com/runpod/runpod-python.git@main#egg=runpod
 asyncssh
 sagemaker_training
+watchdog

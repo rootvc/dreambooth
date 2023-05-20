@@ -1277,11 +1277,12 @@ class Trainer:
     @main_process_only
     def _prepare_to_train(self):
         self._init_trackers()
-        self.tester.log_images(
-            self.instance_class.deterministic_prompt,
-            list(map(str, images(self.instance_class.data))),
-            title="data",
-        )
+        if self.params.debug_outputs:
+            self.tester.log_images(
+                self.instance_class.deterministic_prompt,
+                list(map(str, images(self.instance_class.data))),
+                title="data",
+            )
 
     def train(self):
         # self.accelerator.free_memory()

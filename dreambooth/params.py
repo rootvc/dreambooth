@@ -134,12 +134,12 @@ class HyperParams(BaseModel):
     input_perterbation: float = 0.001
 
     # LoRA
-    lora_rank: int = 64
+    lora_rank: int = 96
     lora_alpha = 6.0
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 64
+    lora_text_rank: int = 96
     lora_text_alpha: float = 2.0
     lora_text_dropout: float = 0.1
 
@@ -150,7 +150,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "(<bad_features>)0.1"
+    negative_prompt: str = "(<bad_features>)0.35"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
     image_alignment_threshold: float = 0.82
@@ -161,21 +161,21 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (bright)++ (flashlight)++, (clearly visible face)+",
+        f"('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (high contrast)+, (bright)+ (flashlight)+, (clearly visible face)+",
         f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++, high contrast",
-        f"a closeup portrait of ({token})+, (as a clown)++, face makeup, red nose, (bright, colorful and vibrant)+",
+        f"a closeup portrait of ({token})+, (as a clown)+, face makeup, red nose, (bright, colorful and vibrant)+",
         f"8k portrait of {token}, (pop art style)+, (wearing a colorful suit)++, clear and vibrant",
-        f"a drawing of {token} (from Naruto)+, (anime style)+, colorful",
-        f"an (oil painting)+ of {token} by (van gogh)+, (starry night sky in background)+, (vibrant)+",
-        f"{token} as (a Marvel superhero)++, flying in the sky, (nyc skyline in background)+, (sharp and focused)+",
+        f"a drawing of {token} (from Naruto)++, (anime style)+, colorful",
+        f"an (oil painting)+ of ({token})+, by van gogh, (starry night sky in background)+, (vibrant)+",
+        f"({token})+ as (a Marvel superhero)++, flying in the sky, (nyc skyline in background)+, sharp and focused",
         f"a cartoon portrait of {token}, (clouds and sky in background)1.2, wide angle shot",
         f"complex 3d render of {token}'s face, (android)+, (bright)++, (cyberpunk lighting)+, (clear face)+, 150 mm",
     ]
 
-    debug_outputs: bool = True
+    debug_outputs: bool = False
     test_steps: int = 50
     test_images: int = 4
-    test_guidance_scale: float = 20.0
+    test_guidance_scale: float = 20
     test_strength = 0.95  # 0.70
     mask_padding = 0.15
     eval_model_path: Path = Path("CodeFormer")
