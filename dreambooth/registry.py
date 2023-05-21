@@ -22,7 +22,6 @@ class CompiledModelsRegistryMeta(type):
 
     @staticmethod
     def wrap(model: torch.nn.Module, method: str = "forward"):
-        return model
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
         if next(model.parameters()).dtype in (torch.float16, torch.bfloat16):
@@ -36,7 +35,6 @@ class CompiledModelsRegistryMeta(type):
 
     @staticmethod
     def unwrap(model: torch.nn.Module):
-        return model
         if isinstance(model, OptimizedModule):
             model = model._orig_mod
         try:
