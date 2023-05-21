@@ -165,15 +165,16 @@ class Evaluator:
 
     @main_process_only
     def _upload_images(self):
-        if self.params.debug_outputs:
-            wandb.run.log(
-                {
-                    "source": [
-                        wandb.Image(self.test_images[0], caption="image"),
-                        wandb.Image(self.cond_images[0], caption="condition"),
-                    ]
-                }
-            )
+        if not self.params.debug_outputs:
+            return
+        wandb.run.log(
+            {
+                "source": [
+                    wandb.Image(self.test_images[0], caption="image"),
+                    wandb.Image(self.cond_images[0], caption="condition"),
+                ]
+            }
+        )
         wandb.run.log(
             {
                 "original": [
