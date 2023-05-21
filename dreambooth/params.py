@@ -151,7 +151,7 @@ class HyperParams(BaseModel):
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
     negative_prompt: str = (
-        "(<bad_features>)0.4, scary, distored, dark, low contrast, (ugly)++"
+        "(<bad_features>)0.5, scary, distored, dark, low contrast, (ugly)+++"
     )
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
 
@@ -163,7 +163,7 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.10, 0.90), (decaying skin and clothing)++, (abandoned building)+",
+        f"('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.10, 0.90), (decaying skin and clothing)+++, (abandoned building in background)+",
         f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++",
         f"a closeup portrait of {token}, (as a clown)++, face makeup, red nose, (bright, colorful and vibrant)+",
         f"8k portrait of {token}, (pop art style)+, (wearing a colorful suit)++, clear and vibrant",
