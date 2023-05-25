@@ -21,7 +21,7 @@ export default defineFunction(
         from: TWILIO.PHONE_NUMBER,
         to: phone,
         body: copy,
-        mediaUrl,
+        mediaUrl: mediaUrl ? [mediaUrl] : undefined,
       });
     });
   }

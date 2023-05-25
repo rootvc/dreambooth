@@ -6,12 +6,6 @@ import { Redis } from "ioredis";
 import { NextRequest, NextResponse } from "next/server";
 import pify from "pify";
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
 const redisClient = new Redis(process.env.REDIS_URL || "");
 
 const inngest = new Inngest({
