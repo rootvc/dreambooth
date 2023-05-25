@@ -150,9 +150,8 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "(<bad_features>)0.50, (disgusting)+++, (scary)+, distored, (disfigured)++, (deformed)+, twisted, (grainy)+, unfocused, eyes closed, (bad smile)++++, (ugly)+++"
+    negative_prompt: str = "(<bad_features>)0.65, (poorly drawn face)++, (elderly)++, (disgusting)+++, (scary)+, distored, (disfigured)++, (deformed)+, twisted, (grainy)+, unfocused, eyes closed, (bad smile)++++, (ugly)+++"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
-
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
 
