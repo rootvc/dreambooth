@@ -6,7 +6,7 @@ from pathlib import Path
 from cloudpathlib import S3Path
 from sanic import Sanic, response
 
-PRINTER_NAME = "QW410_4x4___dnpwcm"  # "Send_to_Preview___yasyf_"
+PRINTER_NAME = "Dai_Nippon_Printing_DP_QW410"  # "Send_to_Preview___yasyf_"
 BUCKET = "rootvc-photobooth"
 
 app = Sanic(name="print-server")
@@ -21,7 +21,10 @@ def _download_from_s3(id):
 
 def _send_to_printer(id):
     print(f"Sending {id} to printer")
-    subprocess.run(["lpr", "-P", PRINTER_NAME, _download_from_s3(id)], check=True)
+    subprocess.run(
+        ["lpr", "-P", PRINTER_NAME, "-o", "media='dnp4x4'", _download_from_s3(id)],
+        check=True,
+    )
 
 
 @app.route("/", methods=["POST"])
