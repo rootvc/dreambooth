@@ -11,11 +11,15 @@ export default defineFunction(
   "Complete a training run",
   "dreambooth/train.complete",
   async ({
-    tools: { run, send },
+    tools: { run, send, redis },
     event: {
       data: { id, phone },
     },
   }) => {
+    await run("store ts", async () => {
+      await redis.hmset(`fin/${id}`, { ts: Date.now(), phone: phone });
+      await redis.del(`ts/${id}`);
+    });
     await run(
       "send to printer server",
       async () => await got.post(PRINT_SERVER, { json: { id } }).json()
