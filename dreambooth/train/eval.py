@@ -246,9 +246,10 @@ class Evaluator:
             path = str(restored_path / f"{slug}.png")
             cv2.imwrite(path, restored)
 
-        dprint("Saving grid...")
-        grid = self._grid(images)
-        grid.save(self.params.image_output_path / "grid.png")
+        if not self.params.debug_outputs:
+            dprint("Saving grid...")
+            grid = self._grid(images)
+            grid.save(self.params.image_output_path / "grid.png")
 
         dprint("Waiting for upload...")
         # self.wait_for_everyone()

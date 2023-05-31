@@ -48,7 +48,7 @@ def run(job):
 
 def main():
     try:
-        # prepare()
+        prepare()
         pass
     except Exception:
         traceback.print_exc()

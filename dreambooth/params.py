@@ -150,7 +150,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "(<bad_features>)0.55, (poorly drawn face)++, (elderly)+++, (disgusting)+++, (scary)+, distored, (disfigured)++, (deformed)+, twisted, (grainy)+, unfocused, eyes closed, (bad smile)++++, (ugly)++++, hitler"
+    negative_prompt: str = "(<bad_features>)0.60, (poorly drawn face)+, (elderly)+++, (disgusting)++, (scary)+, distored, (disfigured)++, (deformed)+, twisted, (grainy)+, unfocused, eyes closed, (bad smile)+++, (ugly)++++"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
@@ -164,14 +164,14 @@ class HyperParams(BaseModel):
         f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++",
         f"a closeup portrait of ({token})+, (as a clown)+++, (face makeup)+, red nose, (bright, colorful and vibrant)+",
         f"8k portrait of {token}, (pop art style)+, (wearing a colorful suit)++, clear and vibrant",
-        f"a (drawing)+ of {token}, a character (from Naruto)++++, (anime)++, colorful",
+        f"an (animation)+ of {token}, a character (from Naruto)+++, (anime)++, colorful",
         f"an (oil painting)+++ of {token}, by van gogh, (starry night sky in background)+, (vibrant)+",
         f"a photograph of {token} the (Marvel superhero)++, (cape and costume)+, flying in the sky, (nyc skyline in background)+, sharp and focused, realistic, strong",
         f"a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, wide angle shot, sharp",
         f"(3d render)++ of {token}'s face, as an (android)++, (robot body parts)+, (cyberpunk)++ lighting",
     ]
 
-    debug_outputs: bool = False
+    debug_outputs: bool = True
     test_steps: int = 50
     test_images: int = 4
     test_guidance_scale: float = 20

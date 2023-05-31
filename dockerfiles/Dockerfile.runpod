@@ -43,18 +43,26 @@ RUN wget https://downloads.rclone.org/rclone-current-linux-amd64.zip && \
   cp rclone /usr/bin/ && \
   chmod 755 /usr/bin/rclone
 
-FROM rootventures/train-dreambooth-sagemaker:latest
+FROM rootventures/train-dreambooth:latest
 
 WORKDIR /dreambooth
+
+ENV CACHE_DIR /opt/ml/cache
+ENV TRITON_CACHE_DIR $CACHE_DIR/triton
+ENV TORCHINDUCTOR_CACHE_DIR $CACHE_DIR/torchinductor
+ENV PYTORCH_KERNEL_CACHE_PATH $CACHE_DIR/torch
+
+RUN mkdir -p \
+  $CACHE_DIR \
+  $TRITON_CACHE_DIR \
+  $TORCHINDUCTOR_CACHE_DIR \
+  $PYTORCH_KERNEL_CACHE_PATH
+
 ENV PYTHONUNBUFFERED 1
 ENV RUNPOD_DEBUG_LEVEL WARN
 ENV TOKENIZERS_PARALLELISM true
+ENV ACCELERATE_MIXED_PRECISION bf16
 ENV HF_MODEL_CACHE /root/.cache/huggingface/models
-
-RUN \
-  apt-get update && \
-  apt-get install -y git && \
-  rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --no-cache-dir -U \
@@ -67,9 +75,6 @@ ADD data/config/rclone.conf /root/.config/rclone/rclone.conf
 COPY --from=rclone /usr/bin/rclone /usr/bin/rclone
 COPY --from=download /root/model /root/.cache/huggingface/models
 COPY --from=download-2 /root/model/CodeFormer /root/.cache/huggingface/models/CodeFormer
-
-RUN rm -rf /opt/ml
-RUN mkdir -p $CACHE_DIR
 
 ADD . .
 

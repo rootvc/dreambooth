@@ -1,10 +1,9 @@
 # syntax = docker/dockerfile:experimental
 
-FROM ghcr.io/pytorch/pytorch-nightly:2.1.0.dev20230515-devel AS nightly
+FROM nvcr.io/nvidia/pytorch:23.05-py3
 
-ENV TORCH_CUDA_ARCH_LIST "7.0;7.2;7.5;8.0;8.6;8.7"
+ENV TORCH_CUDA_ARCH_LIST "7.0 7.5 8.0 8.6 9.0+PTX"
 ENV TF_CUDA_PATHS /usr/local/cuda
-ENV CUDA_HOME /usr/local/cuda
 ENV FORCE_CUDA 1
 ENV CCACHE_DIR /opt/ccache
 ENV DEBIAN_FRONTEND noninteractive
@@ -18,23 +17,4 @@ RUN --mount=type=cache,target=/opt/ccache \
   /usr/sbin/update-ccache-symlinks && \
   echo 'export PATH="/usr/lib/ccache:$PATH"' | tee -a ~/.bashrc
 
-RUN --mount=type=cache,target=/opt/ccache \
-  pip install ninja && \
-  pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
-
-# RUN --mount=type=cache,target=/root/.cache/pip \
-#   DS_BUILD_CPU_ADAM=1 DS_BUILD_UTILS=1 pip install git+https://github.com/yasyf/deepspeed.git@master#egg=deepspeed --global-option="build_ext" --global-option="-j8"
-# RUN ds_report
-
-RUN --mount=type=cache,target=/opt/conda/pkgs conda install -c conda-forge -qy --force-reinstall \
-  ncurses
-
-RUN --mount=type=cache,target=/opt/ccache \
-  export CUDA_VERSION=$(echo "$CUDA_VERSION" | tr -d '.' | rev | cut -c 2- | rev) && \
-  git clone https://github.com/TimDettmers/bitsandbytes.git && \
-  cd bitsandbytes && \
-  make cuda11x cuda11x_nomatmul && \
-  python setup.py install
-
-RUN cp -R /usr/local/cuda/include/* /opt/conda/include
-RUN ln -s /opt/conda/lib/libcudart.so.11.0 /opt/conda/lib/libcudart.so
+RUN pip install ninja

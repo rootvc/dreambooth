@@ -7,12 +7,14 @@ import tempfile
 import warnings
 from functools import partial
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import torch
 import torch.distributed
 import torch.version
-from sagemaker_training import environment
+
+if TYPE_CHECKING:
+    from sagemaker_training import environment
 
 from dreambooth.params import Class
 from dreambooth.train.shared import dprint
@@ -30,7 +32,7 @@ class Params(TypedDict):
     params: HyperParams
 
 
-def _unpack_model(env: environment.Environment, name: str):
+def _unpack_model(env: "environment.Environment", name: str):
     model_data = Path(env.channel_input_dirs["model"])
     model_dir = Path("models") / name
 
@@ -67,9 +69,9 @@ def _unpack_eval_models(model_dir: Path):
 def _setup_global_cache():
     import torch._inductor.config
 
-    torch._inductor.config.global_cache_dir = (
-        Path(os.environ["TORCHINDUCTOR_CACHE_DIR"]) / "global_cache"
-    )
+    path = Path(os.environ["TORCHINDUCTOR_CACHE_DIR"]) / "global_cache"
+    path.mkdir(exist_ok=True, parents=True)
+    torch._inductor.config.global_cache_dir = path
 
 
 def _persist_global_cache():
@@ -102,7 +104,7 @@ def _persist_global_cache():
     local_cache.unlink()
 
 
-def sagemaker_params(env: environment.Environment) -> Params:
+def sagemaker_params(env: "environment.Environment") -> Params:
     train_data = Path(env.channel_input_dirs["train"])
     prior_data = Path(env.channel_input_dirs["prior"])
     cache_data = Path(env.channel_input_dirs["cache"])
@@ -125,7 +127,7 @@ def sagemaker_params(env: environment.Environment) -> Params:
     return {"instance_path": train_data, "params": params}
 
 
-def sagemaker_cleanup(env: environment.Environment):
+def sagemaker_cleanup(env: "environment.Environment"):
     # No need to persist models
     shutil.rmtree(env.model_dir, ignore_errors=True)
     os.makedirs(env.model_dir, exist_ok=True)
@@ -234,7 +236,7 @@ def standalone_params(is_main: bool) -> Params:
 
         _unpack_eval_models(Path(hf_model_cache))
 
-    _setup_global_cache()
+    # _setup_global_cache()
 
     return {"instance_path": train_data, "params": params}
 
@@ -243,8 +245,8 @@ def standalone_cleanup():
     from cloudpathlib import CloudPath
 
     if os.getenv("WARM", "0") == "1":
-        dprint("Persisting global cache...")
-        _persist_global_cache()
+        # dprint("Persisting global cache...")
+        # _persist_global_cache()
         dprint("Copying cache back to S3...")
         subprocess.run(
             [

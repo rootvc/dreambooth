@@ -1,138 +1,26 @@
 # syntax = docker/dockerfile:experimental
-FROM rootventures/pytorch:latest AS build-base
+FROM rootventures/pytorch:latest
 
 WORKDIR /
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
+ENV NVIDIA_DISABLE_REQUIRE true
+ENV ACCELERATE_MIXED_PRECISION fp16
+ENV TORCHINDUCTOR_SEARCH_AUTOTUNE_CACHE 1
 
-RUN apt-get update && \
-  apt-get install -y build-essential cmake pkg-config wget unzip && \
-  apt-get install -y libjpeg-dev libtiff-dev libpng-dev libswscale-dev && \
-  apt-get install -y libatlas-base-dev gfortran && \
+RUN \
+  apt-get update && \
+  apt-get install -y pixz pigz && \
   rm -rf /var/lib/apt/lists/*
 
-FROM build-base AS cv-build
-
-RUN --mount=type=cache,target=/opt/ccache \
-  wget https://github.com/opencv/opencv/archive/refs/tags/4.7.0.zip -O opencv.zip && \
-  wget https://github.com/opencv/opencv_contrib/archive/refs/tags/4.7.0.zip -O opencv_contrib.zip && \
-  unzip opencv.zip && \
-  unzip opencv_contrib.zip && \
-  rm opencv.zip && \
-  cd opencv-4.7.0 && \
-  mkdir build && \
-  cd build && \
-  export python_exec=`which python` && \
-  export python_prefix=`python -c "import sys; print(sys.prefix)"` && \
-  export include_dir=`python -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())"` && \
-  export library=`python -c "import distutils.sysconfig as sysconfig; print(sysconfig.get_config_var('LIBDIR'))"` && \
-  cmake \
-  -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib-4.7.0/modules \
-  -D CMAKE_BUILD_TYPE=RELEASE \
-  -D CMAKE_INSTALL_PREFIX=$python_prefix \
-  -D WITH_TBB=ON \
-  -D WITH_CUDA=ON \
-  -D WITH_CUDNN=ON \
-  -D OPENCV_DNN_CUDA=ON \
-  -D ENABLE_FAST_MATH=1 \
-  -D CUDA_FAST_MATH=1 \
-  -D WITH_CUBLAS=1 \
-  -D BUILD_opencv_python3=ON \
-  -D BUILD_opencv_python2=OFF \
-  -D BUILD_opencv_apps=OFF \
-  -D BUILD_TESTS=OFF \
-  -D BUILD_PERF_TESTS=OFF \
-  -D BUILD_JAVA=OFF \
-  -D BUILD_FAT_JAVA_LIB=OFF \
-  -D INSTALL_PYTHON_EXAMPLES=OFF \
-  -D PYTHON_EXECUTABLE=$python_exec \
-  -D PYTHON_DEFAULT_EXECUTABLE=$python_exec \
-  -D PYTHON_INCLUDE_DIRS=$include_dir \
-  -D PYTHON_LIBRARY=$library \
-  -D BUILD_EXAMPLES=OFF \
-  -D BUILD_SHARED_LIBS=ON \
-  -D CUDA_ARCH_BIN=${TORCH_CUDA_ARCH_LIST} \
-  -D WITH_GTK=OFF \
-  -D WITH_FFMPEG=OFF \
-  -D WITH_QT=OFF \
-  -D WITH_V4L=OFF \
-  -D WITH_JASPER=OFF \
-  -D WITH_GSTREAMER=OFF \
-  -D INSTALL_PYTHON_EXAMPLES=OFF \
-  -D INSTALL_C_EXAMPLES=OFF \
-  -D BUILD_EXAMPLES=OFF \
-  -D BUILD_DOCS=OFF \
-  -D OPENCV_ENABLE_NONFREE=ON \
-  .. && \
-  make -j"$(nproc)"
-
-FROM build-base as conda
-
-RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba
-
 ADD environment.txt environment.txt
-RUN --mount=type=cache,target=/opt/conda/pkgs \
-  export MAMBA_ROOT_PREFIX=$(conda config --show root_prefix | cut -d' ' -f2) && \
-  eval "$(./bin/micromamba shell hook -s posix)" && \
-  micromamba activate && \
-  micromamba install -c conda-forge -qy \
-  --file environment.txt && \
-  micromamba clean --all --yes
-
-FROM build-base AS build
-
-WORKDIR /
-
-COPY --from=cv-build /opencv_contrib-4.7.0 /opencv_contrib-4.7.0
-COPY --from=cv-build /opencv-4.7.0 /opencv-4.7.0
-RUN cd /opencv-4.7.0/build && make install
-
-COPY --from=conda /opt/conda /opt/conda
-
-RUN CUDNN_NAME="cudnn-linux-x86_64-8.5.0.96_cuda11-archive" && \
-  curl --retry 3 -OLs https://ossci-linux.s3.amazonaws.com/${CUDNN_NAME}.tar.xz && \
-  tar xf ${CUDNN_NAME}.tar.xz && \
-  cp -r ${CUDNN_NAME}/include/* /opt/conda/include && \
-  cp -r ${CUDNN_NAME}/lib/* /opt/conda/lib && \
-  rm -rf ${CUDNN_NAME} && \
-  rm ${CUDNN_NAME}.tar.xz
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --upgrade --pre -r environment.txt
 
 ADD requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre -r requirements.txt
 
-# RUN git clone https://github.com/hpcaitech/ColossalAI.git && \
-#   cd ColossalAI && \
-#   CUDA_EXT=1 pip install .
-
-FROM ubuntu:22.04 AS train
-
-ENV NVIDIA_VISIBLE_DEVICES all
-ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
-ENV NVIDIA_DISABLE_REQUIRE true
-
-ENV ACCELERATE_MIXED_PRECISION fp16
-ENV PATH "/opt/conda/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/conda/lib:${LD_LIBRARY_PATH}"
-ENV CUDA_HOME /opt/conda
-ENV TF_CUDA_PATHS /opt/conda
-ENV FORCE_CUDA 1
-ENV DEBIAN_FRONTEND noninteractive
-
-ENV TORCHINDUCTOR_SEARCH_AUTOTUNE_CACHE 1
-# ENV NCCL_ASYNC_ERROR_HANDLING 1
-
-WORKDIR /
-
-RUN echo "export WANDB_API_KEY=${WANDB_API_KEY}" >> ~/.profile
-
-# Triton needs build-essential for JIT
-RUN \
-  apt-get update && \
-  apt-get install -y pixz pigz build-essential && \
-  rm -rf /var/lib/apt/lists/*
-
 ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
-COPY --from=build /opt/conda /opt/conda
 
 WORKDIR /dreambooth

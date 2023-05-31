@@ -34,7 +34,7 @@ init
 
 pull_build_push Dockerfile.pytorch pytorch min
 pull_build_push Dockerfile.train train-dreambooth max
-pull_build_push Dockerfile.sagemaker train-dreambooth-sagemaker min
+# pull_build_push Dockerfile.sagemaker train-dreambooth-sagemaker min
 pull_build_push Dockerfile.runpod train-dreambooth-runpod min
 
 # docker build \
