@@ -8,11 +8,10 @@ import trainMonitor from "@/events/train/monitor";
 import trainQueue from "@/events/train/queue";
 import trainStart from "@/events/train/start";
 
-export const { GET, POST, PUT } = serve(inngest, [
-  trainStart,
-  trainQueue,
-  trainMonitor,
-  trainComplete,
-  smsNotify,
-  boothPhotos,
-]);
+export const { GET, POST, PUT } = serve(
+  inngest,
+  [trainStart, trainQueue, trainMonitor, trainComplete, smsNotify, boothPhotos],
+  {
+    streaming: "allow",
+  }
+);

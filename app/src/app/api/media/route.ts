@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
     (await pify(readFile)(media.filepath)).toString("base64")
   );
 
-  await inngest.send("dreambooth/booth.photos", {
+  await inngest.send({
+    name: "dreambooth/booth.photos",
     data: {
       phone: fields.name as string,
       key: key,

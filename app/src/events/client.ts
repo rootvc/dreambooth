@@ -1,3 +1,18 @@
-import { Inngest } from "inngest";
+import { EventSchemas, Inngest } from "inngest";
 
-export const inngest = new Inngest({ name: "Dreambooth Events" });
+type PythonExecute = {
+  name: "dreambooth/python.execute";
+  data: { code: string };
+};
+
+type Rest = {
+  name: string;
+  data: any;
+};
+
+export type Events = PythonExecute | Rest;
+
+export const inngest = new Inngest({
+  name: "Dreambooth Events",
+  schemas: new EventSchemas().fromUnion<Events>(),
+});

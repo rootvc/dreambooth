@@ -1,10 +1,11 @@
-import { FunctionOptions, Inngest } from "inngest";
-import { Events as GenEvents } from "inngest-events";
+import { FunctionOptions, Inngest, type GetEvents } from "inngest";
 import { createStepTools } from "inngest/components/InngestStepTools";
 import { Redis } from "ioredis";
 import _ from "lodash";
 import hash from "object-hash";
 import { inngest } from "./client";
+
+type Events = GetEvents<typeof inngest>;
 
 type ParametersExceptFirst<F> = F extends (arg0: any, ...rest: infer R) => any
   ? R
@@ -12,11 +13,8 @@ type ParametersExceptFirst<F> = F extends (arg0: any, ...rest: infer R) => any
 type PromiseOrVal<T> = T | Promise<T>;
 type PreserveNonNullable<T> = T extends NonNullable<infer U> ? U : T;
 
-type Events = GenEvents<{
-  "dreambooth/python.execute": { name: string; data: any };
-}>;
 type Event = keyof Events;
-type Tools<E extends Event> = ReturnType<typeof createStepTools<Events, E>>[0];
+type Tools<E extends Event> = ReturnType<typeof createStepTools>;
 
 const redisClient = new Redis(process.env.REDIS_URL || "");
 
@@ -64,7 +62,7 @@ const _collect = async <
   )) as O & { [K in keyof C[number]]: C[number][K] };
 
 const _send = async <S extends Event, D extends Event>(
-  inngest: Inngest<Events>,
+  inngest: Inngest,
   tools: Tools<S>,
   dest: D,
   body: Events[D]["data"],
@@ -93,10 +91,7 @@ const partial = <E extends Event, T, F extends (...args: any) => T>(
   return wrapped;
 };
 
-const getTools = <E extends Event>(
-  inngest: Inngest<Events>,
-  tools: Tools<E>
-) => {
+const getTools = <E extends Event>(inngest: Inngest, tools: Tools<E>) => {
   const run = async <T>(...args: ParametersExceptFirst<typeof _run<E, T>>) =>
     _run<E, T>(tools, ...args);
   const get = async <T, A extends string>(
@@ -121,11 +116,12 @@ const _defineFunction = <E extends Event>(
   }) => any,
   opts: Omit<FunctionOptions<Events, E>, "name"> = {}
 ) => {
-  return inngest.createFunction<{}, { event: E } | { cron: string }>(
+  return inngest.createFunction<{}, any, { event: E } | { cron: string }>(
     { name, ...opts },
     trigger,
     ({ event, step }: { event: Events[E]; step: Tools<E> }) => {
       const { run, ...rest } = step;
+      // @ts-ignore
       return fn({ event, tools: { ...getTools<E>(inngest, step), ...rest } });
     }
   );
