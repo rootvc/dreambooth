@@ -171,7 +171,7 @@ class HyperParams(BaseModel):
         f"(3d render)++ of {token}'s face, as an (android)++, (robot body parts)+, (cyberpunk)++ lighting",
     ]
 
-    debug_outputs: bool = True
+    debug_outputs: bool = False
     test_steps: int = 50
     test_images: int = 4
     test_guidance_scale: float = 20
