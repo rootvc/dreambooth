@@ -119,7 +119,7 @@ const _defineFunction = <E extends Event>(
   return inngest.createFunction<{}, any, { event: E } | { cron: string }>(
     { name, ...opts },
     trigger,
-    ({ event, step }: { event: Events[E]; step: Tools<E> }) => {
+    async ({ event, step }: { event: Events[E]; step: Tools<E> }) => {
       const { run, ...rest } = step;
       // @ts-ignore
       return fn({ event, tools: { ...getTools<E>(inngest, step), ...rest } });
