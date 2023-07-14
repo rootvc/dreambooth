@@ -11,7 +11,7 @@ export default defineFunction(
   "Complete a training run",
   "dreambooth/train.complete",
   async ({
-    tools: { run, send, redis },
+    tools: { run, send, redis, sleep },
     event: {
       data: { id, phone },
     },
@@ -20,10 +20,16 @@ export default defineFunction(
       await redis.hmset(`fin/${id}`, { ts: Date.now(), phone: phone });
       await redis.del(`ts/${id}`);
     });
-    await run(
-      "send to printer server",
-      async () => await got.post(PRINT_SERVER, { json: { id } }).json()
-    );
+    try {
+      await run(
+        "send to printer server",
+        async () => await got.post(PRINT_SERVER, { json: { id } }).json()
+      );
+    } catch (e) {
+      console.error(e);
+      await sleep("10 seconds");
+      await send("dreambooth/train.start", { id, phone });
+    }
     const mediaUrl = await run(
       "get pre-signed URL",
       async () =>
