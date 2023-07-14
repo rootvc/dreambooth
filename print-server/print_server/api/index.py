@@ -11,10 +11,13 @@ BUCKET = "rootvc-photobooth"
 
 app = Sanic(name="print-server")
 
+photos = Path.home() / ".dreambooth" / "photos"
+photos.mkdir(parents=True, exist_ok=True)
+
 
 def _download_from_s3(id):
     print(f"Downloading {id} from S3")
-    path = Path(tempfile.mkdtemp()) / f"{id}.png"
+    path = photos / f"{id}.png"
     S3Path(f"s3://{BUCKET}/output/{id}/grid.png").download_to(path)
     return path
 
