@@ -70,7 +70,7 @@ const _send = async <S extends Event, D extends Event>(
 ) => {
   const h = hash(body, { unorderedArrays: true });
   await _run<S, any>(tools, `send ${String(dest)}:${h}`, async () => {
-    await tools.sendEvent<any>({ name: dest, data: body, user: user });
+    await inngest.send<any>({ name: dest, data: body, user: user });
   });
 };
 
