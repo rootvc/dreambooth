@@ -1,7 +1,7 @@
 import asyncio
 import subprocess
-import tempfile
 from pathlib import Path
+import time
 
 from cloudpathlib import S3Path
 from sanic import Sanic, response
@@ -17,7 +17,7 @@ photos.mkdir(parents=True, exist_ok=True)
 
 def _download_from_s3(id):
     print(f"Downloading {id} from S3")
-    path = photos / f"{id}.png"
+    path = photos / f"{id}_{int(time.time())}.png"
     S3Path(f"s3://{BUCKET}/output/{id}/grid.png").download_to(path)
     return str(path)
 
