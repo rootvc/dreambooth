@@ -19,7 +19,7 @@ def _download_from_s3(id):
     print(f"Downloading {id} from S3")
     path = photos / f"{id}.png"
     S3Path(f"s3://{BUCKET}/output/{id}/grid.png").download_to(path)
-    return path
+    return str(path)
 
 
 def _send_to_printer(id):
