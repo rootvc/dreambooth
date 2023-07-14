@@ -119,7 +119,10 @@ class Evaluator:
         )
         image = np.asarray(resized)
         canny = self._canny(image)
-        masked = self._mask(image, canny)
+        try:
+            masked = self._mask(image, canny)
+        except IndexError:
+            masked = canny
         return Image.fromarray(masked)
 
     @cached_property
