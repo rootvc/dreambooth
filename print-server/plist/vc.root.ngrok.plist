@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>vc.root.ngrok</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/ngrok</string>
+        <string>http</string>
+        <string>8000</string>
+        <string>--domain</string>
+        <string>print.root.vc</string>
+    </array>
+    <key>UserName</key>
+    <string>rootventures</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>Debug</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/rootventures/dreambooth/print-server</string>
+    <key>StandardOutPath</key>
+    <string>/var/log/vc.root/ngrok.out</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/vc.root/ngrok.err</string>
+</dict>
+</plist>

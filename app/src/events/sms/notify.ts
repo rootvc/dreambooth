@@ -1,3 +1,4 @@
+import { OpenAIChatMessage, OpenAIChatModel, generateText } from "modelfusion";
 import { Twilio } from "twilio";
 import { SMS_COPY, TWILIO } from "../constants";
 import { defineFunction } from "../tools";
@@ -17,11 +18,26 @@ export default defineFunction(
     const copy = await run("get copy", () =>
       SMS_COPY[key as keyof typeof SMS_COPY](args)
     );
+    const { text: body } = await run(
+      "make copy unique",
+      async () =>
+        await generateText(
+          new OpenAIChatModel({ model: "gpt-3.5-turbo", temperature: 0.8 }),
+          [
+            OpenAIChatMessage.system(
+              "Take the following SMS message and modify it to be unique, " +
+                "so that it does not mistakenly get filtered out as spam. " +
+                "Make sure it is short enough to fit in a single SMS message."
+            ),
+            OpenAIChatMessage.user(copy),
+          ]
+        )
+    );
     await run("send SMS", () => {
       twilio.messages.create({
         from: TWILIO.PHONE_NUMBER,
         to: phone,
-        body: copy,
+        body,
         mediaUrl: mediaUrl ? [mediaUrl] : undefined,
       });
     });

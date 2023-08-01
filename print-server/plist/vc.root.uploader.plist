@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>vc.root.uploader</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/rootventures/.asdf/shims/python</string>
+        <string>-m</string>
+	    <string>uploader</string>
+    </array>
+    <key>UserName</key>
+    <string>rootventures</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>Debug</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/rootventures/dreambooth/print-server</string>
+    <key>StandardOutPath</key>
+    <string>/var/log/vc.root/uploader.out</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/vc.root/uploader.err</string>
+</dict>
+</plist>

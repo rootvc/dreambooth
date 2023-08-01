@@ -1,4 +1,4 @@
-import got from "got";
+import got, { RequestError } from "got";
 import { API_ID } from "../constants";
 import { defineFunction } from "../tools";
 
@@ -20,21 +20,26 @@ export default defineFunction(
     },
   }) => {
     while (true) {
-      const response = (await run(
-        "get training job status",
-        async () =>
-          await got
-            .get(`${URL}/${requestId}`, {
-              headers: {
-                Authorization: `Bearer ${process.env.RUNPOD_API_KEY}`,
-              },
-            })
-            .json()
-      )) as StatusResponse;
+      const response = <StatusResponse>(
+        await run("get training job status", async () => {
+          try {
+            return await got
+              .get(`${URL}/${requestId}`, {
+                headers: {
+                  Authorization: `Bearer ${process.env.RUNPOD_API_KEY}`,
+                },
+              })
+              .json();
+          } catch (error: any) {
+            console.error(<RequestError>error.response);
+            throw error;
+          }
+        })
+      );
       if (["COMPLETED", "FAILED"].includes(response.status)) {
         break;
       }
-      await sleep("1 second");
+      await sleep("3 seconds");
     }
 
     await send("dreambooth/train.complete", { phone, id });

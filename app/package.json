@@ -23,6 +23,7 @@
     "ioredis": "^5.3.1",
     "lodash": "^4.17.21",
     "luxon": "^3.3.0",
+    "modelfusion": "^0.1.1",
     "next": "^13.4.7",
     "object-hash": "^3.0.0",
     "pify": "^6.1.0",
@@ -34,7 +35,9 @@
     "twilio": "^4.10.0",
     "typescript": "5.0.4",
     "usehooks-ts": "^2.9.1",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "zod": "^3.21.4",
+    "zod-to-json-schema": "^3.21.4"
   },
   "devDependencies": {
     "@types/formidable": "^2.0.5",
