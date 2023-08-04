@@ -12,7 +12,7 @@ export default async function Session({
   keyTemplate: string;
   el: React.ElementType;
 }) {
-  let { ts, phone } = await redis.hgetall(id);
+  let { ts, phone, status } = await redis.hgetall(id);
   let key = id.split("/")[1];
   let photo = await getSignedUrl(
     s3client as any,
@@ -22,5 +22,5 @@ export default async function Session({
     }) as any,
     { expiresIn: 3600 }
   );
-  return <El ts={Number(ts)} phone={phone} photo={photo} />;
+  return <El ts={Number(ts)} phone={phone} photo={photo} status={status} />;
 }

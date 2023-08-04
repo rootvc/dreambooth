@@ -4,6 +4,7 @@ import Complete from "./complete";
 import Pending from "./pending";
 import Session from "./session";
 
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function Sessions() {

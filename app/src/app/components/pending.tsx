@@ -7,10 +7,12 @@ export default function Pending({
   ts,
   phone,
   photo,
+  status,
 }: {
   ts: number;
   phone: string;
   photo: string;
+  status: string;
 }) {
   const start = DateTime.fromMillis(ts);
   const end = start.plus({ minutes: 3 });
@@ -27,14 +29,17 @@ export default function Pending({
         priority={true}
         style={{ borderRadius: "50%" }}
       />
-      <CircularProgressBar
-        progress={progress}
-        duration={total}
-        trackColor="rgba(14, 165, 233, 0.4)"
-        color="#04E400"
-        radius={75}
-        shadow={true}
-      />
+      <div className="flex flex-col items-center space-y-2">
+        <CircularProgressBar
+          progress={progress}
+          duration={total}
+          trackColor="rgba(14, 165, 233, 0.4)"
+          color="#04E400"
+          radius={70}
+          shadow={true}
+        />
+        <span>{status}</span>
+      </div>
     </div>
   );
 }

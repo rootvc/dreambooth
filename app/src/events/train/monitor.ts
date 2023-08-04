@@ -1,5 +1,5 @@
 import got, { RequestError } from "got";
-import { API_ID } from "../constants";
+import { API_ID, STATUS } from "../constants";
 import { defineFunction } from "../tools";
 
 const URL = `https://api.runpod.ai/v2/${API_ID}/status`;
@@ -14,7 +14,7 @@ export default defineFunction(
   "Monitor a training run",
   "dreambooth/train.monitor",
   async ({
-    tools: { run, send, sleep },
+    tools: { run, send, sleep, redis },
     event: {
       data: { id, phone, requestId },
     },
@@ -36,7 +36,16 @@ export default defineFunction(
           }
         })
       );
-      if (["COMPLETED", "FAILED"].includes(response.status)) {
+      if (response.status === "IN_PROGRESS") {
+        await run(
+          "update status",
+          async () => await redis.hset(`ts/${id}`, { status: STATUS.TRAINING })
+        );
+      } else if (["COMPLETED", "FAILED"].includes(response.status)) {
+        await run(
+          "update status",
+          async () => await redis.hset(`ts/${id}`, { status: STATUS.PRINTING })
+        );
         break;
       }
       await sleep("3 seconds");

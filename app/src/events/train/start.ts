@@ -1,5 +1,5 @@
 import got from "got";
-import { API_ID, BUCKET, GIT_REMOTE_URL } from "../constants";
+import { API_ID, BUCKET, GIT_REMOTE_URL, STATUS } from "../constants";
 import { defineFunction } from "../tools";
 
 const URL = `https://api.runpod.ai/v2/${API_ID}/run`;
@@ -8,7 +8,7 @@ export default defineFunction(
   "Start a training run",
   "dreambooth/train.start",
   async ({
-    tools: { run, send },
+    tools: { run, send, redis },
     event: {
       data: { id, phone },
     },
@@ -38,6 +38,10 @@ export default defineFunction(
           })
           .json()
     )) as { id: string };
+    await run(
+      "update status",
+      async () => await redis.hset(`ts/${id}`, { status: STATUS.QUEUED })
+    );
     await send("dreambooth/train.monitor", {
       id,
       phone,

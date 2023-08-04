@@ -17,11 +17,6 @@ export default defineFunction(
       data: { id, phone },
     },
   }) => {
-    await run("store ts", async () => {
-      await redis.hmset(`fin/${id}`, { ts: Date.now(), phone: phone });
-      await redis.del(`ts/${id}`);
-    });
-
     let mediaUrl;
     try {
       mediaUrl = await run("get pre-signed URL", async () => {
@@ -48,6 +43,12 @@ export default defineFunction(
       await send("dreambooth/train.start", { id, phone });
       return;
     }
+
+    await run("store ts", async () => {
+      await redis.hmset(`fin/${id}`, { ts: Date.now(), phone: phone });
+      await redis.del(`ts/${id}`);
+    });
+
     await send("dreambooth/sms.notify", {
       phone,
       id,
