@@ -5,6 +5,8 @@ export const SMS_COPY: {
     "Hey from RootVC! Stay tuned for your AI avatars shortly. This should take about 90 seconds...",
   FINISHED: ({ id }) =>
     `Your AI avatars are ready! Go grab them from the printer :)`,
+  ERRORED: ({ error }) =>
+    `Sorry, something went wrong. Please try again later. Error: ${error}`,
 };
 
 export const KEYS = {

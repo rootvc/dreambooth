@@ -8,6 +8,7 @@ type StatusResponse = {
   delayTime: number;
   id: string;
   status: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "IN_QUEUE";
+  error?: string;
 };
 
 export default defineFunction(
@@ -41,11 +42,23 @@ export default defineFunction(
           "update status",
           async () => await redis.hset(`ts/${id}`, { status: STATUS.TRAINING })
         );
-      } else if (["COMPLETED", "FAILED"].includes(response.status)) {
+      } else if (response.status === "COMPLETED") {
         await run(
           "update status",
           async () => await redis.hset(`ts/${id}`, { status: STATUS.PRINTING })
         );
+        await send("dreambooth/train.complete", { phone, id });
+        break;
+      } else if (response.status === "FAILED") {
+        await run(
+          "update status",
+          async () => await redis.hset(`ts/${id}`, { status: STATUS.FINISHED })
+        );
+        await send("dreambooth/sms.notify", {
+          phone,
+          key: "ERRORED",
+          error: response.error,
+        });
         break;
       }
       await sleep("3 seconds");
