@@ -17,32 +17,24 @@ export default defineFunction(
       data: { id, phone },
     },
   }) => {
-    let mediaUrl;
-    try {
-      mediaUrl = await run("get pre-signed URL", async () => {
-        try {
-          await getSignedUrl(
-            <any>new S3Client({ region: AWS_REGION }),
-            <any>new GetObjectCommand({
-              Bucket: BUCKET,
-              Key: `output/${id}/grid.png`,
-            }),
-            { expiresIn: 3600 }
-          );
-        } catch (error: any) {
-          if (error.httpStatusCode === 404) {
-            throw new NonRetriableError("Image not found", { cause: error });
-          } else {
-            throw error;
-          }
+    const mediaUrl = await run("get pre-signed URL", async () => {
+      try {
+        return await getSignedUrl(
+          <any>new S3Client({ region: AWS_REGION }),
+          <any>new GetObjectCommand({
+            Bucket: BUCKET,
+            Key: `output/${id}/grid.png`,
+          }),
+          { expiresIn: 3600 }
+        );
+      } catch (error: any) {
+        if (error.httpStatusCode === 404) {
+          throw new NonRetriableError("Image not found", { cause: error });
+        } else {
+          throw error;
         }
-      });
-    } catch (error: any) {
-      console.error(error);
-      await sleep("10 seconds");
-      await send("dreambooth/train.start", { id, phone });
-      return;
-    }
+      }
+    });
 
     await run("store ts", async () => {
       await redis.hmset(`fin/${id}`, { ts: Date.now(), phone: phone });
@@ -69,5 +61,17 @@ export default defineFunction(
       }
       break;
     }
+  },
+  {
+    // @ts-ignore
+    onFailure: async ({
+      error,
+      event: { id, phone },
+      step: { sleep, send },
+    }) => {
+      console.error(error);
+      await sleep("10 seconds");
+      await send("dreambooth/train.start", { id, phone });
+    },
   }
 );
