@@ -60,11 +60,13 @@ class UploadHandler(FileSystemEventHandler):
 
 
 def main():
+    logger.info("Starting...")
+
     observer = Observer()
     observer.schedule(UploadHandler(), Path(PROMPTS).parent)
     observer.start()
 
-    print("Watching for changes...")
+    logger.info("Watching for changes...")
 
     try:
         while observer.is_alive():

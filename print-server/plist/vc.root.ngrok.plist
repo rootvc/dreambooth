@@ -11,6 +11,8 @@
         <string>8000</string>
         <string>--domain</string>
         <string>print.root.vc</string>
+        <string>--log</string>
+        <string>stdout</string>
     </array>
     <key>UserName</key>
     <string>rootventures</string>
