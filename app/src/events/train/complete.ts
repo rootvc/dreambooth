@@ -50,16 +50,20 @@ export default defineFunction(
 
     while (true) {
       try {
-        await run(
-          "send to printer server",
-          async () => await got.post(PRINT_SERVER, { json: { id } }).json()
-        );
+        let error = await run("send to printer server", async () => {
+          try {
+            await got.post(PRINT_SERVER, { json: { id } }).json();
+          } catch (error) {
+            return error;
+          }
+        });
+        if (error) throw error;
+        break;
       } catch (error: any) {
         console.error(<RequestError>error.response);
         await sleep("30 seconds");
         continue;
       }
-      break;
     }
   },
   {
@@ -67,11 +71,11 @@ export default defineFunction(
     onFailure: async ({
       error,
       event: { id, phone },
-      step: { sleep, send },
+      step: { sleep, sendEvent },
     }) => {
       console.error(error);
       await sleep("10 seconds");
-      await send("dreambooth/train.start", { id, phone });
+      await sendEvent({ name: "dreambooth/train.start", data: { id, phone } });
     },
   }
 );
