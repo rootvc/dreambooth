@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile:experimental
 
-FROM nvcr.io/nvidia/pytorch:23.05-py3
+FROM nvcr.io/nvidia/pytorch:23.07-py3
 
 ENV TORCH_CUDA_ARCH_LIST "7.0 7.5 8.0 8.6 9.0+PTX"
 ENV TF_CUDA_PATHS /usr/local/cuda
