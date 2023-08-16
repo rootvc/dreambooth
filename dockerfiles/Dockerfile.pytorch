@@ -2,11 +2,15 @@
 
 FROM nvcr.io/nvidia/pytorch:23.07-py3
 
+ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
+
 ENV TORCH_CUDA_ARCH_LIST "7.0 7.5 8.0 8.6 9.0+PTX"
 ENV TF_CUDA_PATHS /usr/local/cuda
 ENV FORCE_CUDA 1
 ENV CCACHE_DIR /opt/ccache
 ENV DEBIAN_FRONTEND noninteractive
+
+RUN ln -sf ${_CUDA_COMPAT_PATH}/lib.real ${_CUDA_COMPAT_PATH}/lib
 
 RUN \
   apt-get update && \
