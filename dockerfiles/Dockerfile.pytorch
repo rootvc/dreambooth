@@ -10,8 +10,6 @@ ENV FORCE_CUDA 1
 ENV CCACHE_DIR /opt/ccache
 ENV DEBIAN_FRONTEND noninteractive
 
-RUN ln -sf ${_CUDA_COMPAT_PATH}/lib.real ${_CUDA_COMPAT_PATH}/lib
-
 RUN \
   apt-get update && \
   apt-get install -y curl git build-essential ccache && \

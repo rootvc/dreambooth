@@ -48,8 +48,7 @@ def run(job):
 
 def main():
     try:
-        # prepare()
-        pass
+        prepare()
     except Exception:
         traceback.print_exc()
         warnings.warn("Warmup failed. Requests will likely fail too.")

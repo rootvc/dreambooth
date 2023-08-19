@@ -37,7 +37,7 @@ TEST_PROMPTS = [
 
 
 class Class(BaseModel):
-    IMAGENET_TEMPLATES = [
+    IMAGENET_TEMPLATES: list[str] = [
         "a photo of a {}",
         "a rendering of a {}",
         "a cropped photo of the {}",
@@ -135,7 +135,7 @@ class HyperParams(BaseModel):
 
     # LoRA
     lora_rank: int = 96
-    lora_alpha = 5.0
+    lora_alpha: float = 5.0
     lora_dropout: float = 0.1
 
     # Text Encoder
@@ -175,8 +175,8 @@ class HyperParams(BaseModel):
     test_steps: int = 50
     test_images: int = 4
     test_guidance_scale: float = 20
-    test_strength = 0.90  # 0.70
-    mask_padding = 0.15
+    test_strength: float = 0.90  # 0.70
+    mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
     image_output_path: Path = Path("output/images")
