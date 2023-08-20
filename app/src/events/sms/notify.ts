@@ -27,19 +27,20 @@ export default defineFunction(
             OpenAIChatMessage.system(
               "Take the following SMS message and modify it to be unique, " +
                 "so that it does not mistakenly get filtered out as spam. " +
-                "Make sure it is short enough to fit in a single SMS message."
+                "Make sure it is short enough to fit in a single SMS message. " +
+                "Strip out any links."
             ),
             OpenAIChatMessage.user(copy),
           ]
         )
     );
-    await run("send SMS", () => {
+    await run("send SMS", () =>
       twilio.messages.create({
         from: TWILIO.PHONE_NUMBER,
         to: phone,
         body,
         mediaUrl: mediaUrl ? [mediaUrl] : undefined,
-      });
-    });
+      })
+    );
   }
 );

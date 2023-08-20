@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --no-deps \
-  git+https://github.com/patrickvonplaten/controlnet_aux.git@master#egg=controlnet_aux \
+  git+https://github.com/patrickvonplaten/controlnet_aux.git@d533c6963e99408994434151da9847ba9b662237#egg=controlnet_aux \
   mediapipe
 
 ADD requirements.txt requirements.txt

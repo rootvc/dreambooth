@@ -1,3 +1,4 @@
-transformers>=4.29.2
+transformers==4.29.2
+tokenizers==0.13.3
 wandb>=0.15.4
 orjson>=3.8.8

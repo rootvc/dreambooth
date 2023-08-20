@@ -1,6 +1,6 @@
 # syntax = docker/dockerfile:experimental
 
-FROM nvcr.io/nvidia/pytorch:23.07-py3
+FROM nvcr.io/nvidia/pytorch:23.05-py3
 
 ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
 

@@ -1,6 +1,6 @@
-git+https://github.com/huggingface/accelerate.git@main#egg=accelerate
-git+https://github.com/huggingface/diffusers.git@main#egg=diffusers
-git+https://github.com/huggingface/peft.git@main#egg=peft
-git+https://github.com/damian0815/compel.git@main#egg=compel
+git+https://github.com/huggingface/accelerate.git@eafddf02e381a98c6b8ba75081efb8851f516810#egg=accelerate
+git+https://github.com/huggingface/diffusers.git@a06317abeaad843d7a722562c2ec6fbb988b0ad8#egg=diffusers
+git+https://github.com/huggingface/peft.git@ba7b1011b8ac5d869d1ff3691f704819e13618af#egg=peft
+git+https://github.com/damian0815/compel.git@de39f474847f07279c6ba5428e49b2f0b629a405#egg=compel
 safetensors>=0.3.1
-bitsandbytes>=0.38.0
+bitsandbytes==0.39.0
