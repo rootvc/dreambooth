@@ -150,7 +150,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "((<bad_features>)0.60, '(poorly drawn face)++, (elderly)++, old', '(disgusting)+++, (scary)+, (distored)+, (disfigured)++, (deformed)+, twisted', '(grainy)+, unfocused', 'eyes closed, (bad smile)++++, (ugly)++++').and()"
+    negative_prompt: str = "((<bad_features>)0.60, '(poorly drawn face)++, (elderly)++, old', '(disgusting)+++, (scary)+, (distored)+, (disfigured)++, (deformed)+, twisted', '(grainy)+, unfocused', 'eyes closed, (bad smile)++++, (ugly)++++', 'fat, chubby').and()"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
@@ -166,9 +166,9 @@ class HyperParams(BaseModel):
         f"('8k portrait of {token}, (wearing a colorful suit)++', (pop art style)+, clear and vibrant).and()",
         f"(an (animation)+ of {token}, a character (from Naruto)+++, '(anime)++, colorful').and()",
         f"('an (oil painting)+++ of {token}, by van gogh', (starry night sky in background)+, (vibrant)+).and()",
-        f"(a photograph of {token} the (Marvel superhero)++, '(cape and costume)+, flying in the sky, (nyc skyline in background)+', 'sharp and focused, realistic, strong').and()",
+        f"(a photograph of {token}+ the (Marvel superhero)++, '(cape and costume)+, flying in the sky, (nyc skyline in background)+', 'sharp and focused, realistic, strong').and()",
         f"(a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, 'wide angle shot, sharp').and()",
-        f"('(3d render)++ of {token}'s face, as an (android)++', (robot body parts)+, (cyberpunk)++ lighting).and()",
+        f"('(3d render)++ of {token}+, as an (android)++', (robot body parts)+, (cyberpunk)++ lighting).and()",
     ]
 
     debug_outputs: bool = False

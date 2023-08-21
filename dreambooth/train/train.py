@@ -221,6 +221,7 @@ def standalone_params(is_main: bool) -> Params:
     train_data_path = bucket / "dataset" / id
     priors_path = bucket / "priors" / hash_bytes(HyperParams().prior_prompt.encode())
 
+    dprint("Downloading priors and training data from S3...")
     for src, dst in {train_data_path: train_data, priors_path: prior_data}.items():
         if src.exists() and not dst.exists():
             src.download_to(dst)
@@ -299,7 +300,7 @@ def main():
         raise ValueError("No input data provided!")
 
     model = get_model(**params)
-    model.accelerator.wait_for_everyone()
+    # model.accelerator.wait_for_everyone()
 
     try:
         pipeline = model.train()
