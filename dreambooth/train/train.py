@@ -32,6 +32,30 @@ class Params(TypedDict):
     params: HyperParams
 
 
+def _download(src: Path, dst: str | Path):
+    subprocess.run(
+        [
+            "rclone",
+            "copy",
+            "--progress",
+            "--checksum",
+            "--fast-list",
+            "--human-readable",
+            "--stats-one-line",
+            "--transfers=64",
+            "--disable-http2",
+            "--checkers=64",
+            "--s3-env-auth",
+            "--s3-region=us-west-2",
+            "--s3-use-accelerate-endpoint",
+            "--s3-no-check-bucket",
+            "--s3-no-head",
+            src.as_uri().replace("s3://", "s3:/"),
+            dst,
+        ]
+    )
+
+
 def _unpack_model(env: "environment.Environment", name: str):
     model_data = Path(env.channel_input_dirs["model"])
     model_dir = Path("models") / name
@@ -193,27 +217,7 @@ def standalone_params(is_main: bool) -> Params:
         params.test_images = 1
 
         dprint("Downloading cache from S3...")
-        subprocess.run(
-            [
-                "rclone",
-                "copy",
-                "--progress",
-                "--checksum",
-                "--fast-list",
-                "--human-readable",
-                "--stats-one-line",
-                "--transfers=64",
-                "--disable-http2",
-                "--checkers=64",
-                "--s3-env-auth",
-                "--s3-region=us-west-2",
-                "--s3-use-accelerate-endpoint",
-                "--s3-no-check-bucket",
-                "--s3-no-head",
-                cache_path(),
-                os.environ["CACHE_DIR"],
-            ]
-        )
+        _download(cache_path(), os.environ["CACHE_DIR"])
 
     if not is_main:
         return {"instance_path": train_data, "params": params}
@@ -224,7 +228,7 @@ def standalone_params(is_main: bool) -> Params:
     dprint("Downloading priors and training data from S3...")
     for src, dst in {train_data_path: train_data, priors_path: prior_data}.items():
         if src.exists() and not dst.exists():
-            src.download_to(dst)
+            _download(src, dst)
 
     if hf_model_cache := os.getenv("HF_MODEL_CACHE"):
         cache = Path(hf_model_cache)
