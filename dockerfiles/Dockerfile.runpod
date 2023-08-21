@@ -1,30 +1,34 @@
 # syntax = docker/dockerfile:experimental
 
-FROM rootventures/train-dreambooth:latest AS download
+FROM rootventures/train-dreambooth:latest AS pre-download
 
 ENV HF_MODEL_CACHE /root/model
+RUN mkdir -p $HF_MODEL_CACHE
+
+RUN \
+  apt-get update && \
+  apt-get install -y wget unzip && \
+  rm -rf /var/lib/apt/lists/*
+
+FROM pre-download AS download
+
+ENV OC_CAUSE 1
 
 ADD dreambooth/params.py dreambooth/params.py
 ADD dreambooth/download.py dreambooth/download.py
 
-RUN mkdir -p $HF_MODEL_CACHE && python3 -m dreambooth.download
+RUN pip install --no-cache-dir omegaconf
+RUN python3 -m dreambooth.download
 
-FROM rootventures/train-dreambooth:latest AS download-2
-
-ENV HF_MODEL_CACHE /root/model
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --no-cache-dir cloudpathlib==0.13.0
-
-ADD dreambooth/params.py dreambooth/params.py
-ADD dreambooth/train/download_eval_models.py dreambooth/train/download_eval_models.py
-
-RUN mkdir -p $HF_MODEL_CACHE/CodeFormer && python3 -m dreambooth.train.download_eval_models
+FROM pre-download AS download-2
 
 RUN \
   apt-get update && \
   apt-get install -y wget && \
   rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --no-cache-dir cloudpathlib==0.13.0
 
 RUN mkdir -p $HF_MODEL_CACHE/CodeFormer/embeddings
 RUN wget https://civitai.com/api/download/models/77169 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
@@ -33,13 +37,19 @@ RUN wget https://civitai.com/api/download/models/77173 -P $HF_MODEL_CACHE/CodeFo
   mv $HF_MODEL_CACHE/CodeFormer/embeddings/77173 $HF_MODEL_CACHE/CodeFormer/embeddings/unreal_dream.pt
 RUN wget https://civitai.com/api/download/models/94057 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
   mv $HF_MODEL_CACHE/CodeFormer/embeddings/94057 $HF_MODEL_CACHE/CodeFormer/embeddings/all_negative.pt
+RUN wget https://civitai.com/api/download/models/86553 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  mv $HF_MODEL_CACHE/CodeFormer/embeddings/86553 $HF_MODEL_CACHE/CodeFormer/embeddings/juggernaut_neg.pt
+RUN wget https://civitai.com/api/download/models/83081 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  mv $HF_MODEL_CACHE/CodeFormer/embeddings/83081 $HF_MODEL_CACHE/CodeFormer/embeddings/enhancer.pt
+RUN wget https://civitai.com/api/download/models/87153 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  mv $HF_MODEL_CACHE/CodeFormer/embeddings/87153 $HF_MODEL_CACHE/CodeFormer/embeddings/add_details.pt
 
-FROM rootventures/train-dreambooth:latest AS rclone
+ADD dreambooth/params.py dreambooth/params.py
+ADD dreambooth/train/download_eval_models.py dreambooth/train/download_eval_models.py
 
-RUN \
-  apt-get update && \
-  apt-get install -y wget unzip && \
-  rm -rf /var/lib/apt/lists/*
+RUN python3 -m dreambooth.train.download_eval_models
+
+FROM pre-download AS rclone
 
 RUN wget https://downloads.rclone.org/rclone-current-linux-amd64.zip && \
   unzip rclone-current-linux-amd64.zip && \
@@ -68,8 +78,10 @@ ENV TOKENIZERS_PARALLELISM true
 ENV ACCELERATE_MIXED_PRECISION bf16
 ENV HF_MODEL_CACHE /root/.cache/huggingface/models
 
+
+ADD constraints.txt constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --no-cache-dir -U \
+  pip install --upgrade-strategy only-if-needed -c constraints.txt \
   git+https://github.com/runpod/runpod-python.git@main#egg=runpod \
   cloudpathlib==0.13.0
 

@@ -19,6 +19,7 @@ pull_build_push() {
   docker pull "$IMAGE_NAME"
   docker build \
     -o type=registry,oci-mediatypes=true \
+    --cache-to=type=local,dest=/tmp/cache/docker/$2 \
     --cache-from type=local,src=/tmp/cache/docker/$2 \
     --cache-from=type=registry,ref=rootventures/$2:latest \
     --cache-from=type=registry,ref=rootventures/$2 \
