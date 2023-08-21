@@ -91,7 +91,7 @@ class Class(BaseModel):
 
 
 class Model(BaseModel):
-    name: Union[str, Path] = "runwayml/stable-diffusion-v1-5"
+    name: Union[str, Path] = "Lykon/DreamShaper"
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-mse"
     control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
     resolution: int = 512
