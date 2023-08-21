@@ -91,7 +91,8 @@ class Class(BaseModel):
 
 
 class Model(BaseModel):
-    name: Union[str, Path] = "Lykon/DreamShaper"
+    name: Union[str, Path] = "Lykon/AbsoluteReality"
+    variant: Optional[str] = "AbsoluteReality_1.8.1_pruned"
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-mse"
     control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
     resolution: int = 512
@@ -150,7 +151,8 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "<all_negative>, <bad_dream>, <unreal_dream>"
+    # negative_prompt: str = "<bad_dream>, (<unreal_dream>)1.5"
+    negative_prompt: str = ""
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
@@ -159,22 +161,33 @@ class HyperParams(BaseModel):
     final_text_alignment_threshold: float = 0.20
 
     # Eval
+    # eval_prompts: list[str] = [
+    #     f"(('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.05, 0.95), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
+    #     f"(('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
+    #     f"(a closeup portrait of ({token})+, '(as a clown)+++, (face makeup)+, red nose', (bright, colorful and vibrant)+).and()",
+    #     f"('8k portrait of {token}, (wearing a colorful suit)++', (pop art style)+, clear and vibrant).and()",
+    #     f"(an (animation)+ of {token}, a character (from Naruto)+++, '(anime)++, colorful').and()",
+    #     f"('an (oil painting)+++ of {token}, by van gogh', (starry night sky in background)+, (vibrant)+).and()",
+    #     f"(a photograph of {token}+ the (Marvel superhero)++, '(cape and costume)+, flying in the sky, (nyc skyline in background)+', 'sharp and focused, realistic, strong').and()",
+    #     f"(a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, 'wide angle shot, sharp').and()",
+    #     f"('(3d render)++ of {token}+, as an (cyborg)++', (robot body parts)+, (cyberpunk)++ lighting).and()",
+    # ]
     eval_prompts: list[str] = [
-        f"(('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.05, 0.95), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
-        f"(('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
-        f"(a closeup portrait of ({token})+, '(as a clown)+++, (face makeup)+, red nose', (bright, colorful and vibrant)+).and()",
-        f"('8k portrait of {token}, (wearing a colorful suit)++', (pop art style)+, clear and vibrant).and()",
-        f"(an (animation)+ of {token}, a character (from Naruto)+++, '(anime)++, colorful').and()",
-        f"('an (oil painting)+++ of {token}, by van gogh', (starry night sky in background)+, (vibrant)+).and()",
-        f"(a photograph of {token}+ the (Marvel superhero)++, '(cape and costume)+, flying in the sky, (nyc skyline in background)+', 'sharp and focused, realistic, strong').and()",
-        f"(a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, 'wide angle shot, sharp').and()",
-        f"('(3d render)++ of {token}+, as an (android)++', (robot body parts)+, (cyberpunk)++ lighting).and()",
+        f"a closeup picture of {token}++ as a zombie",
+        f"a closeup portrait of {token}++ as a Harry Potter character",
+        f"a closeup portrait of {token}++ as a clown",
+        f"a detailed 8k portrait of {token}++ in a colorful suit",
+        f"an animation of {token}++ as a character from Naruto",
+        f"an oil painting of {token}++ by van gogh with a starry night sky in the background",
+        f"a photograph of {token}++ as a Marvel superhero flying in the sky with the NYC skyline in the background",
+        f"a cartoon screenshot of {token}++ with clouds and sky in the background",
+        f"a 3D render of {token}++ as a cyborg with cyberpunk lighting",
     ]
 
     debug_outputs: bool = False
     test_steps: int = 50
     test_images: int = 4
-    test_guidance_scale: float = 20
+    test_guidance_scale: float = 2.5
     test_strength: float = 0.90  # 0.70
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")

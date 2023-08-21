@@ -48,6 +48,7 @@ def download_model():
         download(
             StableDiffusionControlNetPipeline,
             params.model.name,
+            variant=params.model.variant,
             revision=params.model.revision,
             torch_dtype=params.dtype,
             controlnet=download(
