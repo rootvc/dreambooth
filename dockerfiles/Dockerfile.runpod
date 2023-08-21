@@ -26,9 +26,13 @@ RUN \
   apt-get install -y wget && \
   rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  wget https://civitai.com/api/download/models/42247 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  mv $HF_MODEL_CACHE/CodeFormer/embeddings/42247 $HF_MODEL_CACHE/CodeFormer/embeddings/bad_features.pt
+RUN mkdir -p $HF_MODEL_CACHE/CodeFormer/embeddings
+RUN wget https://civitai.com/api/download/models/77169 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  mv $HF_MODEL_CACHE/CodeFormer/embeddings/77169 $HF_MODEL_CACHE/CodeFormer/embeddings/bad_dream.pt
+RUN wget https://civitai.com/api/download/models/77173 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  mv $HF_MODEL_CACHE/CodeFormer/embeddings/77173 $HF_MODEL_CACHE/CodeFormer/embeddings/unreal_dream.pt
+RUN wget https://civitai.com/api/download/models/94057 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+  mv $HF_MODEL_CACHE/CodeFormer/embeddings/94057 $HF_MODEL_CACHE/CodeFormer/embeddings/all_negative.pt
 
 FROM rootventures/train-dreambooth:latest AS rclone
 

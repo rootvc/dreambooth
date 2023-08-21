@@ -225,9 +225,8 @@ class Evaluator:
             torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
 
     def _prepare_pipeline(self):
-        self.pipeline.load_textual_inversion(
-            "weights/embeddings/bad_features.pt", "<bad_features>"
-        )
+        for w in ("all_negative", "bad_dream", "unreal_dream"):
+            self.pipeline.load_textual_inversion(f"weights/embeddings/{w}.pt", f"<{w}>")
 
     @torch.no_grad()
     def generate(self):
