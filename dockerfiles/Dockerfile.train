@@ -1,17 +1,5 @@
 # syntax = docker/dockerfile:experimental
-FROM rootventures/pytorch:latest
-
-WORKDIR /
-
-ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
-ENV NVIDIA_DISABLE_REQUIRE true
-ENV ACCELERATE_MIXED_PRECISION fp16
-ENV TORCHINDUCTOR_SEARCH_AUTOTUNE_CACHE 1
-
-RUN \
-  apt-get update && \
-  apt-get install -y pixz pigz && \
-  rm -rf /var/lib/apt/lists/*
+FROM rootventures/pytorch:latest AS pip
 
 ADD constraints.txt constraints.txt
 ADD environment.txt environment.txt
@@ -27,6 +15,22 @@ ADD requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -c constraints.txt -r requirements.txt
 
+FROM rootventures/pytorch:latest
+
+WORKDIR /
+
+ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
+ENV NVIDIA_DISABLE_REQUIRE true
+ENV ACCELERATE_MIXED_PRECISION fp16
+ENV TORCHINDUCTOR_SEARCH_AUTOTUNE_CACHE 1
+
+RUN \
+  apt-get update && \
+  apt-get install -y pixz pigz && \
+  rm -rf /var/lib/apt/lists/*
+
+
+COPY --from=pip /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
 
 WORKDIR /dreambooth

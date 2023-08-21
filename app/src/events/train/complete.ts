@@ -48,7 +48,7 @@ export default defineFunction(
       mediaUrl,
     });
 
-    while (true) {
+    while (false) {
       try {
         let error = await run("send to printer server", async () => {
           try {
