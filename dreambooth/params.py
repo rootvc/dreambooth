@@ -160,15 +160,15 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.05, 0.95), (decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+",
-        f"('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++",
-        f"a closeup portrait of ({token})+, (as a clown)+++, (face makeup)+, red nose, (bright, colorful and vibrant)+",
-        f"8k portrait of {token}, (pop art style)+, (wearing a colorful suit)++, clear and vibrant",
-        f"an (animation)+ of {token}, a character (from Naruto)+++, (anime)++, colorful",
-        f"an (oil painting)+++ of {token}, by van gogh, (starry night sky in background)+, (vibrant)+",
-        f"a photograph of {token} the (Marvel superhero)++, (cape and costume)+, flying in the sky, (nyc skyline in background)+, sharp and focused, realistic, strong",
-        f"a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, wide angle shot, sharp",
-        f"(3d render)++ of {token}'s face, as an (android)++, (robot body parts)+, (cyberpunk)++ lighting",
+        f"(('a closeup picture of {token}', 'a closeup picture of a zombie').blend(0.05, 0.95), (decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+).and()",
+        f"(('a closeup portrait of {token}', 'a closeup portrait of a Harry Potter character').blend(0.05, 0.95), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
+        f"(a closeup portrait of ({token})+, (as a clown)+++, (face makeup)+, red nose, (bright, colorful and vibrant)+).and()",
+        f"(8k portrait of {token}, (pop art style)+, (wearing a colorful suit)++, clear and vibrant).and()",
+        f"(an (animation)+ of {token}, a character (from Naruto)+++, (anime)++, colorful).and()",
+        f"(an (oil painting)+++ of {token}, by van gogh, (starry night sky in background)+, (vibrant)+).and()",
+        f"(a photograph of {token} the (Marvel superhero)++, (cape and costume)+, flying in the sky, (nyc skyline in background)+, sharp and focused, realistic, strong).and()",
+        f"(a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, wide angle shot, sharp).and()",
+        f"((3d render)++ of {token}'s face, as an (android)++, (robot body parts)+, (cyberpunk)++ lighting).and()",
     ]
 
     debug_outputs: bool = False

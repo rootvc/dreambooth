@@ -152,14 +152,22 @@ class Evaluator:
         all_images = []
         for batch in tqdm.tqdm(loader):
             prompts, embeddings = zip(*batch)
+            embeddings = torch.stack(embeddings, dim=0)
+            negative_embeddings = ds.compel(
+                [self.params.negative_prompt] * len(prompts)
+            )
+            [
+                embeddings,
+                negative_embeddings,
+            ] = ds.compel.pad_conditioning_tensors_to_same_length(
+                [embeddings, negative_embeddings]
+            )
             images = self.pipeline(
-                prompt_embeds=torch.stack(embeddings, dim=0).to(self.device),
+                prompt_embeds=embeddings.to(self.device),
                 width=self.params.model.resolution,
                 height=self.params.model.resolution,
                 image=random.choices(self.cond_images, k=len(prompts)),
-                negative_prompt_embeds=ds.compel(
-                    [self.params.negative_prompt] * len(prompts)
-                ).to(self.device),
+                negative_prompt_embeds=negative_embeddings.to(self.device),
                 num_inference_steps=self.params.test_steps,
                 guidance_scale=self.params.test_guidance_scale,
                 controlnet_conditioning_scale=self.params.test_strength,
