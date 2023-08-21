@@ -14,7 +14,7 @@ import torch.distributed
 import torch.multiprocessing
 import tqdm
 import wandb
-from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
+from compel import Compel, DiffusersTextualInversionManager
 from diffusers import StableDiffusionControlNetPipeline
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
@@ -50,7 +50,6 @@ class PromptDataset(Dataset):
             pipe.tokenizer,
             pipe.text_encoder,
             textual_inversion_manager=DiffusersTextualInversionManager(pipe),
-            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NORMALIZED,
         )
         self.n = n
         self.prompts = random.sample(
