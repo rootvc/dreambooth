@@ -92,7 +92,7 @@ class Class(BaseModel):
 
 class Model(BaseModel):
     source: Literal["hf", "civitai"] = "civitai"
-    name: Union[str, Path] = "127207"  # Juggernaut Aftermath
+    name: Union[str, Path] = "128713"  # Juggernaut Aftermath
     variant: Optional[str] = None
     vae: Optional[Union[str, Path]] = None
     control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
@@ -166,7 +166,7 @@ class HyperParams(BaseModel):
         for p in [
             f"(('a closeup picture of ({token})+', 'a closeup picture of a zombie').blend(0.7, 0.3), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
             f"(('a closeup portrait of ({token})+', 'a closeup portrait of a Harry Potter character').blend(0.7, 0.3), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
-            f"(close up Portrait photo of ({token})+ in a clown costume, 'face makeup, red nose', (bright, colorful and vibrant)+).and()",
+            f"(close up Portrait photo of ({token})+ in a clown costume, 'clown face makeup, red nose', (bright, colorful and vibrant)+).and()",
             f"(close up Portrait photo of ({token})+ in a mech suit, 'light bokeh, intricate, steel metal, elegant, photo by greg rutkowski, soft lighting, vibrant colors, masterpiece', 'sharp focus, detailed face').and()",
             # f"('8k portrait of {token}, (wearing a colorful suit)++', (pop art style)+, clear and vibrant).and()",
             # f"(an (animation)+ of {token}, a character (from Naruto)+++, '(anime)++, colorful').and()",
@@ -181,7 +181,7 @@ class HyperParams(BaseModel):
     test_steps: int = 50
     test_images: int = 4
     test_guidance_scale: float = 5.0
-    test_strength: float = 0.60
+    test_strength: float = 0.55
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
