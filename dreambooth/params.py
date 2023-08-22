@@ -126,7 +126,7 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 4
-    lora_train_epochs: int = 4
+    lora_train_epochs: int = 3
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
     lr_cycles: int = 3
@@ -152,7 +152,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "((<bad_dream>)+, (<unreal_dream>)+).and(), (eyes closed, 'poorly drawn face, bad smile', 'chubby, fat', 'deformed, disgusting, ugly').and()"
+    negative_prompt: str = "(((<bad_dream>), (<unreal_dream>)).and())+, (<all_negative>)+, (eyes closed, 'poorly drawn face, bad smile', 'chubby, fat, big head', 'deformed, disgusting, ugly, twisted').and()"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
@@ -162,7 +162,7 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"{p}, vibrant colors, masterpiece, sharp focus, detailed face, (<add_details>)0.3, (<enhancer>)0.5"
+        f"{p}, (vibrant colors, masterpiece, sharp focus, detailed face).and(), (<add_details>)0.3, (<enhancer>)0.6"
         for p in [
             f"(('a closeup picture of ({token})+', 'a closeup picture of a zombie').blend(0.7, 0.3), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
             f"(('a closeup portrait of ({token})+', 'a closeup portrait of a Harry Potter character').blend(0.7, 0.3), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
@@ -180,8 +180,8 @@ class HyperParams(BaseModel):
     debug_outputs: bool = False
     test_steps: int = 50
     test_images: int = 4
-    test_guidance_scale: float = 7.0
-    test_strength: float = 0.50
+    test_guidance_scale: float = 6.75
+    test_strength: float = 0.60
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
