@@ -117,7 +117,7 @@ class HyperParams(BaseModel):
     learning_rate: float = 2e-3
     text_learning_rate: float = 6e-4
     ti_learning_rate: float = 1e-3
-    ti_continued_learning_rate: float = 8e-4
+    ti_continued_learning_rate: float = 0.0
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
 
@@ -125,8 +125,8 @@ class HyperParams(BaseModel):
     dynamo_backend: Optional[str] = None
     use_diffusers_unet: bool = False
     loading_workers: int = 4
-    ti_train_epochs: int = 4
-    lora_train_epochs: int = 3
+    ti_train_epochs: int = 0
+    lora_train_epochs: int = 8
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
     lr_cycles: int = 3
@@ -164,10 +164,10 @@ class HyperParams(BaseModel):
     eval_prompts: list[str] = [
         f"{p}, (vibrant colors, masterpiece, sharp focus, detailed face).and(), (<add_details>)0.3, (<enhancer>)0.6"
         for p in [
-            f"(('a closeup picture of ({token})+', 'a closeup picture of a zombie').blend(0.7, 0.3), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
-            f"(('a closeup portrait of ({token})+', 'a closeup portrait of a Harry Potter character').blend(0.7, 0.3), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
-            f"(close up Portrait photo of ({token})+ in a clown costume, 'clown face makeup, red nose', (bright, colorful and vibrant)+).and()",
-            f"(close up Portrait photo of ({token})+ in a mech suit, 'light bokeh, intricate, steel metal, elegant, photo by greg rutkowski, soft lighting').and()",
+            f"(('a closeup picture of ({token})+++', 'a closeup picture of a zombie').blend(0.7, 0.3), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
+            f"(('a closeup portrait of ({token})+++', 'a closeup portrait of a Harry Potter character').blend(0.7, 0.3), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
+            f"(close up Portrait photo of ({token})+++ in a clown costume, 'clown face makeup, red nose', (bright, colorful and vibrant)+).and()",
+            f"(close up Portrait photo of ({token})+++ in a mech suit, 'light bokeh, intricate, steel metal, elegant, photo by greg rutkowski, soft lighting').and()",
             # f"('8k portrait of {token}, (wearing a colorful suit)++', (pop art style)+, clear and vibrant).and()",
             # f"(an (animation)+ of {token}, a character (from Naruto)+++, '(anime)++, colorful').and()",
             # f"('an (oil painting)+++ of {token}, by van gogh', (starry night sky in background)+, (vibrant)+).and()",
@@ -180,7 +180,7 @@ class HyperParams(BaseModel):
     debug_outputs: bool = False
     test_steps: int = 50
     test_images: int = 4
-    test_guidance_scale: float = 6.75
+    test_guidance_scale: float = 19.5
     test_strength: float = 0.60
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
