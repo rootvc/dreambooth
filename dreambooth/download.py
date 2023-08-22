@@ -97,7 +97,9 @@ def download_civitai_model(params: HyperParams):
             f.flush()
             files[query["type"]] = f.name
 
-        if "VAE" in files:
+        if params.model.vae:
+            vae = download(AutoencoderKL, params.model.vae)
+        elif "VAE" in files:
             config = OmegaConf.load(files["Config"])
             vae_config = create_vae_diffusers_config(
                 config, image_size=params.model.resolution
