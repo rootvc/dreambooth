@@ -92,7 +92,7 @@ class Class(BaseModel):
 
 class Model(BaseModel):
     source: Literal["hf", "civitai"] = "civitai"
-    name: Union[str, Path] = "128713"  # Juggernaut Aftermath
+    name: Union[str, Path] = "128713"  # DreamShaper
     variant: Optional[str] = None
     vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-ema"
     control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
@@ -181,7 +181,7 @@ class HyperParams(BaseModel):
     test_steps: int = 50
     test_images: int = 4
     test_guidance_scale: float = 7.0
-    test_strength: float = 0.55
+    test_strength: float = 0.50
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")
