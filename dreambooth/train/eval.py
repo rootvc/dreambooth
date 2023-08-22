@@ -15,7 +15,10 @@ import torch.multiprocessing
 import tqdm
 import wandb
 from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
-from diffusers import StableDiffusionControlNetPipeline
+from diffusers import (
+    StableDiffusionXLControlNetPipeline,
+    StableDiffusionXLImg2ImgPipeline,
+)
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import pil_to_tensor, resize, to_pil_image
@@ -43,14 +46,16 @@ T = TypeVar("T", bound=torch.nn.Module)
 
 class PromptDataset(Dataset):
     def __init__(
-        self, params: HyperParams, pipe: StableDiffusionControlNetPipeline, n: int
+        self, params: HyperParams, pipe: StableDiffusionXLControlNetPipeline, n: int
     ):
         self.params = params
         self.compel = Compel(
-            pipe.tokenizer,
-            pipe.text_encoder,
+            [pipe.tokenizer, pipe.tokenizer_2],
+            [pipe.text_encoder, pipe.text_encoder_2],
             textual_inversion_manager=DiffusersTextualInversionManager(pipe),
-            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NORMALIZED,
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
+            device=pipe.device,
         )
         self.n = n
         self.prompts = random.sample(
@@ -70,7 +75,7 @@ class Evaluator:
         device: torch.device,
         params: HyperParams,
         instance_class: Class,
-        pipeline: StableDiffusionControlNetPipeline,
+        pipeline: StableDiffusionXLControlNetPipeline,
     ):
         self.params = params
         self.instance_class = instance_class
@@ -142,6 +147,16 @@ class Evaluator:
         print("Done preprocessing...")
         return images
 
+    @cached_property
+    def refiner(self) -> StableDiffusionXLImg2ImgPipeline:
+        refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+            self.params.model.refiner,
+            torch_dtype=self.params.dtype,
+            variant=self.params.model.variant,
+        ).to(self.device)
+        refiner.enable_xformers_memory_efficient_attention()
+        return refiner
+
     def _gen_images(self) -> list[tuple[str, Image.Image]]:
         ds = PromptDataset(self.params, self.pipeline, n=self.params.test_images)
         loader = DataLoader(
@@ -153,26 +168,37 @@ class Evaluator:
         all_images = []
         for batch in tqdm.tqdm(loader):
             prompts, embeddings = zip(*batch)
-            embeddings = torch.stack(embeddings, dim=0)
-            negative_embeddings = ds.compel(
+            conditionings, pools = zip(*embeddings)
+
+            embeds = torch.stack(conditionings, dim=0)
+            pooled_embeds = torch.stack(pools, dim=0)
+            neg_embeds, neg_pools = ds.compel(
                 [self.params.negative_prompt] * len(prompts)
             )
             [
-                embeddings,
-                negative_embeddings,
-            ] = ds.compel.pad_conditioning_tensors_to_same_length(
-                [embeddings, negative_embeddings]
-            )
-            images = self.pipeline(
-                prompt_embeds=embeddings.to(self.device),
+                embeds,
+                neg_embeds,
+            ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
+            latents = self.pipeline(
+                prompt_embeds=embeds.to(self.device),
+                pooled_prompt_embeds=pooled_embeds.to(self.device),
+                negative_prompt_embeds=neg_embeds.to(self.device),
+                negative_pooled_prompt_embeds=neg_pools.to(self.device),
                 width=self.params.model.resolution,
                 height=self.params.model.resolution,
                 image=random.choices(self.cond_images, k=len(prompts)),
-                negative_prompt_embeds=negative_embeddings.to(self.device),
                 num_inference_steps=self.params.test_steps,
                 guidance_scale=self.params.test_guidance_scale,
                 controlnet_conditioning_scale=self.params.test_strength,
+                output_type="latent",
             ).images
+            images = self.refiner(
+                prompt_embeds=embeds.to(self.device),
+                pooled_prompt_embeds=pooled_embeds.to(self.device),
+                negative_prompt_embeds=neg_embeds.to(self.device),
+                negative_pooled_prompt_embeds=neg_pools.to(self.device),
+                image=latents[None, :],
+            )
             all_images.extend(zip(prompts, images))
 
         return all_images
@@ -239,7 +265,6 @@ class Evaluator:
             tuple[tuple[str], tuple[Image.Image]], list(zip(*self._gen_images()))
         )
         prompt_path, original_path, restored_path = self._paths()
-        # self.wait_for_everyone()
 
         dprint("Cleaning up...")
         del self.pipeline
@@ -265,6 +290,5 @@ class Evaluator:
             grid.save(self.params.image_output_path / "grid.png")
 
         dprint("Waiting for upload...")
-        # self.wait_for_everyone()
         self._upload_images()
         dprint("Done!")

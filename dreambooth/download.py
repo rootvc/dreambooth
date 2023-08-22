@@ -1,16 +1,18 @@
 import os
 from contextlib import ExitStack
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Type
 from urllib.parse import urlencode
 
 import requests
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
+from cloudpathlib import CloudPath
 from diffusers import (
     AutoencoderKL,
     ControlNetModel,
+    DiffusionPipeline,
     StableDiffusionControlNetPipeline,
 )
 from diffusers.pipelines.stable_diffusion.convert_from_ckpt import (
@@ -28,9 +30,10 @@ from transformers import (
     CLIPVisionModelWithProjection,
 )
 
-from dreambooth.params import HyperParams
+from dreambooth.param.model import Model
 
 HF_MODEL_CACHE = os.getenv("HF_MODEL_CACHE")
+BUCKET = "s3://rootvc-photobooth"
 
 
 def persist_model(model, name: str):
@@ -38,6 +41,17 @@ def persist_model(model, name: str):
         path = Path(HF_MODEL_CACHE) / name
         print(f"Saving {name} to {path}")
         model.save_pretrained(path, safe_serialization=True)
+        return model
+
+    s3_path = CloudPath(BUCKET) / "models" / name
+    if s3_path.exists():
+        print(f"Model {name} already exists, skipping")
+    else:
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / name
+            print(f"Saving {name} to {path}")
+            model.save_pretrained(path, safe_serialization=True)
+            s3_path.upload_from(path)
     return model
 
 
@@ -59,27 +73,27 @@ def download_test_models(_, name: str):
     ]
 
 
-def download_hf_model(params: HyperParams):
+def download_hf_model(model: Model):
     models = [
         download(
             StableDiffusionControlNetPipeline,
-            params.model.name,
-            variant=params.model.variant,
-            revision=params.model.revision,
-            torch_dtype=params.dtype,
+            model.name,
+            variant=model.variant,
+            revision=model.revision,
             controlnet=download(
                 ControlNetModel,
-                params.model.control_net,
-                torch_dtype=params.dtype,
+                model.control_net,
             ),
         )
     ]
-    if params.model.vae:
-        models.append(download(AutoencoderKL, params.model.vae))
+    if model.vae:
+        models.append(download(AutoencoderKL, model.vae))
+    if model.refiner:
+        models.append(download(DiffusionPipeline, model.refiner, variant=model.variant))
     return models
 
 
-def download_civitai_model(params: HyperParams):
+def download_civitai_model(model: Model):
     files = {}
     with ExitStack() as stack:
         for query in [
@@ -89,7 +103,7 @@ def download_civitai_model(params: HyperParams):
         ]:
             f = stack.enter_context(NamedTemporaryFile())
             r = requests.get(
-                f"https://civitai.com/api/download/models/{params.model.name}?{urlencode(query)}"
+                f"https://civitai.com/api/download/models/{model.name}?{urlencode(query)}"
             )
             if r.status_code != 200:
                 continue
@@ -97,14 +111,14 @@ def download_civitai_model(params: HyperParams):
             f.flush()
             files[query["type"]] = f.name
 
-        if params.model.vae:
-            vae = download(AutoencoderKL, params.model.vae)
+        if model.vae:
+            vae = download(AutoencoderKL, model.vae)
         elif "VAE" in files:
             config = OmegaConf.load(files["Config"])
             vae_config = create_vae_diffusers_config(
-                config, image_size=params.model.resolution
+                config, image_size=model.resolution
             )
-            vae_config["scaling_factor"] = config.model.params.scale_factor
+            vae_config["scaling_factor"] = config.model.scale_factor
 
             checkpoint = safe_load(files["VAE"])
             for key in list(checkpoint.keys()):
@@ -121,28 +135,27 @@ def download_civitai_model(params: HyperParams):
         pipe = download_from_original_stable_diffusion_ckpt(
             checkpoint_path=files["Model"],
             original_config_file=files.get("Config"),
-            image_size=params.model.resolution,
+            image_size=model.resolution,
             prediction_type="epsilon",
             extract_ema=False,
             from_safetensors=True,
             vae=vae,
         )
         return [
-            persist_model(pipe, params.model.name),
+            persist_model(pipe, model.name),
             download(
                 ControlNetModel,
-                params.model.control_net,
-                torch_dtype=params.dtype,
+                model.control_net,
             ),
         ]
 
 
 def download_model():
-    params = HyperParams()
-    if params.model.source == "hf":
-        return download_hf_model(params)
+    model = Model()
+    if model.source == "hf":
+        return download_hf_model(model)
     else:
-        return download_civitai_model(params)
+        return download_civitai_model(model)
 
 
 if __name__ == "__main__":

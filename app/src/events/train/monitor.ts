@@ -50,6 +50,7 @@ export default defineFunction(
         await send("dreambooth/train.complete", { phone, id });
         break;
       } else if (response.status === "FAILED") {
+        console.error(response.error);
         await run(
           "update status",
           async () => await redis.hset(`ts/${id}`, { status: STATUS.FINISHED })

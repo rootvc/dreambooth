@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile:experimental
+# syntax=docker/dockerfile:1.4
 
 FROM rootventures/train-dreambooth:latest AS pre-download
 
@@ -10,25 +10,15 @@ RUN \
   apt-get install -y wget unzip && \
   rm -rf /var/lib/apt/lists/*
 
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --no-cache-dir cloudpathlib==0.13.0
+
 FROM pre-download AS download
-
-ENV OC_CAUSE 1
-
-ADD dreambooth/params.py dreambooth/params.py
-ADD dreambooth/download.py dreambooth/download.py
-
-RUN pip install --no-cache-dir omegaconf
-RUN python3 -m dreambooth.download
-
-FROM pre-download AS download-2
 
 RUN \
   apt-get update && \
   apt-get install -y wget && \
   rm -rf /var/lib/apt/lists/*
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --no-cache-dir cloudpathlib==0.13.0
 
 RUN mkdir -p $HF_MODEL_CACHE/CodeFormer/embeddings
 RUN wget https://civitai.com/api/download/models/77169 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
@@ -44,10 +34,22 @@ RUN wget https://civitai.com/api/download/models/83081 -P $HF_MODEL_CACHE/CodeFo
 RUN wget https://civitai.com/api/download/models/87153 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
   mv $HF_MODEL_CACHE/CodeFormer/embeddings/87153 $HF_MODEL_CACHE/CodeFormer/embeddings/add_details.pt
 
-ADD dreambooth/params.py dreambooth/params.py
-ADD dreambooth/train/download_eval_models.py dreambooth/train/download_eval_models.py
+ADD --link dreambooth/params.py dreambooth/params.py
+ADD --link dreambooth/param/ dreambooth/param/
+ADD --link dreambooth/train/download_eval_models.py dreambooth/train/download_eval_models.py
 
 RUN python3 -m dreambooth.train.download_eval_models
+
+FROM pre-download AS download-2
+
+ENV OC_CAUSE 1
+RUN pip install --no-cache-dir omegaconf
+
+ADD --link dreambooth/param/ dreambooth/param/
+ADD --link dreambooth/download.py dreambooth/download.py
+
+RUN python3 -m dreambooth.download
+
 
 FROM pre-download AS rclone
 
@@ -79,19 +81,19 @@ ENV ACCELERATE_MIXED_PRECISION bf16
 ENV HF_MODEL_CACHE /root/.cache/huggingface/models
 
 
-ADD constraints.txt constraints.txt
+ADD --link constraints.txt constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade-strategy only-if-needed -c constraints.txt \
   git+https://github.com/runpod/runpod-python.git@main#egg=runpod \
   cloudpathlib==0.13.0
 
-ADD data/config/accelerate/standalone.yml /root/.cache/huggingface/accelerate/default_config.yaml
-ADD data/config/rclone.conf /root/.config/rclone/rclone.conf
+ADD --link data/config/accelerate/standalone.yml /root/.cache/huggingface/accelerate/default_config.yaml
+ADD --link data/config/rclone.conf /root/.config/rclone/rclone.conf
 
-COPY --from=rclone /usr/bin/rclone /usr/bin/rclone
-COPY --from=download /root/model /root/.cache/huggingface/models
-COPY --from=download-2 /root/model/CodeFormer /root/.cache/huggingface/models/CodeFormer
+COPY --link --from=rclone /usr/bin/rclone /usr/bin/rclone
+COPY --link --from=download /root/model/CodeFormer /root/.cache/huggingface/models/CodeFormer
+COPY --link --from=download-2 /root/model /root/.cache/huggingface/models
 
-ADD . .
+ADD --link . .
 
 CMD ["./scripts/train/runpod.sh"]

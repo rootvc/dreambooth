@@ -19,7 +19,7 @@ from transformers import CLIPModel, PreTrainedModel
 
 from dreambooth.download import download, download_test_models
 from dreambooth.params import HyperParams
-from dreambooth.train.utils import hash_bytes
+from dreambooth.train.shared import hash_bytes
 
 from .base import BaseTrainer
 

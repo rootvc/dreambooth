@@ -16,13 +16,13 @@ init() {
 pull_build_push() {
   DOCKERFILE="dockerfiles/$1"
   IMAGE_NAME="rootventures/$2:latest"
-  docker pull "$IMAGE_NAME"
   docker build \
+    --pull \
     -o type=registry,oci-mediatypes=true \
     --cache-to=type=local,dest=/tmp/cache/docker/$2 \
+    --cache-to=type=registry,ref=rootventures/$2:cache \
     --cache-from type=local,src=/tmp/cache/docker/$2 \
-    --cache-from=type=registry,ref=rootventures/$2:latest \
-    --cache-from=type=registry,ref=rootventures/$2 \
+    --cache-from=type=registry,ref=rootventures/$2:cache \
     --builder builder \
     -f "$DOCKERFILE" . \
     -t "$IMAGE_NAME"
@@ -47,5 +47,7 @@ pull_build_push Dockerfile.runpod train-dreambooth-runpod min
 
 docker tag rootventures/train-dreambooth-runpod:latest rootventures/train-dreambooth-runpod:main
 docker push rootventures/train-dreambooth-runpod:main
+
+docker run rootventures/train-dreambooth-runpod:latest ./scripts/upload_models.sh
 
 # docker system prune -f

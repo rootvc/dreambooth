@@ -13,12 +13,14 @@ import torch
 import torch.distributed
 import torch.version
 
+from dreambooth.train.base import get_params
+from dreambooth.train.sdxl.train import get_model
+
 if TYPE_CHECKING:
     from sagemaker_training import environment
 
-from dreambooth.params import Class
-from dreambooth.train.shared import dprint
-from dreambooth.train.utils import HyperParams, get_model, get_params, hash_bytes
+from dreambooth.params import Class, HyperParams
+from dreambooth.train.shared import dprint, hash_bytes
 
 IGNORE_MODS = ["_functorch", "fmha", "torchvision", "tempfile"]
 IGNORE_RE = r"|".join([rf"(.*)\.{mod}\.(.*)" for mod in IGNORE_MODS])
@@ -232,6 +234,10 @@ def standalone_params(is_main: bool) -> Params:
 
     if hf_model_cache := os.getenv("HF_MODEL_CACHE"):
         cache = Path(hf_model_cache)
+
+        dprint("Downloading models from S3...")
+        _download(bucket / "models", cache)
+
         params.model.name = cache / params.model.name
         if params.model.vae:
             params.model.vae = cache / params.model.vae
@@ -304,7 +310,6 @@ def main():
         raise ValueError("No input data provided!")
 
     model = get_model(**params)
-    # model.accelerator.wait_for_everyone()
 
     try:
         pipeline = model.train()

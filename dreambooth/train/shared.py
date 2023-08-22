@@ -1,4 +1,5 @@
 import functools
+import hashlib
 import importlib
 import itertools
 import logging
@@ -7,9 +8,8 @@ from ctypes import c_int
 from datetime import datetime
 from enum import Enum, auto
 from hashlib import sha1
-from inspect import isfunction
 from pathlib import Path
-from typing import Callable, Hashable, Optional, TypeVar
+from typing import Callable, Hashable, TypeVar
 
 import cv2
 import numpy as np
@@ -84,41 +84,6 @@ def init_process(world_size: int):
 
 def convert_image(pil_image: Image.Image) -> np.ndarray:
     return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-
-
-def compile_model(
-    model: M,
-    do: bool = True,
-    ignore: set[str] = set(),
-    backend: Optional[str] = "inductor",
-    **kwargs,
-) -> M:
-    BROKEN_COMPILE_CLASSES = {"PreTrainedTokenizer", "CLIPTokenizer"}
-
-    if isinstance(model, OptimizedModule):
-        raise RuntimeError("Model is already compiled")
-    elif isfunction(model):
-        raise RuntimeError("Model is a function")
-
-    if not backend:
-        return model
-    if model.__class__.__name__ in BROKEN_COMPILE_CLASSES:
-        return model
-    elif model.__class__.__name__ in ignore and model.training:
-        return model
-    if False and do:
-        if is_main():
-            dprint(f"Compiling {model.__class__.__name__} with {backend}...")
-        model = torch.compile(model, backend=backend, **kwargs)
-        if is_main():
-            dprint(f"Done compiling {model.__class__.__name__}")
-        return model
-    else:
-        return model
-
-
-def make_compile_model(backend: Optional[str], ignore: set[str] = set()):
-    return functools.partial(compile_model, ignore=ignore, backend=backend)
 
 
 __ts = datetime.now()
@@ -240,3 +205,11 @@ def unpack_collate(batch):
 class Mode(Enum):
     TI = auto()
     LORA = auto()
+
+
+def hash_bytes(b: bytes) -> str:
+    return hashlib.sha1(b).hexdigest()
+
+
+def hash_image(image: Image.Image) -> str:
+    return hash_bytes(image.tobytes())

@@ -1,12 +1,8 @@
-import hashlib
 import itertools
 import json
 import math
-import os
 import sys
-import tempfile
 from contextlib import contextmanager
-from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from queue import Empty
@@ -14,8 +10,6 @@ from threading import Event
 from typing import Any, Callable, Optional, Type, TypeVar, cast
 
 import numpy as np
-import peft.tuners.adalora
-import peft.utils
 import torch
 import torch._dynamo
 import torch._dynamo.config
@@ -31,11 +25,9 @@ import torch.multiprocessing as multiprocessing
 import torch.nn.functional as F
 import wandb
 from accelerate.logging import get_logger
-from accelerate.utils import InitProcessGroupKwargs
 from diffusers import (
     AutoencoderKL,
     ControlNetModel,
-    DDPMScheduler,
     DPMSolverMultistepScheduler,
     StableDiffusionControlNetPipeline,
     StableDiffusionPipeline,
@@ -44,7 +36,7 @@ from diffusers import (
     get_scheduler,
 )
 from diffusers.loaders import AttnProcsLayers
-from diffusers.models.attention_processor import AttnProcessor2_0, LoRAAttnProcessor
+from diffusers.models.attention_processor import AttnProcessor2_0
 from peft import (
     LoraConfig,
     get_peft_model,
@@ -62,26 +54,25 @@ from transformers import (
 )
 from transformers import pipeline as transformers_pipeline
 
-from dreambooth.params import Class, HyperParams, Model
+from dreambooth.params import Class
 from dreambooth.registry import CompiledModelsRegistry
 from dreambooth.train.accelerators import BaseAccelerator
+from dreambooth.train.base import BaseTrainer
 from dreambooth.train.datasets import (
     CachedLatentsDataset,
     DreamBoothDataset,
     PromptDataset,
 )
-from dreambooth.train.eval import Evaluator
 from dreambooth.train.shared import (
     Mode,
-    compile_model,
     dprint,
+    hash_image,
     images,
     main_process_only,
     partition,
     patch_allowed_pipeline_classes,
     unpack_collate,
 )
-from dreambooth.train.test import Tester
 
 T = TypeVar("T")
 
@@ -90,16 +81,6 @@ torch.backends.cudnn.benchmark = True
 torch._dynamo.config.suppress_errors = True
 
 get_logger("torch._dynamo.eval_frame").setLevel("ERROR")
-
-
-# https://github.com/huggingface/peft/pull/347
-def transpose(weight, fan_in_fan_out=False):
-    return weight.T if fan_in_fan_out else weight
-
-
-peft.utils.transpose = transpose
-peft.tuners.adalora.transpose = transpose
-#
 
 
 class ScoreThresholdExceeded(Exception):
@@ -162,14 +143,6 @@ class TrainingProcess:
         return wait
 
 
-def hash_bytes(b: bytes) -> str:
-    return hashlib.sha1(b).hexdigest()
-
-
-def hash_image(image: Image.Image) -> str:
-    return hash_bytes(image.tobytes())
-
-
 def to_dtype(new_dtype: torch.dtype):
     @contextmanager
     def f(*args: torch.nn.Module):
@@ -189,63 +162,11 @@ def to_dtype(new_dtype: torch.dtype):
     return f
 
 
-class Trainer:
+class Trainer(BaseTrainer):
     UNET_TARGET_MODULES = ["to_q", "to_v", "query", "value"]
     TEXT_ENCODER_TARGET_MODULES = ["q_proj", "v_proj"]
 
     accelerator: BaseAccelerator
-
-    @classmethod
-    def _process(cls):
-        if not hasattr(cls, "__process"):
-            cls.__process = TrainingProcess()
-            cls.__process.start()
-        return cls.__process
-
-    def __init__(self, *, instance_class: Class, params: HyperParams):
-        self.instance_class = instance_class
-        self.params = params
-
-        self.priors_dir = Path(tempfile.mkdtemp())
-        self.cache_dir = Path(os.getenv("CACHE_DIR", tempfile.mkdtemp()))
-        self.metrics_cache = {}
-
-        self.accelerator = self._accelerator()
-        self.logger = get_logger(__name__)
-        self.tester = Tester(self.params, self.accelerator, instance_class)
-
-        self.logger.warning(self.accelerator.state, main_process_only=False)
-        self.logger.warning(
-            f"Available GPU memory: {get_mem():.2f} GB", main_process_only=True
-        )
-        self.logger.warning(self.params.dict(), main_process_only=True)
-
-        self._total_steps = 0
-
-    def _accelerator(self) -> BaseAccelerator:
-        try:
-            from dreambooth.train.accelerators.colossal import (
-                ColossalAccelerator as Accelerator,
-            )
-        except Exception:
-            print("ColossalAI not installed, using default Accelerator")
-            from dreambooth.train.accelerators.hf import HFAccelerator as Accelerator
-
-        return Accelerator(
-            params=self.params,
-            mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
-            log_with=["wandb"],
-            gradient_accumulation_steps=self.params.gradient_accumulation_steps,
-            kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(minutes=5))],
-        )
-
-    @property
-    def total_steps(self):
-        return self._total_steps * self.params.batch_size
-
-    @lru_cache(maxsize=1)
-    def token_id(self, tokenizer: CLIPTokenizer):
-        return tokenizer.convert_tokens_to_ids(self.params.token)
 
     def _spawn(
         self, klass: Type[T], tap: Callable[[T], Any] = lambda x: x, **kwargs
@@ -259,6 +180,17 @@ class Trainer:
         )
         tap(instance)
         return instance
+
+    @classmethod
+    def _process(cls):
+        if not hasattr(cls, "__process"):
+            cls.__process = TrainingProcess()
+            cls.__process.start()
+        return cls.__process
+
+    @lru_cache(maxsize=1)
+    def token_id(self, tokenizer: CLIPTokenizer):
+        return tokenizer.convert_tokens_to_ids(self.params.token)
 
     @torch.no_grad()
     def _pipeline(
@@ -308,33 +240,6 @@ class Trainer:
             te.to(self.accelerator.device, non_blocking=True)
         return te
 
-    def _noise_scheduler(self):
-        return self._spawn(DDPMScheduler, subfolder="scheduler")
-
-    def _vae(self, compile: bool = True, **kwargs):
-        if self.params.model.vae:
-            vae = CompiledModelsRegistry.get(
-                AutoencoderKL,
-                self.params.model.vae,
-                compile=compile,
-                local_files_only=True,
-                **kwargs,
-            )
-        else:
-            vae = self._spawn(
-                AutoencoderKL,
-                subfolder="vae",
-                compile=compile,
-                **kwargs,
-            )
-
-        vae.requires_grad_(False)
-        # vae.enable_slicing()
-        # vae.enable_xformers_memory_efficient_attention()
-        if "device_map" not in kwargs:
-            vae.to(self.accelerator.device, non_blocking=True)
-        return vae
-
     def _tokenizer(self) -> CLIPTokenizer:
         return AutoTokenizer.from_pretrained(
             self.params.model.name,
@@ -372,50 +277,16 @@ class Trainer:
             unet.to(self.accelerator.device, non_blocking=True)
 
         if mode == Mode.LORA:
-            if self.params.use_diffusers_unet:
-                lora_attn_procs = {}
-                for name in unet.attn_processors.keys():
-                    cross_attention_dim = (
-                        None
-                        if name.endswith("attn1.processor")
-                        else unet.config.cross_attention_dim
-                    )
-                    if name.startswith("mid_block"):
-                        hidden_size = unet.config.block_out_channels[-1]
-                    elif name.startswith("up_blocks"):
-                        block_id = int(name[len("up_blocks.")])
-                        hidden_size = list(reversed(unet.config.block_out_channels))[
-                            block_id
-                        ]
-                    elif name.startswith("down_blocks"):
-                        block_id = int(name[len("down_blocks.")])
-                        hidden_size = unet.config.block_out_channels[block_id]
-                    else:
-                        raise RuntimeError(f"Unknown attn processor name: {name}")
-
-                    lora_attn_procs[name] = LoRAAttnProcessor(
-                        hidden_size=hidden_size,
-                        cross_attention_dim=cross_attention_dim,
-                        rank=self.params.lora_rank,
-                    )
-                    if "device_map" not in kwargs:
-                        lora_attn_procs[name].to(
-                            self.accelerator.device, non_blocking=True
-                        )
-                unet.set_attn_processor(lora_attn_procs)
-                unet.enable_xformers_memory_efficient_attention()
-            else:
-                unet.set_attn_processor(AttnProcessor2_0())
-                lora_config = self._unet_config()
-                unet = CompiledModelsRegistry.wrap(
-                    get_peft_model(
-                        CompiledModelsRegistry.unwrap(unet),
-                        lora_config,
-                    )
+            unet.set_attn_processor(AttnProcessor2_0())
+            lora_config = self._unet_config()
+            unet = CompiledModelsRegistry.wrap(
+                get_peft_model(
+                    CompiledModelsRegistry.unwrap(unet),
+                    lora_config,
                 )
-
-                if "device_map" not in kwargs:
-                    unet.to(self.accelerator.device, non_blocking=True)
+            )
+            if "device_map" not in kwargs:
+                unet.to(self.accelerator.device, non_blocking=True)
 
             unet = compile_model(unet, do=compile)
 
@@ -921,19 +792,6 @@ class Trainer:
                 return epochs
 
     @main_process_only
-    def _init_trackers(self):
-        self.accelerator.init_trackers(
-            "dreambooth",
-            config=self.params.copy(
-                update={
-                    "model": self.params.model.copy(
-                        update={"name": Model().name, "vae": Model().vae}
-                    )
-                }
-            ).dict(),
-        )
-
-    @main_process_only
     def _persist(
         self,
         unet: UNet2DConditionModel,
@@ -1274,16 +1132,6 @@ class Trainer:
 
         return (lora_models["unet"], lora_models["text_encoder"], input_embeddings)
 
-    @main_process_only
-    def _prepare_to_train(self):
-        self._init_trackers()
-        if self.params.debug_outputs:
-            self.tester.log_images(
-                self.instance_class.deterministic_prompt,
-                list(map(str, images(self.instance_class.data))),
-                title="data",
-            )
-
     def train(self):
         # self.accelerator.free_memory()
         self._prepare_to_train()
@@ -1294,88 +1142,3 @@ class Trainer:
         return self._do_final_validation(
             unet, text_encoder, input_embeddings, check=False
         )
-
-    def eval(self, pipeline: StableDiffusionPipeline):
-        # self.accelerator.wait_for_everyone()
-        # self.accelerator.free_memory()
-        Evaluator(
-            self.accelerator.device, self.params, self.instance_class, pipeline
-        ).generate()
-
-
-def get_mem() -> float:
-    return torch.cuda.mem_get_info()[1] / 1e9
-
-
-def get_params() -> HyperParams:
-    params = HyperParams()
-
-    match get_mem():
-        case float(n) if n < 16:
-            params.gradient_accumulation_steps = 2
-        case float(n) if n < 24:
-            params.batch_size = 1  # 2
-        case float(n) if n < 32:
-            params.use_diffusers_unet = False
-            params.batch_size = 1  # 3
-        case float(n):
-            params.use_diffusers_unet = False
-            params.batch_size = 3
-
-    match torch.cuda.device_count():
-        case int(n) if n > 1:
-            params.ti_train_epochs //= n
-            params.lora_train_epochs //= n
-
-    match torch.cuda.get_device_capability():
-        case (8, _):
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
-            params.dynamo_backend = "inductor"
-            os.environ["ACCELERATE_MIXED_PRECISION"] = "bf16"
-        case (7, _):
-            params.dynamo_backend = "inductor"
-            os.environ["ACCELERATE_MIXED_PRECISION"] = "fp16"
-        case _:
-            params.dynamo_backend = None
-            os.environ["ACCELERATE_MIXED_PRECISION"] = "fp16"
-
-    match os.getenv("ACCELERATE_MIXED_PRECISION"):
-        case "bf16":
-            params.dtype = torch.float
-            params.model.revision = None
-        case "fp16":
-            params.dtype = torch.float
-            params.model.revision = "fp16"
-        case "fp32":
-            params.dtype = torch.float32
-            params.model.revision = None
-
-    match os.cpu_count():
-        case int(n) if n > 1:
-            params.loading_workers = min([n, 32])
-
-    return params
-
-
-def get_model(
-    *,
-    instance_images: Optional[list[bytes]] = None,
-    instance_path: Optional[Path] = None,
-    params: Optional[HyperParams] = None,
-):
-    if instance_images:
-        instance_path = Path(tempfile.mkdtemp())
-        for data in instance_images:
-            with open(os.path.join(instance_path, hash_bytes(data)), "wb") as f:
-                f.write(data)
-
-    if not instance_path:
-        raise RuntimeError("No input data!")
-
-    params = params or get_params()
-    return Trainer(
-        instance_class=Class(prompt_=params.token, data=instance_path, type_="token"),
-        params=params,
-    )

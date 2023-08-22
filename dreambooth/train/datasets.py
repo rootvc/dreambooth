@@ -18,6 +18,7 @@ from diffusers import (
     AutoencoderKL,
 )
 from PIL import Image
+from PIL.ImageOps import exif_transpose
 from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 from transformers import (
@@ -26,9 +27,8 @@ from transformers import (
 
 from dreambooth.params import Class, HyperParams
 from dreambooth.train.accelerators import BaseAccelerator
+from dreambooth.train.sdxl.utils import tokenize_prompt
 from dreambooth.train.shared import (
-    depth_image_path,
-    depth_transforms,
     image_transforms,
     images,
 )
@@ -81,45 +81,25 @@ class CachedLatentsDataset(Dataset):
                 map(itemgetter("prior_image"), batch),
             )
         )
-        images = torch.stack(images).to(
-            self.accelerator.device,
-            dtype=self.params.dtype,
-            memory_format=torch.contiguous_format,
+        images = (
+            torch.stack(images)
+            .to(self.accelerator.device, memory_format=torch.contiguous_format)
+            .float()
         )
+        latent_dist = self.vae.encode(images).latent_dist
 
-        # depth_images = list(
-        #     itertools.chain(
-        #         map(itemgetter("instance_depth_image"), batch),
-        #         map(itemgetter("prior_depth_image"), batch),
-        #     )
-        # )
-        # depth_images = (
-        #     torch.stack(depth_images)
-        #     .float()
-        #     .to(
-        #         self.accelerator.device,
-        #         memory_format=torch.contiguous_format,
-        #     )
-        # )
-
-        latents = self.vae.encode(images).latent_dist.sample()
-        latents = latents * self.vae.config.scaling_factor
-        latents = latents.squeeze(0).to(self.accelerator.device).float()
-
-        input_ids = list(
-            itertools.chain(
-                map(itemgetter("instance_prompt_ids"), batch),
-                map(itemgetter("prior_prompt_ids"), batch),
+        tokens = list(
+            zip(
+                *itertools.chain(
+                    map(itemgetter("instance_tokens"), batch),
+                    map(itemgetter("prior_tokens"), batch),
+                )
             )
-        )
-        input_ids = torch.cat(input_ids, dim=0).to(
-            self.accelerator.device, dtype=torch.long
         )
 
         return {
-            "input_ids": input_ids,
-            "latents": latents,
-            # "depth_values": depth_images,
+            "latent_dist": latent_dist,
+            "tokens": tokens,
         }
 
     def __len__(self):
@@ -146,7 +126,7 @@ class DreamBoothDataset(Dataset):
         *,
         instance: Class,
         prior: Class,
-        tokenizer: CLIPTokenizer,
+        tokenizers: tuple[CLIPTokenizer, CLIPTokenizer],
         size: int,
         vae_scale_factor: float,
         augment: bool = True,
@@ -155,14 +135,10 @@ class DreamBoothDataset(Dataset):
         self.prior = prior
         self.size = size
         self.vae_scale_factor = vae_scale_factor
-        self.tokenizer = tokenizer
+        self.tokenizers = tokenizers
         self.augment = augment
 
         self._length = max(len(self.instance_images), len(self.prior_images))
-
-    @staticmethod
-    def depth_image_path(path):
-        return depth_image_path(path)
 
     @cached_property
     def prior_images(self):
@@ -173,9 +149,6 @@ class DreamBoothDataset(Dataset):
     def instance_images(self):
         path = self.instance.data
         return images(path)
-
-    def depth_transform(self):
-        return depth_transforms(self.size, self.vae_scale_factor)
 
     def image_transforms(self, augment: bool = True):
         return image_transforms(self.size, self.augment and augment)
@@ -190,47 +163,33 @@ class DreamBoothDataset(Dataset):
     def open_image(path: Path, convert: bool = True):
         img = Image.open(path)
         if not convert or img.mode == "RGB":
-            return img
+            return exif_transpose(img)
         else:
-            return img.convert("RGB")
+            return exif_transpose(img.convert("RGB"))
 
     def _instance_image(self, index):
         path = self.instance_images[index % len(self.instance_images)]
         do_augment, index = divmod(index, len(self.instance_images))
         image = self.image_transforms(do_augment)(self.open_image(path))
 
-        # depth_path = self.depth_image_path(path)
-        # depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
-
         return {
             "instance_image": image,
-            # "instance_depth_image": depth_image,
-            "instance_prompt_ids": self.tokenizer(
-                self.instance.prompt,
-                truncation=True,
-                padding="max_length",
-                max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
-            ).input_ids,
+            "instance_tokens": (
+                tokenize_prompt(self.tokenizers[0], self.instance.prompt),
+                tokenize_prompt(self.tokenizers[1], self.instance.prompt),
+            ),
         }
 
     def _prior_image(self, index):
         path = self.prior_images[index % len(self.prior_images)]
         image = self.image_transforms(False)(self.open_image(path))
 
-        # depth_path = self.depth_image_path(path)
-        # depth_image = self.depth_transform()(self.open_image(depth_path, convert=False))
-
         return {
             "prior_image": image,
-            # "prior_depth_image": depth_image,
-            "prior_prompt_ids": self.tokenizer(
-                self.prior.prompt,
-                truncation=True,
-                padding="max_length",
-                max_length=self.tokenizer.model_max_length,
-                return_tensors="pt",
-            ).input_ids,
+            "prior_tokens": (
+                tokenize_prompt(self.tokenizers[0], self.prior.prompt),
+                tokenize_prompt(self.tokenizers[1], self.prior.prompt),
+            ),
         }
 
     def __getitem__(self, index):

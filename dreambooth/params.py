@@ -5,6 +5,8 @@ from typing import Literal, Optional, Union
 import torch
 from pydantic import BaseModel
 
+from dreambooth.param.model import Model
+
 TEST_PROMPTS = [
     "{} swimming in a pool",
     "{} at a beach with a view of seashore",
@@ -90,16 +92,6 @@ class Class(BaseModel):
         return self.data.exists()
 
 
-class Model(BaseModel):
-    source: Literal["hf", "civitai"] = "civitai"
-    name: Union[str, Path] = "128713"  # DreamShaper
-    variant: Optional[str] = None
-    vae: Optional[Union[str, Path]] = "stabilityai/sd-vae-ft-ema"
-    control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
-    resolution: int = 512
-    revision: Optional[str] = None
-
-
 class HyperParams(BaseModel):
     dtype: torch.dtype = torch.float16
     gradient_accumulation_steps: int = 1
@@ -114,7 +106,7 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 2e-3
+    learning_rate: float = 5e-4
     text_learning_rate: float = 6e-4
     ti_learning_rate: float = 1e-3
     ti_continued_learning_rate: float = 0.0
@@ -136,12 +128,12 @@ class HyperParams(BaseModel):
     input_perterbation: float = 0.001
 
     # LoRA
-    lora_rank: int = 96
+    lora_rank: int = 4
     lora_alpha: float = 5.0
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 96
+    lora_text_rank: int = 4
     lora_text_alpha: float = 1.8
     lora_text_dropout: float = 0.1
 
@@ -180,8 +172,9 @@ class HyperParams(BaseModel):
     debug_outputs: bool = False
     test_steps: int = 50
     test_images: int = 4
-    test_guidance_scale: float = 19.5
-    test_strength: float = 0.60
+    test_guidance_scale: float = 7.5
+    test_strength: float = 1.0
+    high_noise_frac: float = 0.8
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
     model_output_path: Path = Path("output/model")

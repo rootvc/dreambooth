@@ -1,17 +1,17 @@
-# syntax = docker/dockerfile:experimental
+# syntax=docker/dockerfile:1.4
+
 FROM rootventures/pytorch:latest AS pip
 
-ADD constraints.txt constraints.txt
-ADD environment.txt environment.txt
+ADD --link constraints.txt constraints.txt
+ADD --link environment.txt environment.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -c constraints.txt -r environment.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --no-deps \
-  git+https://github.com/patrickvonplaten/controlnet_aux.git@d533c6963e99408994434151da9847ba9b662237#egg=controlnet_aux \
   mediapipe
 
-ADD requirements.txt requirements.txt
+ADD --link requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -c constraints.txt -r requirements.txt
 
@@ -30,7 +30,7 @@ RUN \
   rm -rf /var/lib/apt/lists/*
 
 
-COPY --from=pip /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
-ADD data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
+COPY --link --from=pip /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+ADD --link data/config/accelerate/default.yml /root/.cache/huggingface/accelerate/default_config.yaml
 
 WORKDIR /dreambooth
