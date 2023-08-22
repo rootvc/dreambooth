@@ -92,7 +92,7 @@ class Class(BaseModel):
 
 class Model(BaseModel):
     source: Literal["hf", "civitai"] = "civitai"
-    name: Union[str, Path] = "127207"  # Juggernaut Aftermath
+    name: Union[str, Path] = "128713"  # Juggernaut Aftermath
     variant: Optional[str] = None
     vae: Optional[Union[str, Path]] = None
     control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
