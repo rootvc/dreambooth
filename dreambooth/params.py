@@ -92,7 +92,7 @@ class Class(BaseModel):
 
 class Model(BaseModel):
     source: Literal["hf", "civitai"] = "civitai"
-    name: Union[str, Path] = "128713"  # Juggernaut Aftermath
+    name: Union[str, Path] = "127207"  # Juggernaut Aftermath
     variant: Optional[str] = None
     vae: Optional[Union[str, Path]] = None
     control_net: Optional[Union[str, Path]] = "lllyasviel/control_v11p_sd15_canny"
@@ -152,7 +152,7 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "((<bad_dream>)+, (<unreal_dream>)+).and(), (eyes closed, 'poorly drawn face', 'chubby, fat, ugly', 'deformed, disgusting, ugly').and()"
+    negative_prompt: str = "((<bad_dream>)+, (<unreal_dream>)+).and(), (eyes closed, 'poorly drawn face, bad smile', 'chubby, fat', 'deformed, disgusting, ugly').and()"
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
@@ -162,7 +162,7 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"{p}, (<add_details>)0.1, (<enhancer>)0.1"
+        f"{p}, (<add_details>)0.3, (<enhancer>)0.5"
         for p in [
             f"(('a closeup picture of ({token})+', 'a closeup picture of a zombie').blend(0.7, 0.3), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
             f"(('a closeup portrait of ({token})+', 'a closeup portrait of a Harry Potter character').blend(0.7, 0.3), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
@@ -180,7 +180,7 @@ class HyperParams(BaseModel):
     debug_outputs: bool = False
     test_steps: int = 50
     test_images: int = 4
-    test_guidance_scale: float = 3.5
+    test_guidance_scale: float = 5.0
     test_strength: float = 0.60
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
