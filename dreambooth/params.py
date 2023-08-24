@@ -118,7 +118,7 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 0
-    lora_train_epochs: int = 8
+    lora_train_epochs: int = 1
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
     lr_cycles: int = 3
@@ -169,7 +169,7 @@ class HyperParams(BaseModel):
         ]
     ]
 
-    debug_outputs: bool = False
+    debug_outputs: bool = True
     test_steps: int = 50
     test_images: int = 4
     test_guidance_scale: float = 7.5

@@ -9,12 +9,11 @@ build_push() {
 
   depot build \
     --pull \
+    --push \
     --platform linux/amd64 \
     -f "$DOCKERFILE" . \
     -t "$IMAGE_NAME:latest" \
-    -t "$IMAGE_NAME:main" \
-    --cache-from=type=registry,ref=rootventures/$2:cache \
-    -o "type=registry,oci-mediatypes=true,compression=zstd,force-compression=true,compression-level=5,name-canonical=true"
+    -t "$IMAGE_NAME:main"
 }
 
 build_push Dockerfile.pytorch pytorch min

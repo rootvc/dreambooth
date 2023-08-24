@@ -17,6 +17,7 @@ import torch.jit
 from diffusers import (
     AutoencoderKL,
 )
+from diffusers.models.vae import DiagonalGaussianDistribution
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 from torch.utils.data import Dataset
@@ -86,16 +87,16 @@ class CachedLatentsDataset(Dataset):
             .to(self.accelerator.device, memory_format=torch.contiguous_format)
             .float()
         )
-        latent_dist = self.vae.encode(images).latent_dist
+        latent_dist = self.vae.to(self.accelerator.device).encode(images).latent_dist
+        latent_dist = DiagonalGaussianDistribution(latent_dist.parameters.to("cpu"))
 
-        tokens = list(
-            zip(
-                *itertools.chain(
-                    map(itemgetter("instance_tokens"), batch),
-                    map(itemgetter("prior_tokens"), batch),
-                )
+        tokens = [
+            (torch.cat([i1, p1], dim=0), torch.cat([i2, p2], dim=0))
+            for ((i1, i2), (p1, p2)) in zip(
+                map(itemgetter("instance_tokens"), batch),
+                map(itemgetter("prior_tokens"), batch),
             )
-        )
+        ]
 
         return {
             "latent_dist": latent_dist,
@@ -171,24 +172,26 @@ class DreamBoothDataset(Dataset):
         path = self.instance_images[index % len(self.instance_images)]
         do_augment, index = divmod(index, len(self.instance_images))
         image = self.image_transforms(do_augment)(self.open_image(path))
+        prompt = self.instance.prompt
 
         return {
             "instance_image": image,
             "instance_tokens": (
-                tokenize_prompt(self.tokenizers[0], self.instance.prompt),
-                tokenize_prompt(self.tokenizers[1], self.instance.prompt),
+                tokenize_prompt(self.tokenizers[0], prompt),
+                tokenize_prompt(self.tokenizers[1], prompt),
             ),
         }
 
     def _prior_image(self, index):
         path = self.prior_images[index % len(self.prior_images)]
         image = self.image_transforms(False)(self.open_image(path))
+        prompt = self.prior.prompt
 
         return {
             "prior_image": image,
             "prior_tokens": (
-                tokenize_prompt(self.tokenizers[0], self.prior.prompt),
-                tokenize_prompt(self.tokenizers[1], self.prior.prompt),
+                tokenize_prompt(self.tokenizers[0], prompt),
+                tokenize_prompt(self.tokenizers[1], prompt),
             ),
         }
 

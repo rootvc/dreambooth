@@ -40,13 +40,15 @@ def _download(src: Path, dst: str | Path):
             "rclone",
             "copy",
             "--progress",
-            "--checksum",
+            "--ignore-checksum",
+            "--size-only",
             "--fast-list",
             "--human-readable",
             "--stats-one-line",
-            "--transfers=64",
+            "--transfers=256",
             "--disable-http2",
-            "--checkers=64",
+            "--checkers=256",
+            "--multi-thread-streams=32",
             "--s3-env-auth",
             "--s3-region=us-west-2",
             "--s3-use-accelerate-endpoint",
@@ -140,6 +142,8 @@ def sagemaker_params(env: "environment.Environment") -> Params:
     params.model.name = _unpack_model(env, params.model.name)
     if params.model.vae:
         params.model.vae = _unpack_model(env, params.model.vae)
+    if params.model.refiner:
+        params.model.refiner = _unpack_model(env, params.model.refiner)
     params.test_model = _unpack_model(env, params.test_model)
     params.prior_class = Class(prompt_=params.prior_prompt, data=prior_data)
     params.image_output_path = output_data
@@ -243,6 +247,8 @@ def standalone_params(is_main: bool) -> Params:
             params.model.vae = cache / params.model.vae
         if params.model.control_net:
             params.model.control_net = cache / params.model.control_net
+        if params.model.refiner:
+            params.model.refiner = cache / params.model.refiner
         params.test_model = cache / params.test_model
 
         _unpack_eval_models(Path(hf_model_cache))

@@ -21,18 +21,18 @@ RUN \
   rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p $HF_MODEL_CACHE/CodeFormer/embeddings
-RUN wget https://civitai.com/api/download/models/77169 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  mv $HF_MODEL_CACHE/CodeFormer/embeddings/77169 $HF_MODEL_CACHE/CodeFormer/embeddings/bad_dream.pt
-RUN wget https://civitai.com/api/download/models/77173 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  mv $HF_MODEL_CACHE/CodeFormer/embeddings/77173 $HF_MODEL_CACHE/CodeFormer/embeddings/unreal_dream.pt
-RUN wget https://civitai.com/api/download/models/94057 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  mv $HF_MODEL_CACHE/CodeFormer/embeddings/94057 $HF_MODEL_CACHE/CodeFormer/embeddings/all_negative.pt
-RUN wget https://civitai.com/api/download/models/86553 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  mv $HF_MODEL_CACHE/CodeFormer/embeddings/86553 $HF_MODEL_CACHE/CodeFormer/embeddings/juggernaut_neg.pt
-RUN wget https://civitai.com/api/download/models/83081 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  mv $HF_MODEL_CACHE/CodeFormer/embeddings/83081 $HF_MODEL_CACHE/CodeFormer/embeddings/enhancer.pt
-RUN wget https://civitai.com/api/download/models/87153 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
-  mv $HF_MODEL_CACHE/CodeFormer/embeddings/87153 $HF_MODEL_CACHE/CodeFormer/embeddings/add_details.pt
+# RUN wget https://civitai.com/api/download/models/77169 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+#   mv $HF_MODEL_CACHE/CodeFormer/embeddings/77169 $HF_MODEL_CACHE/CodeFormer/embeddings/bad_dream.pt
+# RUN wget https://civitai.com/api/download/models/77173 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+#   mv $HF_MODEL_CACHE/CodeFormer/embeddings/77173 $HF_MODEL_CACHE/CodeFormer/embeddings/unreal_dream.pt
+# RUN wget https://civitai.com/api/download/models/94057 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+#   mv $HF_MODEL_CACHE/CodeFormer/embeddings/94057 $HF_MODEL_CACHE/CodeFormer/embeddings/all_negative.pt
+# RUN wget https://civitai.com/api/download/models/86553 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+#   mv $HF_MODEL_CACHE/CodeFormer/embeddings/86553 $HF_MODEL_CACHE/CodeFormer/embeddings/juggernaut_neg.pt
+# RUN wget https://civitai.com/api/download/models/83081 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+#   mv $HF_MODEL_CACHE/CodeFormer/embeddings/83081 $HF_MODEL_CACHE/CodeFormer/embeddings/enhancer.pt
+# RUN wget https://civitai.com/api/download/models/87153 -P $HF_MODEL_CACHE/CodeFormer/embeddings && \
+#   mv $HF_MODEL_CACHE/CodeFormer/embeddings/87153 $HF_MODEL_CACHE/CodeFormer/embeddings/add_details.pt
 
 ADD --link dreambooth/params.py dreambooth/params.py
 ADD --link dreambooth/param/ dreambooth/param/
@@ -92,7 +92,7 @@ ADD --link data/config/rclone.conf /root/.config/rclone/rclone.conf
 
 COPY --link --from=rclone /usr/bin/rclone /usr/bin/rclone
 COPY --link --from=download /root/model/CodeFormer /root/.cache/huggingface/models/CodeFormer
-COPY --link --from=download-2 /root/model /root/.cache/huggingface/models
+# COPY --link --from=download-2 /root/model /root/.cache/huggingface/models
 
 ADD --link . .
 

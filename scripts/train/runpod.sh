@@ -10,6 +10,9 @@ fi
 git fetch origin main
 git reset --hard origin/main
 
+export TORCH_USE_CUDA_DSA=1
+export CUDA_LAUNCH_BLOCKING=1
+export TORCHDYNAMO_VERBOSE=1
 export ACCELERATE_LOG_LEVEL=info
 export PYTHONPATH=${PYTHONPATH-}:.
 

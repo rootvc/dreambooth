@@ -18,7 +18,7 @@ class HFAccelerator(Accelerator, BaseAccelerator):
             import bitsandbytes as bnb
         except Exception as e:
             print(e)
-            print("Could not import bitsandbytes, using AdamW")
+            raise RuntimeError("Could not import bitsandbytes, using AdamW")
             optimizer_class = torch.optim.AdamW
         else:
             optimizer_class = bnb.optim.AdamW8bit

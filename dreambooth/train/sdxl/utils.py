@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 import torch.utils.checkpoint
 from accelerate.logging import get_logger
@@ -8,10 +10,12 @@ logger = get_logger(__name__)
 
 
 def import_model_class_from_model_name_or_path(
-    pretrained_model_name_or_path: str, revision: str, subfolder: str = "text_encoder"
+    pretrained_model_name_or_path: str,
+    revision: Optional[str],
+    subfolder: str = "text_encoder",
 ):
     text_encoder_config = PretrainedConfig.from_pretrained(
-        pretrained_model_name_or_path, subfolder=subfolder, revision=revision
+        pretrained_model_name_or_path, subfolder=subfolder, revision=revision or "main"
     )
     model_class = text_encoder_config.architectures[0]
 

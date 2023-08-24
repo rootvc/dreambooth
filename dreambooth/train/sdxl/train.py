@@ -27,9 +27,7 @@ from diffusers import (
 from diffusers.loaders import (
     LoraLoaderMixin,
 )
-from diffusers.models.attention_processor import (
-    LoRAXFormersAttnProcessor,
-)
+from diffusers.models.attention_processor import LoRAXFormersAttnProcessor
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 
@@ -150,7 +148,9 @@ class Trainer(BaseTrainer):
         vae: Optional[AutoencoderKL] = None,
         **kwargs,
     ) -> StableDiffusionXLControlNetPipeline:
-        te_1, te_2 = text_encoders or [t.eval() for t in self._text_encoders()]
+        te_1, te_2 = text_encoders or [
+            t.eval().to(dtype=self.params.dtype) for t in self._text_encoders()
+        ]
         tok_1, tok_2 = tokenizers or self._tokenizers()
         with patch_allowed_pipeline_classes():
             pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
@@ -158,8 +158,8 @@ class Trainer(BaseTrainer):
                 revision=self.params.model.revision,
                 local_files_only=True,
                 safety_checker=None,
-                vae=vae or self._vae().eval(),
-                unet=(unet or self._unet()).eval(),
+                vae=(vae or self._vae()).eval().to(dtype=self.params.dtype),
+                unet=(unet or self._unet()).eval().to(dtype=self.params.dtype),
                 text_encoder=te_1,
                 text_encoder_2=te_2,
                 tokenizer=tok_1,
@@ -249,12 +249,13 @@ class Trainer(BaseTrainer):
         dataset = CachedLatentsDataset(self.accelerator, dataset, self.params, vae)
         warmed = dataset.warm()
 
+        dprint("Loading data...")
         loader = DataLoader(
             warmed,
             batch_size=1,
             collate_fn=unpack_collate,
             shuffle=True,
-            num_workers=self.params.loading_workers,
+            num_workers=1,
         )
 
         epochs = self.params.lora_train_epochs
@@ -354,20 +355,26 @@ class Trainer(BaseTrainer):
             n_els = bsz // 2
 
             # Predict the noise residual
-            prompt_embeds, pooled_prompt_embeds = encode_prompt(
-                text_encoders=text_encoders,
-                tokenizers=None,
-                prompt=None,
-                text_input_ids_list=tokens,
+            all_prompt_embeds, all_pooled_prompt_embeds = zip(
+                *[
+                    encode_prompt(
+                        text_encoders=text_encoders,
+                        tokenizers=None,
+                        prompt=None,
+                        text_input_ids_list=t,
+                    )
+                    for t in tokens
+                ]
             )
+
             unet_added_conditions = {
                 "time_ids": time_ids.repeat(n_els, 1),
-                "text_embeds": pooled_prompt_embeds.repeat(n_els, 1),
+                "text_embeds": torch.concat(all_pooled_prompt_embeds),
             }
             model_pred = unet(
                 noisy_latents,
                 timesteps,
-                prompt_embeds.repeat(n_els, 1, 1),
+                torch.concat(all_prompt_embeds),
                 added_cond_kwargs=unet_added_conditions,
             ).sample
 
@@ -435,6 +442,7 @@ class Trainer(BaseTrainer):
             [self._compute_time_ids(), self._compute_time_ids()], dim=0
         )
 
+        torch.cuda.empty_cache()
         dprint("Starting training...")
         for epoch in range(epochs):
             if self.accelerator.is_main_process:
@@ -457,8 +465,13 @@ class Trainer(BaseTrainer):
         self.accelerator.wait_for_everyone()
 
         pipe = self._pipeline(
-            self.accelerator.unwrap_model(unet).eval(),
-            tuple([self.accelerator.unwrap_model(te).eval() for te in text_encoders]),
+            self.accelerator.unwrap_model(unet, False).eval(),
+            tuple(
+                [
+                    self.accelerator.unwrap_model(te, False).eval()
+                    for te in text_encoders
+                ]
+            ),
             tokenizers,
             vae,
             torch_dtype=self.params.dtype,

@@ -5,3 +5,4 @@ git+https://github.com/damian0815/compel.git@main#egg=compel
 safetensors>=0.3.1
 bitsandbytes==0.39.0
 ftfy
+rich

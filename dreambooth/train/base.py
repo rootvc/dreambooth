@@ -22,7 +22,7 @@ from accelerate.logging import get_logger
 from accelerate.utils import InitProcessGroupKwargs
 from diffusers import (
     AutoencoderKL,
-    DDPMScheduler,
+    EulerDiscreteScheduler,
     StableDiffusionPipeline,
     UNet2DConditionModel,
 )
@@ -122,10 +122,12 @@ class BaseTrainer(ABC):
         unet = unet.to(
             self.accelerator.device, dtype=self.params.dtype, non_blocking=True
         )
-        return torch.compile(unet, mode="reduce-overhead", fullgraph=True)
+        return unet
+        # .to(memory_format=torch.channels_last)
+        # return torch.compile(unet, mode="reduce-overhead", fullgraph=True)
 
     def _noise_scheduler(self):
-        return self._spawn(DDPMScheduler, subfolder="scheduler")
+        return self._spawn(EulerDiscreteScheduler, subfolder="scheduler")
 
     @main_process_only
     def _init_trackers(self):

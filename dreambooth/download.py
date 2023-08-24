@@ -12,8 +12,8 @@ from cloudpathlib import CloudPath
 from diffusers import (
     AutoencoderKL,
     ControlNetModel,
-    DiffusionPipeline,
-    StableDiffusionControlNetPipeline,
+    StableDiffusionXLControlNetPipeline,
+    StableDiffusionXLImg2ImgPipeline,
 )
 from diffusers.pipelines.stable_diffusion.convert_from_ckpt import (
     convert_ldm_vae_checkpoint,
@@ -76,7 +76,7 @@ def download_test_models(_, name: str):
 def download_hf_model(model: Model):
     models = [
         download(
-            StableDiffusionControlNetPipeline,
+            StableDiffusionXLControlNetPipeline,
             model.name,
             variant=model.variant,
             revision=model.revision,
@@ -89,7 +89,11 @@ def download_hf_model(model: Model):
     if model.vae:
         models.append(download(AutoencoderKL, model.vae))
     if model.refiner:
-        models.append(download(DiffusionPipeline, model.refiner, variant=model.variant))
+        models.append(
+            download(
+                StableDiffusionXLImg2ImgPipeline, model.refiner, variant=model.variant
+            )
+        )
     return models
 
 

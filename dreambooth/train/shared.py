@@ -17,6 +17,7 @@ import orjson as json
 import torch
 import torch.distributed
 from PIL import Image
+from rich import print
 from torch._dynamo.eval_frame import OptimizedModule
 from torchvision import transforms as TT
 from transformers import PretrainedConfig, PreTrainedModel

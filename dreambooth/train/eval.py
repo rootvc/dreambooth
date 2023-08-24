@@ -14,12 +14,13 @@ import torch.distributed
 import torch.multiprocessing
 import tqdm
 import wandb
-from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
+from compel import Compel, ReturnedEmbeddingsType
 from diffusers import (
     StableDiffusionXLControlNetPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
 from PIL import Image
+from rich import print
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import pil_to_tensor, resize, to_pil_image
 from torchvision.utils import make_grid
@@ -52,14 +53,14 @@ class PromptDataset(Dataset):
         self.compel = Compel(
             [pipe.tokenizer, pipe.tokenizer_2],
             [pipe.text_encoder, pipe.text_encoder_2],
-            textual_inversion_manager=DiffusersTextualInversionManager(pipe),
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=[False, True],
             device=pipe.device,
         )
         self.n = n
         self.prompts = random.sample(
-            [(p, self.compel([p])[0]) for p in self.params.eval_prompts], k=n
+            [(p, self.compel([p])) for p in self.params.eval_prompts],
+            k=n,
         )
 
     def __len__(self):
@@ -148,14 +149,56 @@ class Evaluator:
         return images
 
     @cached_property
-    def refiner(self) -> StableDiffusionXLImg2ImgPipeline:
+    def refiner(self) -> tuple[StableDiffusionXLImg2ImgPipeline, Compel]:
         refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
             self.params.model.refiner,
             torch_dtype=self.params.dtype,
             variant=self.params.model.variant,
+            local_files_only=True,
         ).to(self.device)
         refiner.enable_xformers_memory_efficient_attention()
-        return refiner
+
+        compel = Compel(
+            tokenizer=refiner.tokenizer_2,
+            text_encoder=refiner.text_encoder_2,
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=True,
+            device=refiner.device,
+        )
+
+        return refiner, compel
+
+    def _gen_latents(self, ds: PromptDataset, batch: list[tuple[str, torch.Tensor]]):
+        prompts, embeddings = zip(*batch)
+        conditionings, pools = zip(*embeddings)
+
+        embeds = torch.cat(conditionings, dim=0)
+        pooled_embeds = torch.cat(pools, dim=0)
+        neg_embeds, neg_pools = ds.compel([self.params.negative_prompt] * len(prompts))
+
+        [
+            embeds,
+            neg_embeds,
+        ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
+
+        (embeds, pooled_embeds, neg_embeds, neg_pools) = [
+            x.to(self.device, dtype=self.params.dtype)
+            for x in (embeds, pooled_embeds, neg_embeds, neg_pools)
+        ]
+
+        return self.pipeline(
+            prompt_embeds=embeds,
+            pooled_prompt_embeds=pooled_embeds,
+            negative_prompt_embeds=neg_embeds,
+            negative_pooled_prompt_embeds=neg_pools,
+            width=self.params.model.resolution,
+            height=self.params.model.resolution,
+            image=random.choices(self.cond_images, k=len(prompts)),
+            num_inference_steps=self.params.test_steps,
+            guidance_scale=self.params.test_guidance_scale,
+            controlnet_conditioning_scale=self.params.test_strength,
+            output_type="latent",
+        ).images
 
     def _gen_images(self) -> list[tuple[str, Image.Image]]:
         ds = PromptDataset(self.params, self.pipeline, n=self.params.test_images)
@@ -167,38 +210,22 @@ class Evaluator:
 
         all_images = []
         for batch in tqdm.tqdm(loader):
-            prompts, embeddings = zip(*batch)
-            conditionings, pools = zip(*embeddings)
-
-            embeds = torch.stack(conditionings, dim=0)
-            pooled_embeds = torch.stack(pools, dim=0)
-            neg_embeds, neg_pools = ds.compel(
-                [self.params.negative_prompt] * len(prompts)
-            )
+            latents = self._gen_latents(ds, batch)
+            prompts, _ = zip(*batch)
+            refiner, compel = self.refiner
+            embeds, pools = compel(list(prompts))
+            neg_embeds, neg_pools = compel([self.params.negative_prompt] * len(prompts))
             [
                 embeds,
                 neg_embeds,
             ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
-            latents = self.pipeline(
-                prompt_embeds=embeds.to(self.device),
-                pooled_prompt_embeds=pooled_embeds.to(self.device),
-                negative_prompt_embeds=neg_embeds.to(self.device),
-                negative_pooled_prompt_embeds=neg_pools.to(self.device),
-                width=self.params.model.resolution,
-                height=self.params.model.resolution,
-                image=random.choices(self.cond_images, k=len(prompts)),
-                num_inference_steps=self.params.test_steps,
-                guidance_scale=self.params.test_guidance_scale,
-                controlnet_conditioning_scale=self.params.test_strength,
-                output_type="latent",
+            images = refiner(
+                prompt_embeds=embeds.to(dtype=self.params.dtype),
+                pooled_prompt_embeds=pools.to(dtype=self.params.dtype),
+                negative_prompt_embeds=neg_embeds.to(dtype=self.params.dtype),
+                negative_pooled_prompt_embeds=neg_pools.to(dtype=self.params.dtype),
+                image=latents,
             ).images
-            images = self.refiner(
-                prompt_embeds=embeds.to(self.device),
-                pooled_prompt_embeds=pooled_embeds.to(self.device),
-                negative_prompt_embeds=neg_embeds.to(self.device),
-                negative_pooled_prompt_embeds=neg_pools.to(self.device),
-                image=latents[None, :],
-            )
             all_images.extend(zip(prompts, images))
 
         return all_images
@@ -251,15 +278,8 @@ class Evaluator:
             dprint("Waiting for other processes to finish...")
             torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
 
-    def _prepare_pipeline(self):
-        for w in ("all_negative", "bad_dream", "unreal_dream"):
-            self.pipeline.load_textual_inversion(f"weights/embeddings/{w}.pt", f"<{w}>")
-
     @torch.no_grad()
     def generate(self):
-        dprint("Preparing pipeline...")
-        self._prepare_pipeline()
-
         dprint("Generating images...")
         prompts, images = cast(
             tuple[tuple[str], tuple[Image.Image]], list(zip(*self._gen_images()))
