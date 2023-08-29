@@ -197,7 +197,6 @@ class Evaluator:
             num_inference_steps=self.params.test_steps,
             guidance_scale=self.params.test_guidance_scale,
             controlnet_conditioning_scale=self.params.test_strength,
-            output_type="latent",
         ).images
 
     def _gen_images(self) -> list[tuple[str, Image.Image]]:
@@ -210,22 +209,23 @@ class Evaluator:
 
         all_images = []
         for batch in tqdm.tqdm(loader):
-            latents = self._gen_latents(ds, batch)
             prompts, _ = zip(*batch)
-            refiner, compel = self.refiner
-            embeds, pools = compel(list(prompts))
-            neg_embeds, neg_pools = compel([self.params.negative_prompt] * len(prompts))
-            [
-                embeds,
-                neg_embeds,
-            ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
-            images = refiner(
-                prompt_embeds=embeds.to(dtype=self.params.dtype),
-                pooled_prompt_embeds=pools.to(dtype=self.params.dtype),
-                negative_prompt_embeds=neg_embeds.to(dtype=self.params.dtype),
-                negative_pooled_prompt_embeds=neg_pools.to(dtype=self.params.dtype),
-                image=latents,
-            ).images
+            images = self._gen_latents(ds, batch)
+            # prompts, _ = zip(*batch)
+            # refiner, compel = self.refiner
+            # embeds, pools = compel(list(prompts))
+            # neg_embeds, neg_pools = compel([self.params.negative_prompt] * len(prompts))
+            # [
+            #     embeds,
+            #     neg_embeds,
+            # ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
+            # images = refiner(
+            #     prompt_embeds=embeds.to(dtype=self.params.dtype),
+            #     pooled_prompt_embeds=pools.to(dtype=self.params.dtype),
+            #     negative_prompt_embeds=neg_embeds.to(dtype=self.params.dtype),
+            #     negative_pooled_prompt_embeds=neg_pools.to(dtype=self.params.dtype),
+            #     image=latents,
+            # ).images
             all_images.extend(zip(prompts, images))
 
         return all_images
