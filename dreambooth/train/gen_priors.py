@@ -1,14 +1,19 @@
 from cloudpathlib import CloudPath
 
-from dreambooth.train.utils import get_model, hash_bytes
+from dreambooth.train.sdxl.train import get_model
+from dreambooth.train.shared import hash_bytes
 
 BUCKET = "s3://rootvc-photobooth"
 
 
 def main():
     model = get_model(instance_images=[b""])
-    priors = model.generate_priors(progress_bar=True)
+    priors = model.generate_priors()
     path = CloudPath(BUCKET) / "priors" / hash_bytes(priors.prompt.encode())
+    try:
+        path.rmtree()
+    except FileNotFoundError:
+        pass
     path.upload_from(priors.data)
 
 

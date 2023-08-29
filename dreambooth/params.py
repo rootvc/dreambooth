@@ -93,7 +93,7 @@ class Class(BaseModel):
 
 
 class HyperParams(BaseModel):
-    dtype: torch.dtype = torch.float16
+    dtype: torch.dtype = torch.bfloat16
     gradient_accumulation_steps: int = 1
 
     # Model
@@ -106,7 +106,7 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 5e-4
+    learning_rate: float = 5e-6
     text_learning_rate: float = 6e-4
     ti_learning_rate: float = 1e-3
     ti_continued_learning_rate: float = 0.0
@@ -118,14 +118,14 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 0
-    lora_train_epochs: int = 1
-    lr_scheduler: str = "cosine_with_restarts"
+    lora_train_epochs: int = 10
+    lr_scheduler: str = "constant"
     lr_warmup_steps: int = 0
     lr_cycles: int = 3
-    prior_loss_weight: float = 1.0
+    prior_loss_weight: float = 0.1
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
-    input_perterbation: float = 0.001
+    input_perterbation: float = 0.000
 
     # LoRA
     lora_rank: int = 4
@@ -154,26 +154,32 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"{p}, (vibrant colors, masterpiece, sharp focus, detailed face).and(), (<add_details>)0.3, (<enhancer>)0.6"
-        for p in [
-            f"(('a closeup picture of ({token})+++', 'a closeup picture of a zombie').blend(0.7, 0.3), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
-            f"(('a closeup portrait of ({token})+++', 'a closeup portrait of a Harry Potter character').blend(0.7, 0.3), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
-            f"(close up Portrait photo of ({token})+++ in a clown costume, 'clown face makeup, red nose', (bright, colorful and vibrant)+).and()",
-            f"(close up Portrait photo of ({token})+++ in a mech suit, 'light bokeh, intricate, steel metal, elegant, photo by greg rutkowski, soft lighting').and()",
-            # f"('8k portrait of {token}, (wearing a colorful suit)++', (pop art style)+, clear and vibrant).and()",
-            # f"(an (animation)+ of {token}, a character (from Naruto)+++, '(anime)++, colorful').and()",
-            # f"('an (oil painting)+++ of {token}, by van gogh', (starry night sky in background)+, (vibrant)+).and()",
-            # f"(a photograph of {token}+ the (Marvel superhero)++, '(cape and costume)+, flying in the sky, (nyc skyline in background)+', 'sharp and focused, realistic, strong').and()",
-            # f"(a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, 'wide angle shot, sharp').and()",
-            # f"('(3d render)++ of {token}+, as an (cyborg)++', (robot body parts)+, (cyberpunk)++ lighting).and()",
-        ]
+        "close up Portrait photo of a woman in a clown costume",
+        f"close up Portrait photo of {token} in a mech suit",
+        f"8k portrait of {token}, wearing a colorful suit",
+        f"an animation of {token}, a character from Naruto",
     ]
+    # eval_prompts: list[str] = [
+    #     f"{p}, (vibrant colors, masterpiece, sharp focus, detailed face).and(), (<add_details>)0.3, (<enhancer>)0.6"
+    #     for p in [
+    #         f"(('a closeup picture of ({token})+++', 'a closeup picture of a zombie').blend(0.7, 0.3), '(decaying skin and clothing)+++, (rotting)+, inside an (abandoned building)+').and()",
+    #         f"(('a closeup portrait of ({token})+++', 'a closeup portrait of a Harry Potter character').blend(0.7, 0.3), (wearing robes and holding a wand)++, (in front of Hogwarts castle)++).and()",
+    #         f"(close up Portrait photo of ({token})+++ in a clown costume, 'clown face makeup, red nose', (bright, colorful and vibrant)+).and()",
+    #         f"(close up Portrait photo of ({token})+++ in a mech suit, 'light bokeh, intricate, steel metal, elegant, photo by greg rutkowski, soft lighting').and()",
+    #         # f"('8k portrait of {token}, (wearing a colorful suit)++', (pop art style)+, clear and vibrant).and()",
+    #         # f"(an (animation)+ of {token}, a character (from Naruto)+++, '(anime)++, colorful').and()",
+    #         # f"('an (oil painting)+++ of {token}, by van gogh', (starry night sky in background)+, (vibrant)+).and()",
+    #         # f"(a photograph of {token}+ the (Marvel superhero)++, '(cape and costume)+, flying in the sky, (nyc skyline in background)+', 'sharp and focused, realistic, strong').and()",
+    #         # f"(a (cartoon)+++ screenshot of {token}, (clouds and sky in background)+++, 'wide angle shot, sharp').and()",
+    #         # f"('(3d render)++ of {token}+, as an (cyborg)++', (robot body parts)+, (cyberpunk)++ lighting).and()",
+    #     ]
+    # ]
 
     debug_outputs: bool = True
-    test_steps: int = 50
+    test_steps: int = 30
     test_images: int = 4
-    test_guidance_scale: float = 7.5
-    test_strength: float = 1.0
+    test_guidance_scale: float = 10.5
+    test_strength: float = 0.9
     high_noise_frac: float = 0.8
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")

@@ -22,7 +22,7 @@ from accelerate.logging import get_logger
 from accelerate.utils import InitProcessGroupKwargs
 from diffusers import (
     AutoencoderKL,
-    EulerDiscreteScheduler,
+    DDPMScheduler,
     StableDiffusionPipeline,
     UNet2DConditionModel,
 )
@@ -75,7 +75,7 @@ class BaseTrainer(ABC):
 
         return Accelerator(
             params=self.params,
-            mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "fp16"),
+            mixed_precision=os.getenv("ACCELERATE_MIXED_PRECISION", "bf16"),
             log_with=["wandb"],
             gradient_accumulation_steps=self.params.gradient_accumulation_steps,
             kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(minutes=5))],
@@ -97,7 +97,6 @@ class BaseTrainer(ABC):
         if self.params.model.vae:
             vae = AutoencoderKL.from_pretrained(
                 self.params.model.vae,
-                local_files_only=True,
                 **kwargs,
             )
         else:
@@ -127,7 +126,7 @@ class BaseTrainer(ABC):
         # return torch.compile(unet, mode="reduce-overhead", fullgraph=True)
 
     def _noise_scheduler(self):
-        return self._spawn(EulerDiscreteScheduler, subfolder="scheduler")
+        return self._spawn(DDPMScheduler, subfolder="scheduler")
 
     @main_process_only
     def _init_trackers(self):
@@ -164,6 +163,10 @@ class BaseTrainer(ABC):
 
     @abstractmethod
     def train(self) -> StableDiffusionPipeline:
+        pass
+
+    @abstractmethod
+    def generate_priors(self) -> Class:
         pass
 
     @main_process_only

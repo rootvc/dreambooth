@@ -11,5 +11,5 @@ class Model(BaseModel):
     variant: Optional[str] = None
     vae: Optional[Union[str, Path]] = "madebyollin/sdxl-vae-fp16-fix"
     control_net: Optional[Union[str, Path]] = "diffusers/controlnet-canny-sdxl-1.0"
-    resolution: int = 512
+    resolution: int = 768
     revision: Optional[str] = None

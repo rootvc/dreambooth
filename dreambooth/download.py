@@ -6,14 +6,15 @@ from typing import Type
 from urllib.parse import urlencode
 
 import requests
+import torch
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 from cloudpathlib import CloudPath
 from diffusers import (
     AutoencoderKL,
     ControlNetModel,
-    StableDiffusionXLControlNetPipeline,
     StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLPipeline,
 )
 from diffusers.pipelines.stable_diffusion.convert_from_ckpt import (
     convert_ldm_vae_checkpoint,
@@ -57,6 +58,10 @@ def persist_model(model, name: str):
 
 def download(klass: Type, name: str, **kwargs):
     model = klass.from_pretrained(name, **kwargs)
+    try:
+        model = model.to(dtype=torch.bfloat16)
+    except TypeError:
+        model = model.to(torch_dtype=torch.bfloat16)
     return persist_model(model, name)
 
 
@@ -74,24 +79,35 @@ def download_test_models(_, name: str):
 
 
 def download_hf_model(model: Model):
-    models = [
+    if model.vae:
+        vae = download(AutoencoderKL, model.vae)
+        models = [vae]
+    else:
+        vae = None
+        models = []
+    models.append(
         download(
-            StableDiffusionXLControlNetPipeline,
+            StableDiffusionXLPipeline,
             model.name,
             variant=model.variant,
             revision=model.revision,
-            controlnet=download(
+            vae=vae,
+        )
+    )
+    if model.control_net:
+        models.append(
+            download(
                 ControlNetModel,
                 model.control_net,
-            ),
+            )
         )
-    ]
-    if model.vae:
-        models.append(download(AutoencoderKL, model.vae))
     if model.refiner:
         models.append(
             download(
-                StableDiffusionXLImg2ImgPipeline, model.refiner, variant=model.variant
+                StableDiffusionXLImg2ImgPipeline,
+                model.refiner,
+                variant=model.variant,
+                vae=vae,
             )
         )
     return models

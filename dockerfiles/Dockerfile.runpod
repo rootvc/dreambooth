@@ -43,9 +43,11 @@ RUN python3 -m dreambooth.train.download_eval_models
 FROM pre-download AS download-2
 
 ENV OC_CAUSE 1
-RUN pip install --no-cache-dir omegaconf
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install omegaconf
 
-ADD --link dreambooth/param/ dreambooth/param/
+ADD --link dreambooth/param/__init__.py dreambooth/param/__init__.py
+ADD --link dreambooth/param/model.py dreambooth/param/model.py
 ADD --link dreambooth/download.py dreambooth/download.py
 
 RUN python3 -m dreambooth.download
@@ -91,7 +93,7 @@ ADD --link data/config/rclone.conf /root/.config/rclone/rclone.conf
 
 COPY --link --from=rclone /usr/bin/rclone /usr/bin/rclone
 COPY --link --from=download /root/model/CodeFormer /root/.cache/huggingface/models/CodeFormer
-# COPY --link --from=download-2 /root/model /root/.cache/huggingface/models
+COPY --link --from=download-2 /root/model /root/.cache/huggingface/models
 
 ADD --link . .
 

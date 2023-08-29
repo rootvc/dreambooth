@@ -17,7 +17,6 @@ import torch.jit
 from diffusers import (
     AutoencoderKL,
 )
-from diffusers.models.vae import DiagonalGaussianDistribution
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 from torch.utils.data import Dataset
@@ -83,12 +82,10 @@ class CachedLatentsDataset(Dataset):
             )
         )
         images = (
-            torch.stack(images)
-            .to(self.accelerator.device, memory_format=torch.contiguous_format)
-            .float()
+            torch.stack(images).to("cpu", memory_format=torch.contiguous_format).float()
         )
-        latent_dist = self.vae.to(self.accelerator.device).encode(images).latent_dist
-        latent_dist = DiagonalGaussianDistribution(latent_dist.parameters.to("cpu"))
+        # latent_dist = self.vae.to(self.accelerator.device).encode(images).latent_dist
+        # latent_dist = DiagonalGaussianDistribution(latent_dist.parameters.to("cpu"))
 
         tokens = [
             (torch.cat([i1, p1], dim=0), torch.cat([i2, p2], dim=0))
@@ -99,7 +96,8 @@ class CachedLatentsDataset(Dataset):
         ]
 
         return {
-            "latent_dist": latent_dist,
+            "pixel_values": images,
+            # "latent_dist": latent_dist,
             "tokens": tokens,
         }
 
@@ -162,11 +160,11 @@ class DreamBoothDataset(Dataset):
 
     @staticmethod
     def open_image(path: Path, convert: bool = True):
-        img = Image.open(path)
+        img = exif_transpose(Image.open(path))
         if not convert or img.mode == "RGB":
-            return exif_transpose(img)
+            return img
         else:
-            return exif_transpose(img.convert("RGB"))
+            return img.convert("RGB")
 
     def _instance_image(self, index):
         path = self.instance_images[index % len(self.instance_images)]

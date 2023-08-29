@@ -188,7 +188,7 @@ class Evaluator:
 
         return self.pipeline(
             prompt=list(prompts),
-            negative_prompt=[self.params.negative_prompt] * len(prompts),
+            # negative_prompt=[self.params.negative_prompt] * len(prompts),
             # prompt_embeds=embeds,
             # pooled_prompt_embeds=pooled_embeds,
             # negative_prompt_embeds=neg_embeds,

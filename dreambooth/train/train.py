@@ -239,12 +239,13 @@ def standalone_params(is_main: bool) -> Params:
     if hf_model_cache := os.getenv("HF_MODEL_CACHE"):
         cache = Path(hf_model_cache)
 
-        dprint("Downloading models from S3...")
-        _download(bucket / "models", cache)
+        if not next((models := bucket / "models").iterdir(), None):
+            dprint("Downloading models from S3...")
+            _download(models, cache)
 
         params.model.name = cache / params.model.name
-        if params.model.vae:
-            params.model.vae = cache / params.model.vae
+        # if params.model.vae:
+        #     params.model.vae = cache / params.model.vae
         if params.model.control_net:
             params.model.control_net = cache / params.model.control_net
         if params.model.refiner:
