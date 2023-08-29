@@ -170,27 +170,29 @@ class Evaluator:
 
     def _gen_latents(self, ds: PromptDataset, batch: list[tuple[str, torch.Tensor]]):
         prompts, embeddings = zip(*batch)
-        conditionings, pools = zip(*embeddings)
+        # conditionings, pools = zip(*embeddings)
 
-        embeds = torch.cat(conditionings, dim=0)
-        pooled_embeds = torch.cat(pools, dim=0)
-        neg_embeds, neg_pools = ds.compel([self.params.negative_prompt] * len(prompts))
+        # embeds = torch.cat(conditionings, dim=0)
+        # pooled_embeds = torch.cat(pools, dim=0)
+        # neg_embeds, neg_pools = ds.compel([self.params.negative_prompt] * len(prompts))
 
-        [
-            embeds,
-            neg_embeds,
-        ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
+        # [
+        #     embeds,
+        #     neg_embeds,
+        # ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
 
-        (embeds, pooled_embeds, neg_embeds, neg_pools) = [
-            x.to(self.device, dtype=self.params.dtype)
-            for x in (embeds, pooled_embeds, neg_embeds, neg_pools)
-        ]
+        # (embeds, pooled_embeds, neg_embeds, neg_pools) = [
+        #     x.to(self.device, dtype=self.params.dtype)
+        #     for x in (embeds, pooled_embeds, neg_embeds, neg_pools)
+        # ]
 
         return self.pipeline(
-            prompt_embeds=embeds,
-            pooled_prompt_embeds=pooled_embeds,
-            negative_prompt_embeds=neg_embeds,
-            negative_pooled_prompt_embeds=neg_pools,
+            prompt=list(prompts),
+            negative_prompt=[self.params.negative_prompt] * len(prompts),
+            # prompt_embeds=embeds,
+            # pooled_prompt_embeds=pooled_embeds,
+            # negative_prompt_embeds=neg_embeds,
+            # negative_pooled_prompt_embeds=neg_pools,
             width=self.params.model.resolution,
             height=self.params.model.resolution,
             image=random.choices(self.cond_images, k=len(prompts)),
