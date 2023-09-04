@@ -71,7 +71,6 @@ class Tester:
             CompiledModelsRegistry.get(
                 klass,
                 self.params.test_model,
-                local_files_only=True,
                 compile=True,
             )
             .to(self.accelerator.device, non_blocking=True)

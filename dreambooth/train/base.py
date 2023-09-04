@@ -1,3 +1,4 @@
+import math
 import os
 import tempfile
 from abc import ABC, abstractmethod
@@ -17,20 +18,42 @@ import torch.backends.cudnn
 import torch.distributed
 import torch.distributed.elastic.multiprocessing.errors
 import torch.jit
+import torch.nn.functional as F
+import torch.utils.checkpoint
 import transformers.utils.logging
 from accelerate.logging import get_logger
-from accelerate.utils import InitProcessGroupKwargs
+from accelerate.utils import InitProcessGroupKwargs, release_memory
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
+    DPMSolverMultistepScheduler,
+    SchedulerMixin,
     StableDiffusionPipeline,
     UNet2DConditionModel,
+    get_scheduler,
 )
+from diffusers.models.attention_processor import LoRAXFormersAttnProcessor
+from torch.utils.data import DataLoader
+from transformers import CLIPTextModel
 
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
+from dreambooth.train.base import BaseTrainer
+from dreambooth.train.datasets import (
+    CachedLatentsDataset,
+    DreamBoothDataset,
+    PromptDataset,
+)
 from dreambooth.train.eval import Evaluator
-from dreambooth.train.shared import hash_bytes, images, main_process_only
+from dreambooth.train.sdxl.utils import get_variance_type
+from dreambooth.train.shared import (
+    dprint,
+    hash_bytes,
+    hash_image,
+    images,
+    main_process_only,
+    unpack_collate,
+)
 from dreambooth.train.test import Tester
 
 T = TypeVar("T")
@@ -87,7 +110,6 @@ class BaseTrainer(ABC):
         instance = klass.from_pretrained(
             self.params.model.name,
             revision=self.params.model.revision,
-            local_files_only=True,
             **kwargs,
         )
         tap(instance)
@@ -124,6 +146,252 @@ class BaseTrainer(ABC):
         return unet
         # .to(memory_format=torch.channels_last)
         # return torch.compile(unet, mode="reduce-overhead", fullgraph=True)
+
+    def _unet_for_lora(self, **kwargs):
+        unet = self._unet(**kwargs)
+        unet_lora_attn_procs = {}
+        unet_lora_parameters = []
+        for name in unet.attn_processors.keys():
+            cross_attention_dim = (
+                None
+                if name.endswith("attn1.processor")
+                else unet.config.cross_attention_dim
+            )
+            if name.startswith("mid_block"):
+                hidden_size = unet.config.block_out_channels[-1]
+            elif name.startswith("up_blocks"):
+                block_id = int(name[len("up_blocks.")])
+                hidden_size = list(reversed(unet.config.block_out_channels))[block_id]
+            elif name.startswith("down_blocks"):
+                block_id = int(name[len("down_blocks.")])
+                hidden_size = unet.config.block_out_channels[block_id]
+            else:
+                raise ValueError(f"unexpected attn processor name: {name}")
+
+            module = LoRAXFormersAttnProcessor(
+                hidden_size=hidden_size,
+                cross_attention_dim=cross_attention_dim,
+                rank=self.params.lora_rank,
+            )
+            unet_lora_attn_procs[name] = module
+            unet_lora_parameters.extend(module.parameters())
+
+        unet.set_attn_processor(unet_lora_attn_procs)
+        return unet, unet_lora_parameters
+
+    @abstractmethod
+    def _pipeline(self, klass: type, *args, **kwargs) -> StableDiffusionPipeline:
+        ...
+
+    @torch.no_grad()
+    def _generate_priors_with(self, klass: type) -> Class:
+        pipeline = self._pipeline(klass=klass)
+
+        prompts = PromptDataset(self.params.prior_prompt, self.params.prior_samples)
+        loader = DataLoader(prompts, batch_size=self.params.batch_size)
+        images = (
+            image
+            for example in pipeline.progress_bar(loader)
+            for image in pipeline(example["prompt"]).images
+        )
+        for image in images:
+            hash = hash_image(image)
+            image.save(self.priors_dir / f"{hash}.jpg")
+
+        pipeline = release_memory(pipeline)
+        return Class(prompt_=self.params.prior_prompt, data=self.priors_dir)
+
+    @abstractmethod
+    def generate_priors(self) -> Class:
+        ...
+
+    @abstractmethod
+    def _load_models(self) -> tuple:
+        ...
+
+    def _prepare_models(self):
+        (
+            unet,
+            text_encoders,
+            vae,
+            tokenizers,
+            noise_scheduler,
+            optimizer,
+            params,
+        ) = self._load_models()
+        dataset = DreamBoothDataset(
+            instance=self.instance_class,
+            prior=self.params.prior_class or self.generate_priors(),
+            tokenizers=tokenizers,
+            size=self.params.model.resolution,
+            vae_scale_factor=vae.config.scaling_factor,
+        )
+
+        dprint("Caching latents...")
+        dataset = CachedLatentsDataset(self.accelerator, dataset, self.params, vae)
+        warmed = dataset.warm()
+
+        dprint("Loading data...")
+        loader = DataLoader(
+            warmed,
+            batch_size=1,
+            collate_fn=unpack_collate,
+            shuffle=True,
+            num_workers=1,
+        )
+
+        epochs = self.params.lora_train_epochs
+        steps_per_epoch = math.ceil(
+            len(loader)
+            * self.params.batch_size
+            / self.params.gradient_accumulation_steps
+        )
+        max_train_steps = epochs * steps_per_epoch
+
+        lr_scheduler = get_scheduler(
+            self.params.lr_scheduler,
+            optimizer=optimizer,
+            num_warmup_steps=self.params.lr_warmup_steps
+            * self.accelerator.num_processes,
+            num_training_steps=max_train_steps * self.accelerator.num_processes,
+            num_cycles=self.params.lr_cycles,
+        )
+
+        (
+            unet,
+            *text_encoders,
+            optimizer,
+            loader,
+            lr_scheduler,
+        ) = self.accelerator.prepare(
+            unet,
+            *text_encoders,
+            optimizer,
+            loader,
+            lr_scheduler,
+        )
+
+        steps_per_epoch = math.ceil(
+            len(loader)
+            * self.params.batch_size
+            / self.params.gradient_accumulation_steps
+        )  # may have changed post-accelerate
+        epochs = math.ceil(max_train_steps / steps_per_epoch)
+
+        return (
+            unet,
+            text_encoders,
+            vae,
+            tokenizers,
+            noise_scheduler,
+            optimizer,
+            loader,
+            lr_scheduler,
+            epochs,
+            params,
+        )
+
+    @abstractmethod
+    def _unet_epoch_args(
+        self, batch: dict, bsz: int, text_encoders: list
+    ) -> tuple[list, dict]:
+        ...
+
+    def _do_epoch(
+        self,
+        loader: DataLoader,
+        optimizer: torch.optim.Optimizer,
+        noise_scheduler: SchedulerMixin,
+        unet: UNet2DConditionModel,
+        text_encoders: list[CLIPTextModel],
+        scaling_factor: float,
+        lr_scheduler: torch.optim.lr_scheduler.LambdaLR,
+        vae: AutoencoderKL,
+        tokenizers,
+        params,
+    ):
+        unet.train()
+        for text_encoder in text_encoders:
+            text_encoder.train()
+
+        for batch in loader:
+            # latent_dist, tokens = batch["latent_dist"], batch["tokens"]
+            batch["tokens"]
+            pixel_values = batch["pixel_values"].to(dtype=vae.dtype)
+            model_input = vae.encode(pixel_values).latent_dist.sample()
+            model_input = model_input * vae.config.scaling_factor
+            latents = model_input
+
+            # latents = latent_dist.sample()
+            # latents = latents * scaling_factor
+            # latents = latents.squeeze(0).to(self.accelerator.device).float()
+
+            # Sample noise that we'll add to the latents
+            noise = torch.randn_like(latents)
+            bsz = latents.shape[0]
+
+            # Sample a random timestep for each image
+            timesteps = torch.randint(
+                0,
+                noise_scheduler.config.num_train_timesteps,
+                (bsz,),
+                device=latents.device,
+            )
+            timesteps = timesteps.long()
+
+            # Add noise to the latents according to the noise magnitude at each timestep
+            # (this is the forward diffusion process)
+            noisy_latents = noise_scheduler.add_noise(
+                latents,
+                noise,  # + self.params.input_perterbation * torch.randn_like(latents),
+                timesteps,
+            )
+
+            args, kwargs = self._unet_epoch_args(batch, bsz, text_encoders)
+            model_pred = unet(noisy_latents, timesteps, *args, **kwargs).sample
+
+            # Get the target for loss depending on the prediction type
+            if noise_scheduler.config.prediction_type == "epsilon":
+                target = noise
+            elif noise_scheduler.config.prediction_type == "v_prediction":
+                target = noise_scheduler.get_velocity(latents, noise, timesteps)
+            else:
+                raise ValueError(
+                    f"Unknown prediction type {noise_scheduler.config.prediction_type}"
+                )
+
+            # Chunk the noise and model_pred into two parts and compute the loss on each part separately.
+            model_pred, model_pred_prior = torch.chunk(model_pred, 2, dim=0)
+            target, target_prior = torch.chunk(target, 2, dim=0)
+
+            instance_loss = F.mse_loss(
+                model_pred.float(), target.float(), reduction="mean"
+            )
+            prior_loss = F.mse_loss(
+                model_pred_prior.float(), target_prior.float(), reduction="mean"
+            )
+            loss = instance_loss + self.params.prior_loss_weight * prior_loss
+            self.accelerator.backward(loss)
+
+            if self.accelerator.sync_gradients:
+                self.accelerator.clip_grad_norm_(params, self.params.max_grad_norm)
+            optimizer.step()
+            lr_scheduler.step()
+            optimizer.zero_grad()
+
+            if self.accelerator.sync_gradients:
+                self._total_steps += 1
+            metrics = {
+                "instance_loss": instance_loss.detach().item(),
+                "prior_loss": prior_loss.detach().item(),
+                "steps": self.total_steps,
+                **self.metrics_cache,
+            }
+            self.accelerator.log(metrics, step=self.total_steps)
+            self.metrics_cache = {}
+
+            if self.exceeded_max_steps():
+                break
 
     def _noise_scheduler(self):
         return self._spawn(DDPMScheduler, subfolder="scheduler")
@@ -162,12 +430,65 @@ class BaseTrainer(ABC):
         )
 
     @abstractmethod
-    def train(self) -> StableDiffusionPipeline:
-        pass
+    def _unwrap_pipe_args(
+        self, unet, text_encoders, tokenizers, vae
+    ) -> tuple[list, dict]:
+        ...
 
-    @abstractmethod
-    def generate_priors(self) -> Class:
-        pass
+    def train(self):
+        self._prepare_to_train()
+        (
+            unet,
+            text_encoders,
+            vae,
+            tokenizers,
+            noise_scheduler,
+            optimizer,
+            loader,
+            lr_scheduler,
+            epochs,
+            params,
+        ) = self._prepare_models()
+
+        def _pipe():
+            args, kwargs = self._unwrap_pipe_args(unet, text_encoders, tokenizers, vae)
+            return self._pipeline(*args, **kwargs, torch_dtype=self.params.dtype)
+
+        release_memory()
+
+        dprint("Starting training...")
+        for epoch in range(epochs):
+            if self.accelerator.is_main_process:
+                dprint(f"Epoch {epoch + 1}/{epochs} (Step {self.total_steps})")
+
+            self._do_epoch(
+                loader,
+                optimizer,
+                noise_scheduler,
+                unet,
+                text_encoders,
+                vae.config.scaling_factor,
+                lr_scheduler,
+                vae,
+                tokenizers,
+                params,
+            )
+            if self.params.debug_outputs:
+                self.eval(_pipe())
+
+            if self.exceeded_max_steps():
+                dprint("Max steps exceeded. Stopping training.")
+                break
+
+        self.accelerator.wait_for_everyone()
+
+        pipe = _pipe()
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+            pipe.scheduler.config,
+            # disable_corrector=[0],
+            **get_variance_type(pipe.scheduler),
+        )
+        return pipe.to(self.accelerator.device)
 
     @main_process_only
     @torch.inference_mode()
@@ -175,6 +496,10 @@ class BaseTrainer(ABC):
         Evaluator(
             self.accelerator.device, self.params, self.instance_class, pipeline
         ).generate()
+
+    def end_training(self):
+        self.accelerator.end_training()
+        self.accelerator.free_memory()
 
 
 def get_mem() -> float:

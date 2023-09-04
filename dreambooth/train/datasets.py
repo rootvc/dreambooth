@@ -87,13 +87,12 @@ class CachedLatentsDataset(Dataset):
         # latent_dist = self.vae.to(self.accelerator.device).encode(images).latent_dist
         # latent_dist = DiagonalGaussianDistribution(latent_dist.parameters.to("cpu"))
 
-        tokens = [
-            (torch.cat([i1, p1], dim=0), torch.cat([i2, p2], dim=0))
-            for ((i1, i2), (p1, p2)) in zip(
+        tokens = list(
+            itertools.chain(
                 map(itemgetter("instance_tokens"), batch),
                 map(itemgetter("prior_tokens"), batch),
             )
-        ]
+        )
 
         return {
             "pixel_values": images,
@@ -125,7 +124,7 @@ class DreamBoothDataset(Dataset):
         *,
         instance: Class,
         prior: Class,
-        tokenizers: tuple[CLIPTokenizer, CLIPTokenizer],
+        tokenizers: list[CLIPTokenizer],
         size: int,
         vae_scale_factor: float,
         augment: bool = True,
@@ -174,10 +173,7 @@ class DreamBoothDataset(Dataset):
 
         return {
             "instance_image": image,
-            "instance_tokens": (
-                tokenize_prompt(self.tokenizers[0], prompt),
-                tokenize_prompt(self.tokenizers[1], prompt),
-            ),
+            "instance_tokens": [tokenize_prompt(t, prompt) for t in self.tokenizers],
         }
 
     def _prior_image(self, index):
@@ -187,10 +183,7 @@ class DreamBoothDataset(Dataset):
 
         return {
             "prior_image": image,
-            "prior_tokens": (
-                tokenize_prompt(self.tokenizers[0], prompt),
-                tokenize_prompt(self.tokenizers[1], prompt),
-            ),
+            "prior_tokens": [tokenize_prompt(t, prompt) for t in self.tokenizers],
         }
 
     def __getitem__(self, index):

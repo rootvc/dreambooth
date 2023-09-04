@@ -16,6 +16,7 @@ import tqdm
 import wandb
 from compel import Compel, ReturnedEmbeddingsType
 from diffusers import (
+    StableDiffusionControlNetPipeline,
     StableDiffusionXLControlNetPipeline,
     StableDiffusionXLImg2ImgPipeline,
 )
@@ -47,16 +48,27 @@ T = TypeVar("T", bound=torch.nn.Module)
 
 class PromptDataset(Dataset):
     def __init__(
-        self, params: HyperParams, pipe: StableDiffusionXLControlNetPipeline, n: int
+        self,
+        params: HyperParams,
+        pipe: StableDiffusionXLControlNetPipeline | StableDiffusionControlNetPipeline,
+        n: int,
     ):
         self.params = params
-        self.compel = Compel(
-            [pipe.tokenizer, pipe.tokenizer_2],
-            [pipe.text_encoder, pipe.text_encoder_2],
-            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-            requires_pooled=[False, True],
-            device=pipe.device,
-        )
+        if isinstance(pipe, StableDiffusionXLControlNetPipeline):
+            self.compel = Compel(
+                [pipe.tokenizer, pipe.tokenizer_2],
+                [pipe.text_encoder, pipe.text_encoder_2],
+                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+                requires_pooled=[False, True],
+                device=pipe.device,
+            )
+        else:
+            self.compel = Compel(
+                pipe.tokenizer,
+                pipe.text_encoder,
+                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NORMALIZED,
+                device=pipe.device,
+            )
         self.n = n
         self.prompts = random.sample(
             [(p, self.compel([p])) for p in self.params.eval_prompts],
@@ -76,7 +88,7 @@ class Evaluator:
         device: torch.device,
         params: HyperParams,
         instance_class: Class,
-        pipeline: StableDiffusionXLControlNetPipeline,
+        pipeline: StableDiffusionControlNetPipeline,
     ):
         self.params = params
         self.instance_class = instance_class
@@ -154,7 +166,6 @@ class Evaluator:
             self.params.model.refiner,
             torch_dtype=self.params.dtype,
             variant=self.params.model.variant,
-            local_files_only=True,
         ).to(self.device)
         refiner.enable_xformers_memory_efficient_attention()
 

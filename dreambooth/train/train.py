@@ -324,7 +324,7 @@ def main():
     finally:
         if is_main:
             cleanup_fn()
-            model.accelerator.end_training()
+            model.end_training()
 
         dprint("Exiting!")
 
