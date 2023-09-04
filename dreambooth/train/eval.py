@@ -199,7 +199,7 @@ class Evaluator:
 
         return self.pipeline(
             prompt=list(prompts),
-            # negative_prompt=[self.params.negative_prompt] * len(prompts),
+            negative_prompt=[self.params.negative_prompt] * len(prompts),
             # prompt_embeds=embeds,
             # pooled_prompt_embeds=pooled_embeds,
             # negative_prompt_embeds=neg_embeds,
@@ -210,6 +210,7 @@ class Evaluator:
             num_inference_steps=self.params.test_steps,
             guidance_scale=self.params.test_guidance_scale,
             controlnet_conditioning_scale=self.params.test_strength,
+            cross_attention_kwargs={"scale": self.params.lora_alpha},
         ).images
 
     def _gen_images(self) -> list[tuple[str, Image.Image]]:

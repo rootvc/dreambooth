@@ -95,6 +95,7 @@ class Trainer(BaseTrainer):
                 **kwargs,
             ).to(self.accelerator.device, torch_dtype=self.params.dtype)
             pipe.enable_xformers_memory_efficient_attention()
+            # pipe.fuse_lora(self.params.lora_alpha)
             return pipe
 
     def generate_priors(self) -> Class:
@@ -108,10 +109,12 @@ class Trainer(BaseTrainer):
             vae = self._vae()
             tokenizer = self._tokenizer()
         noise_scheduler = self._noise_scheduler()
-        params = list(itertools.chain(unet_params, *te_params))
+        params = [
+            {"lr": self.params.learning_rate, "params": unet_params},
+            {"lr": self.params.text_learning_rate, "params": te_params},
+        ]
         optimizer = self.accelerator.optimizer(
             params,
-            lr=self.params.learning_rate,
             betas=self.params.betas,
             weight_decay=self.params.weight_decay,
         )
@@ -122,7 +125,7 @@ class Trainer(BaseTrainer):
             [tokenizer],
             noise_scheduler,
             optimizer,
-            params,
+            itertools.chain.from_iterable(p["params"] for p in params),
         )
 
     def _unet_epoch_args(self, batch: dict, bsz: int, text_encoders: list):

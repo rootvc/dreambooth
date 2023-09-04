@@ -14,7 +14,7 @@ import torch.distributed
 import torch.version
 
 from dreambooth.train.base import get_params
-from dreambooth.train.sdxl.train import get_model
+from dreambooth.train.sd.train import get_model
 
 if TYPE_CHECKING:
     from sagemaker_training import environment
@@ -244,8 +244,8 @@ def standalone_params(is_main: bool) -> Params:
             _download(models, cache)
 
         params.model.name = cache / params.model.name
-        # if params.model.vae:
-        #     params.model.vae = cache / params.model.vae
+        if params.model.vae:
+            params.model.vae = cache / params.model.vae
         if params.model.control_net:
             params.model.control_net = cache / params.model.control_net
         if params.model.refiner:

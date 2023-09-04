@@ -3,6 +3,6 @@ git+https://github.com/huggingface/diffusers.git@main#egg=diffusers
 git+https://github.com/huggingface/peft.git@main#egg=peft
 git+https://github.com/damian0815/compel.git@main#egg=compel
 safetensors>=0.3.1
-bitsandbytes==0.39.0
+bitsandbytes==0.41.1
 ftfy
 rich

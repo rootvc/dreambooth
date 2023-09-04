@@ -100,16 +100,16 @@ class HyperParams(BaseModel):
     source_token: str = "person"
     token: str = "<krk>"
     model: Model = Model()
-    prior_prompt: str = f"a photo of a {source_token}"
+    prior_prompt: str = f"a closeup portrait photo of a single {source_token}, looking forward, without glasses, blank background"
     prior_samples: int = 250
     prior_class: Optional[Class] = None
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 5e-6
-    text_learning_rate: float = 6e-4
-    ti_learning_rate: float = 1e-3
-    ti_continued_learning_rate: float = 0.0
+    learning_rate: float = 1e-5 / batch_size
+    text_learning_rate: float = 4e-5 / batch_size
+    ti_learning_rate: float = 0.0 / batch_size
+    ti_continued_learning_rate: float = 0.0 / batch_size
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
 
@@ -119,22 +119,22 @@ class HyperParams(BaseModel):
     loading_workers: int = 4
     ti_train_epochs: int = 0
     lora_train_epochs: int = 10
-    lr_scheduler: str = "constant"
+    lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
     lr_cycles: int = 3
-    prior_loss_weight: float = 0.1
+    prior_loss_weight: float = 1.0
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
     input_perterbation: float = 0.000
 
     # LoRA
-    lora_rank: int = 4
-    lora_alpha: float = 5.0
+    lora_rank: int = 32
+    lora_alpha: float = 0.70
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 4
-    lora_text_alpha: float = 1.8
+    lora_text_rank: int = 16
+    lora_text_alpha: float = 1.0
     lora_text_dropout: float = 0.1
 
     # Validation
@@ -144,7 +144,26 @@ class HyperParams(BaseModel):
     validation_samples: int = 2
     validation_steps: int = 75
     validation_guidance_scale: float = 18.5
-    negative_prompt: str = "(((<bad_dream>), (<unreal_dream>)).and())+, (<all_negative>)+, (eyes closed, 'poorly drawn face, bad smile', 'chubby, fat, big head', 'deformed, disgusting, ugly, twisted').and()"
+    # negative_prompt: str = "(((<bad_dream>), (<unreal_dream>)).and())+, (<all_negative>)+, (eyes closed, 'poorly drawn face, bad smile', 'chubby, fat, big head', 'deformed, disgusting, ugly, twisted').and()"
+    negative_prompt: str = ", ".join(
+        [
+            "poorly drawn face",
+            "elderly",
+            "disgusting",
+            "scary",
+            "distorted",
+            "disfigured",
+            "deformed",
+            "twisted",
+            "grainy",
+            "unfocused",
+            "eyes closed",
+            "bad smile",
+            "ugly",
+            "fat",
+            "chubby",
+        ]
+    )
     test_model: Union[str, Path] = "laion/CLIP-ViT-B-32-laion2B-s34B-b79K"
     image_alignment_threshold: float = 0.82
     text_alignment_threshold: float = 0.21
@@ -154,8 +173,8 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        "close up Portrait photo of a woman in a clown costume",
-        f"close up Portrait photo of {token} in a mech suit",
+        f"a closeup portrait photo of a single {token} as a pirate",
+        f"a closeup portrait photo of a single {token}, in a mech suit",
         f"8k portrait of {token}, wearing a colorful suit",
         f"an animation of {token}, a character from Naruto",
     ]
@@ -178,8 +197,8 @@ class HyperParams(BaseModel):
     debug_outputs: bool = True
     test_steps: int = 30
     test_images: int = 4
-    test_guidance_scale: float = 10.5
-    test_strength: float = 0.9
+    test_guidance_scale: float = 7.5
+    test_strength: float = 0.75
     high_noise_frac: float = 0.8
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")

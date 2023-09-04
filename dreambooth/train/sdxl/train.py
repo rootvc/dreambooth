@@ -17,7 +17,6 @@ from diffusers import (
     AutoencoderKL,
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
-    StableDiffusionXLPipeline,
     UNet2DConditionModel,
 )
 from diffusers.loaders import (
@@ -28,6 +27,7 @@ from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer
 from dreambooth.params import Class
 from dreambooth.train.base import BaseTrainer
 from dreambooth.train.base import get_model as base_get_model
+from dreambooth.train.sdxl.ensemble import StableDiffusionXLEnsemblePipeline
 from dreambooth.train.sdxl.utils import (
     encode_prompt,
     import_model_class_from_model_name_or_path,
@@ -98,6 +98,7 @@ class Trainer(BaseTrainer):
         text_encoders: Optional[Tuple[CLIPTextModel, CLIPTextModel]] = None,
         tokenizers: Optional[Tuple[CLIPTokenizer, CLIPTokenizer]] = None,
         vae: Optional[AutoencoderKL] = None,
+        klass: type = StableDiffusionXLControlNetPipeline,
         **kwargs,
     ) -> StableDiffusionXLControlNetPipeline:
         te_1, te_2 = text_encoders or [
@@ -105,7 +106,7 @@ class Trainer(BaseTrainer):
         ]
         tok_1, tok_2 = tokenizers or self._tokenizers()
         with patch_allowed_pipeline_classes():
-            pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+            pipe = klass.from_pretrained(
                 self.params.model.name,
                 revision=self.params.model.revision,
                 safety_checker=None,
@@ -122,11 +123,18 @@ class Trainer(BaseTrainer):
                 **kwargs,
             ).to(self.accelerator.device, torch_dtype=self.params.dtype)
             pipe.enable_xformers_memory_efficient_attention()
+            pipe.fuse_lora(self.params.lora_alpha)
             return pipe
 
     def generate_priors(self) -> Class:
         dprint("Generating priors...")
-        return super()._generate_priors_with(StableDiffusionXLPipeline)
+        return super()._generate_priors_with(
+            StableDiffusionXLEnsemblePipeline,
+            gen_kwargs={
+                "refiner_name": self.params.model.refiner,
+                "high_noise_frac": self.params.high_noise_frac,
+            },
+        )
 
     def _compute_time_ids(self):
         original_size = (self.params.model.resolution, self.params.model.resolution)
@@ -143,10 +151,15 @@ class Trainer(BaseTrainer):
             vae = self._vae()
             tokenizers = self._tokenizers()
         noise_scheduler = self._noise_scheduler()
-        params = list(itertools.chain(unet_params, *te_params))
+        params = [
+            {"lr": self.params.learning_rate, "params": unet_params},
+            {
+                "lr": self.params.text_learning_rate,
+                "params": list(itertools.chain.from_iterable(te_params)),
+            },
+        ]
         optimizer = self.accelerator.optimizer(
             params,
-            lr=self.params.learning_rate,
             betas=self.params.betas,
             weight_decay=self.params.weight_decay,
         )
@@ -157,7 +170,7 @@ class Trainer(BaseTrainer):
             tokenizers,
             noise_scheduler,
             optimizer,
-            params,
+            itertools.chain.from_iterable(p["params"] for p in params),
         )
 
     def _unet_epoch_args(self, batch: dict, bsz: int, text_encoders: list):

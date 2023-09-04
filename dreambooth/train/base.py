@@ -1,3 +1,4 @@
+import itertools
 import math
 import os
 import tempfile
@@ -38,7 +39,6 @@ from transformers import CLIPTextModel
 
 from dreambooth.params import Class, HyperParams, Model
 from dreambooth.train.accelerators import BaseAccelerator
-from dreambooth.train.base import BaseTrainer
 from dreambooth.train.datasets import (
     CachedLatentsDataset,
     DreamBoothDataset,
@@ -183,18 +183,23 @@ class BaseTrainer(ABC):
     def _pipeline(self, klass: type, *args, **kwargs) -> StableDiffusionPipeline:
         ...
 
-    @torch.no_grad()
-    def _generate_priors_with(self, klass: type) -> Class:
-        pipeline = self._pipeline(klass=klass)
+    @torch.inference_mode()
+    def _generate_priors_with(
+        self, klass: type, gen_kwargs: dict = {}, **kwargs
+    ) -> Class:
+        pipeline = self._pipeline(klass=klass, **kwargs)
 
         prompts = PromptDataset(self.params.prior_prompt, self.params.prior_samples)
         loader = DataLoader(prompts, batch_size=self.params.batch_size)
         images = (
-            image
-            for example in pipeline.progress_bar(loader)
-            for image in pipeline(example["prompt"]).images
+            pipeline(
+                prompt=batch["prompt"],
+                negative_prompt=[self.params.negative_prompt] * len(batch["prompt"]),
+                **gen_kwargs,
+            ).images
+            for batch in loader
         )
-        for image in images:
+        for image in itertools.chain.from_iterable(images):
             hash = hash_image(image)
             image.save(self.priors_dir / f"{hash}.jpg")
 
@@ -527,7 +532,7 @@ def get_params() -> HyperParams:
             params.lora_train_epochs //= n
 
     match torch.cuda.get_device_capability():
-        case (8, _):
+        case (8, _) | (9, _):
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
             torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
