@@ -122,18 +122,18 @@ class HyperParams(BaseModel):
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
     lr_cycles: int = 3
-    prior_loss_weight: float = 1.0
+    prior_loss_weight: float = 0.1
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
     input_perterbation: float = 0.000
 
     # LoRA
-    lora_rank: int = 32
+    lora_rank: int = 16
     lora_alpha: float = 0.70
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 16
+    lora_text_rank: int = 8
     lora_text_alpha: float = 1.0
     lora_text_dropout: float = 0.1
 
