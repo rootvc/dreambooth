@@ -91,7 +91,7 @@ def download_hf_model(model: Model):
             model.name,
             variant=model.variant,
             revision=model.revision,
-            vae=vae,
+            **({"vae": vae} if vae else {}),
         )
     )
     if model.control_net:
@@ -107,13 +107,13 @@ def download_hf_model(model: Model):
                 StableDiffusionXLImg2ImgPipeline,
                 model.refiner,
                 variant=model.variant,
-                vae=vae,
             )
         )
     return models
 
 
 def download_civitai_model(model: Model):
+    models = []
     files = {}
     with ExitStack() as stack:
         for query in [
@@ -132,7 +132,7 @@ def download_civitai_model(model: Model):
             files[query["type"]] = f.name
 
         if model.vae:
-            vae = download(AutoencoderKL, model.vae)
+            vae = AutoencoderKL.from_pretrained(model.vae).to(dtype=torch.bfloat16)
         elif "VAE" in files:
             config = OmegaConf.load(files["Config"])
             vae_config = create_vae_diffusers_config(
@@ -153,7 +153,7 @@ def download_civitai_model(model: Model):
             vae = None
 
         pipe = download_from_original_stable_diffusion_ckpt(
-            checkpoint_path=files["Model"],
+            checkpoint_path_or_dict=files["Model"],
             original_config_file=files.get("Config"),
             image_size=model.resolution,
             prediction_type="epsilon",
@@ -161,13 +161,25 @@ def download_civitai_model(model: Model):
             from_safetensors=True,
             vae=vae,
         )
-        return [
-            persist_model(pipe, model.name),
-            download(
-                ControlNetModel,
-                model.control_net,
-            ),
-        ]
+        models.append(persist_model(pipe, model.name))
+
+        if model.control_net:
+            models.append(
+                download(
+                    ControlNetModel,
+                    model.control_net,
+                )
+            )
+        if model.refiner:
+            models.append(
+                download(
+                    StableDiffusionXLImg2ImgPipeline,
+                    model.refiner,
+                    variant=model.variant,
+                    vae=vae,
+                )
+            )
+        return models
 
 
 def download_model():

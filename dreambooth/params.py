@@ -119,17 +119,17 @@ class HyperParams(BaseModel):
     loading_workers: int = 4
     ti_train_epochs: int = 0
     lora_train_epochs: int = 6
-    lr_scheduler: str = "polynomial"
-    lr_warmup_steps: int = prior_samples
-    lr_cycles: int = 1
-    prior_loss_weight: float = 0.25
+    lr_scheduler: str = "cosine_with_restarts"
+    lr_warmup_steps: int = 100
+    lr_cycles: int = 3
+    prior_loss_weight: float = 0.01
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
     input_perterbation: float = 0.000
 
     # LoRA
     lora_rank: int = 16
-    lora_alpha: float = 0.60
+    lora_alpha: float = 0.85
     lora_dropout: float = 0.1
 
     # Text Encoder
