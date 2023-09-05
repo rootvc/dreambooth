@@ -106,8 +106,8 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-5 / batch_size
-    text_learning_rate: float = 4e-5 / batch_size
+    learning_rate: float = 1e-4 / batch_size
+    text_learning_rate: float = 4e-4 / batch_size
     ti_learning_rate: float = 0.0 / batch_size
     ti_continued_learning_rate: float = 0.0 / batch_size
     betas: tuple[float, float] = (0.9, 0.999)
