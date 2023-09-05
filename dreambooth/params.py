@@ -118,22 +118,22 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 0
-    lora_train_epochs: int = 10
+    lora_train_epochs: int = 8
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
     lr_cycles: int = 3
-    prior_loss_weight: float = 0.1
+    prior_loss_weight: float = 0.25
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
     input_perterbation: float = 0.000
 
     # LoRA
     lora_rank: int = 16
-    lora_alpha: float = 0.70
+    lora_alpha: float = 0.60
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 8
+    lora_text_rank: int = 16
     lora_text_alpha: float = 1.0
     lora_text_dropout: float = 0.1
 
@@ -173,7 +173,7 @@ class HyperParams(BaseModel):
 
     # Eval
     eval_prompts: list[str] = [
-        f"a closeup portrait photo of a single {token} as a pirate",
+        f"a closeup portrait photo of a single {token} with clown makeup",
         f"a closeup portrait photo of a single {token}, in a mech suit",
         f"8k portrait of {token}, wearing a colorful suit",
         f"an animation of {token}, a character from Naruto",
@@ -198,7 +198,7 @@ class HyperParams(BaseModel):
     test_steps: int = 30
     test_images: int = 4
     test_guidance_scale: float = 7.5
-    test_strength: float = 0.75
+    test_strength: float = 0.85
     high_noise_frac: float = 0.8
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")
