@@ -106,8 +106,8 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-4 / batch_size
-    text_learning_rate: float = 4e-4 / batch_size
+    learning_rate: float = 1e-5 / batch_size
+    text_learning_rate: float = 4e-5 / batch_size
     ti_learning_rate: float = 0.0 / batch_size
     ti_continued_learning_rate: float = 0.0 / batch_size
     betas: tuple[float, float] = (0.9, 0.999)
@@ -197,7 +197,7 @@ class HyperParams(BaseModel):
     debug_outputs: bool = True
     test_steps: int = 30
     test_images: int = 4
-    test_guidance_scale: float = 7.5
+    test_guidance_scale: float = 10.5
     test_strength: float = 0.85
     high_noise_frac: float = 0.8
     mask_padding: float = 0.15
