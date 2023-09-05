@@ -226,26 +226,26 @@ class Evaluator:
             prompts, _ = zip(*batch)
             latents = self._gen_latents(ds, batch)
             # prompts, _ = zip(*batch)
-            refiner, compel = self.refiner
-            # embeds, pools = compel(list(prompts))
-            # neg_embeds, neg_pools = compel([self.params.negative_prompt] * len(prompts))
-            # [
-            #     embeds,
-            #     neg_embeds,
-            # ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
-            images = refiner(
-                prompt=[
-                    p.replace(self.params.token, self.params.source_token)
-                    for p in prompts
-                ],
-                negative_prompt=[self.params.negative_prompt] * len(prompts),
-                # prompt_embeds=embeds.to(dtype=self.params.dtype),
-                # pooled_prompt_embeds=pools.to(dtype=self.params.dtype),
-                # negative_prompt_embeds=neg_embeds.to(dtype=self.params.dtype),
-                # negative_pooled_prompt_embeds=neg_pools.to(dtype=self.params.dtype),
-                image=latents,
-            ).images
-            all_images.extend(zip(prompts, images))
+            # refiner, compel = self.refiner
+            # # embeds, pools = compel(list(prompts))
+            # # neg_embeds, neg_pools = compel([self.params.negative_prompt] * len(prompts))
+            # # [
+            # #     embeds,
+            # #     neg_embeds,
+            # # ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
+            # images = refiner(
+            #     prompt=[
+            #         p.replace(self.params.token, self.params.source_token)
+            #         for p in prompts
+            #     ],
+            #     negative_prompt=[self.params.negative_prompt] * len(prompts),
+            #     # prompt_embeds=embeds.to(dtype=self.params.dtype),
+            #     # pooled_prompt_embeds=pools.to(dtype=self.params.dtype),
+            #     # negative_prompt_embeds=neg_embeds.to(dtype=self.params.dtype),
+            #     # negative_pooled_prompt_embeds=neg_pools.to(dtype=self.params.dtype),
+            #     image=latents,
+            # ).images
+            all_images.extend(zip(prompts, latents))
 
         return all_images
 

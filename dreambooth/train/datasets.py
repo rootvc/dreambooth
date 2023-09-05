@@ -127,12 +127,14 @@ class DreamBoothDataset(Dataset):
         tokenizers: list[CLIPTokenizer],
         size: int,
         vae_scale_factor: float,
+        use_priors: bool = True,
         augment: bool = True,
     ):
         self.instance = instance
         self.prior = prior
         self.size = size
         self.vae_scale_factor = vae_scale_factor
+        self.use_priors = use_priors
         self.tokenizers = tokenizers
         self.augment = augment
 
@@ -177,6 +179,8 @@ class DreamBoothDataset(Dataset):
         }
 
     def _prior_image(self, index):
+        if not self.use_priors:
+            return {}
         path = self.prior_images[index % len(self.prior_images)]
         image = self.image_transforms(False)(self.open_image(path))
         prompt = self.prior.prompt

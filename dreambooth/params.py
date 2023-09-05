@@ -118,7 +118,7 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 0
-    lora_train_epochs: int = 6
+    lora_train_epochs: int = 10
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 100
     lr_cycles: int = 3
@@ -129,7 +129,7 @@ class HyperParams(BaseModel):
 
     # LoRA
     lora_rank: int = 16
-    lora_alpha: float = 0.85
+    lora_alpha: float = 0.95
     lora_dropout: float = 0.1
 
     # Text Encoder

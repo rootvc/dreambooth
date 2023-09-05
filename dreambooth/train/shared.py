@@ -157,24 +157,21 @@ def image_transforms(
         TT.ToTensor(),
         TT.Resize(
             size,
-            interpolation=TT.InterpolationMode.BICUBIC,
+            interpolation=TT.InterpolationMode.BILINEAR,
             antialias=True,
         ),
     ]
     if augment:
         t += [
-            TT.RandomCrop(size),
-            TT.RandomOrder(
+            TT.RandomChoice(
                 [
-                    TT.ColorJitter(brightness=0.2, contrast=0.1),
-                    TT.RandomHorizontalFlip(p=0.5),
-                    TT.RandomAdjustSharpness(2, p=0.5),
+                    TT.RandomPerspective(),
+                    TT.RandomAffine(
+                        degrees=(10, 40), translate=(0.1, 0.3), scale=(0.5, 0.75)
+                    ),
+                    TT.ColorJitter(brightness=0.5, hue=0.3),
                 ]
             ),
-        ]
-    else:
-        t += [
-            TT.CenterCrop(size),
         ]
     if normalize:
         t += [
