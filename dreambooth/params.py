@@ -118,10 +118,10 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 0
-    lora_train_epochs: int = 8
-    lr_scheduler: str = "cosine_with_restarts"
-    lr_warmup_steps: int = 0
-    lr_cycles: int = 3
+    lora_train_epochs: int = 6
+    lr_scheduler: str = "polynomial"
+    lr_warmup_steps: int = prior_samples
+    lr_cycles: int = 1
     prior_loss_weight: float = 0.25
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0

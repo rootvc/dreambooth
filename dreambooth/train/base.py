@@ -390,6 +390,8 @@ class BaseTrainer(ABC):
                 "instance_loss": instance_loss.detach().item(),
                 "prior_loss": prior_loss.detach().item(),
                 "steps": self.total_steps,
+                "lr": lr_scheduler.get_last_lr()[0],
+                "text_lr": lr_scheduler.get_last_lr()[1],
                 **self.metrics_cache,
             }
             self.accelerator.log(metrics, step=self.total_steps)
