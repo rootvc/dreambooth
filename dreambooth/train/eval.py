@@ -150,7 +150,7 @@ class Evaluator:
             # negative_pooled_prompt_embeds=neg_pools,
             width=self.params.model.resolution,
             height=self.params.model.resolution,
-            image=random.choices(self.cond_images, k=len(prompts)),
+            image=random.choices(self.test_images, k=len(prompts)),
             num_inference_steps=self.params.test_steps,
             guidance_scale=self.params.test_guidance_scale,
             controlnet_conditioning_scale=self.params.test_strength,

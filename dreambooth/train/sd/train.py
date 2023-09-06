@@ -17,6 +17,7 @@ from diffusers import (
     AutoencoderKL,
     ControlNetModel,
     StableDiffusionControlNetPipeline,
+    StableDiffusionImg2ImgPipeline,
     StableDiffusionPipeline,
     UNet2DConditionModel,
 )
@@ -74,7 +75,7 @@ class Trainer(BaseTrainer):
         text_encoder: Optional[CLIPTextModel] = None,
         tokenizer: Optional[CLIPTokenizer] = None,
         vae: Optional[AutoencoderKL] = None,
-        klass: type = StableDiffusionControlNetPipeline,
+        klass: type = StableDiffusionImg2ImgPipeline,
         **kwargs,
     ) -> StableDiffusionControlNetPipeline:
         with patch_allowed_pipeline_classes():
