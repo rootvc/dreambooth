@@ -481,7 +481,11 @@ class BaseTrainer(ABC):
                 tokenizers,
                 params,
             )
-            if self.params.debug_outputs:
+            if (
+                self.params.debug_outputs
+                and self.accelerator.is_main_process
+                and epoch > 7
+            ):
                 self.eval(_pipe())
 
             if self.exceeded_max_steps():
@@ -495,6 +499,7 @@ class BaseTrainer(ABC):
             pipe.scheduler.config,
             disable_corrector=[0],
             use_karras_sigmas=True,
+            timestep_spacing="trailing",
             **get_variance_type(pipe.scheduler),
         )
         return pipe.to(self.accelerator.device)

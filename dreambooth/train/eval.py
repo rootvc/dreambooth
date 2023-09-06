@@ -148,12 +148,13 @@ class Evaluator:
             # pooled_prompt_embeds=pooled_embeds,
             # negative_prompt_embeds=neg_embeds,
             # negative_pooled_prompt_embeds=neg_pools,
-            width=self.params.model.resolution,
-            height=self.params.model.resolution,
-            image=random.choices(self.test_images, k=len(prompts)),
+            # width=self.params.model.resolution,
+            # height=self.params.model.resolution,
+            # image=random.choices(self.test_images, k=len(prompts)),
             num_inference_steps=self.params.test_steps,
             guidance_scale=self.params.test_guidance_scale,
-            controlnet_conditioning_scale=self.params.test_strength,
+            # strength=self.params.test_strength,
+            # controlnet_conditioning_scale=self.params.test_strength,
             cross_attention_kwargs={"scale": self.params.lora_alpha},
         ).images
 

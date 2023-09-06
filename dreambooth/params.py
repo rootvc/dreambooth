@@ -98,7 +98,7 @@ class HyperParams(BaseModel):
 
     # Model
     source_token: str = "person"
-    token: str = "<krk>"
+    token: str = f"<krk> {source_token}"
     model: Model = Model()
     prior_prompt: str = f"a closeup portrait photo of a single {source_token}, looking forward, without glasses, blank background"
     prior_samples: int = 250
@@ -106,10 +106,10 @@ class HyperParams(BaseModel):
     batch_size: int = 1
 
     # Optimizer
-    learning_rate: float = 1e-5 / batch_size
-    text_learning_rate: float = 4e-5 / batch_size
-    ti_learning_rate: float = 0.0 / batch_size
-    ti_continued_learning_rate: float = 0.0 / batch_size
+    learning_rate: float = 2e-5 * batch_size
+    text_learning_rate: float = 4e-5 * batch_size
+    ti_learning_rate: float = 0.0 * batch_size
+    ti_continued_learning_rate: float = 0.0 * batch_size
     betas: tuple[float, float] = (0.9, 0.999)
     weight_decay: float = 1e-2
 
@@ -118,22 +118,22 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 0
-    lora_train_epochs: int = 10
-    lr_scheduler: str = "cosine_with_restarts"
+    lora_train_epochs: int = 15
+    lr_scheduler: str = "polynomial"
     lr_warmup_steps: int = 100
-    lr_cycles: int = 5
-    prior_loss_weight: float = 0.01
+    lr_cycles: int = 3
+    prior_loss_weight: float = 0.05
     max_grad_norm: float = 1.0
     snr_gamma: float = 5.0
     input_perterbation: float = 0.000
 
     # LoRA
-    lora_rank: int = 16
-    lora_alpha: float = 0.85
+    lora_rank: int = 8
+    lora_alpha: float = 1.0
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 16
+    lora_text_rank: int = 8
     lora_text_alpha: float = 1.0
     lora_text_dropout: float = 0.1
 
@@ -198,7 +198,7 @@ class HyperParams(BaseModel):
     test_steps: int = 30
     test_images: int = 4
     test_guidance_scale: float = 10.5
-    test_strength: float = 0.85
+    test_strength: float = 0.45
     high_noise_frac: float = 0.8
     mask_padding: float = 0.15
     eval_model_path: Path = Path("CodeFormer")

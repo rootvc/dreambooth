@@ -139,7 +139,9 @@ class DreamBoothDataset(Dataset):
         self.tokenizers = tokenizers
         self.augment = augment
 
-        self._length = max(len(self.instance_images), len(self.prior_images))
+        self._length = max(
+            len(self.instance_images), min(len(self.prior_images), params.prior_samples)
+        )
 
     @cached_property
     def prior_images(self):
