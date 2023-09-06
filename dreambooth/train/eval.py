@@ -4,14 +4,11 @@ import random
 import shutil
 from datetime import timedelta
 from functools import cached_property
-from typing import TypeVar, cast
+from typing import cast
 
 import cv2
-import mediapipe as mp
-import numpy as np
 import torch
 import torch.distributed
-import torch.multiprocessing
 import tqdm
 import wandb
 from compel import Compel, ReturnedEmbeddingsType
@@ -23,10 +20,11 @@ from diffusers import (
 from PIL import Image
 from rich import print
 from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms.functional import pil_to_tensor, resize, to_pil_image
+from torchvision.transforms.functional import pil_to_tensor, to_pil_image
 from torchvision.utils import make_grid
 
 from dreambooth.params import Class, HyperParams
+from dreambooth.train.helpers.face import FaceHelper
 from dreambooth.train.shared import (
     dprint,
     is_main,
@@ -35,15 +33,6 @@ from dreambooth.train.shared import (
 from dreambooth.train.shared import (
     images as get_images,
 )
-
-BaseOptions = mp.tasks.BaseOptions
-FaceDetector = mp.tasks.vision.FaceDetector
-FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
-VisionRunningMode = mp.tasks.vision.RunningMode
-
-multiprocessing = torch.multiprocessing.get_context("forkserver")
-
-T = TypeVar("T", bound=torch.nn.Module)
 
 
 class PromptDataset(Dataset):
@@ -95,60 +84,15 @@ class Evaluator:
         self.device = device
         self.pipeline = pipeline
 
-    def face_detector(self) -> FaceDetector:
-        options = FaceDetectorOptions(
-            base_options=BaseOptions(
-                model_asset_path="weights/mediapipe/blaze_face_short_range.tflite"
-            ),
-            running_mode=VisionRunningMode.IMAGE,
-        )
-        return FaceDetector.create_from_options(options)
-
-    def _face_bounding_box(self, image: np.ndarray):
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
-        result = self.face_detector().detect(mp_image)
-        box = result.detections[0].bounding_box
-
-        buffer_y = int(image.shape[0] * self.params.mask_padding)
-        buffer_x = int(image.shape[1] * self.params.mask_padding)
-
-        start_y = max(0, box.origin_y - buffer_y)
-        end_y = min(image.shape[0], box.origin_y + box.height + buffer_y)
-        start_x = max(0, box.origin_x - buffer_x)
-        end_x = min(image.shape[1], box.origin_x + box.width + buffer_x)
-
-        return (slice(start_y, end_y), slice(start_x, end_x))
-
-    def _mask(self, src: np.ndarray, dest: np.ndarray):
-        y, x = self._face_bounding_box(src)
-        masked = np.zeros(dest.shape, dest.dtype)
-        masked[y, x] = dest[y, x]
-        return masked
-
-    def _canny(self, image: np.ndarray, sigma=0.333):
-        med = np.median(image)
-        lower = int(max(0.0, (1.0 - sigma) * med))
-        upper = int(min(255.0, (1.0 + sigma) * med))
-        canny = cv2.Canny(image, lower, upper)
-
-        canny = canny[:, :, None]
-        return np.concatenate([canny, canny, canny], axis=2)
-
     def _preprocess(self, pil_image: Image.Image):
-        resized = resize(
-            pil_image, (self.params.model.resolution, self.params.model.resolution)
-        )
-        image = np.asarray(resized)
-        canny = self._canny(image)
-        try:
-            masked = self._mask(image, canny)
-        except IndexError:
-            masked = canny
-        return Image.fromarray(masked)
+        return FaceHelper.preprocess(self.params, pil_image)
 
     @cached_property
     def test_images(self):
-        return [Image.open(p) for p in get_images(self.instance_class.data)]
+        return [
+            Image.fromarray(FaceHelper(self.params, Image.open(p)).mask())
+            for p in get_images(self.instance_class.data)
+        ]
 
     @cached_property
     def cond_images(self):

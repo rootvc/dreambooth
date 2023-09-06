@@ -1,5 +1,5 @@
 import itertools
-from functools import cached_property
+from functools import cached_property, lru_cache
 from operator import itemgetter
 from pathlib import Path
 
@@ -27,6 +27,7 @@ from transformers import (
 
 from dreambooth.params import Class, HyperParams
 from dreambooth.train.accelerators import BaseAccelerator
+from dreambooth.train.helpers.face import FaceHelper
 from dreambooth.train.sdxl.utils import tokenize_prompt
 from dreambooth.train.shared import (
     image_transforms,
@@ -125,16 +126,16 @@ class DreamBoothDataset(Dataset):
         instance: Class,
         prior: Class,
         tokenizers: list[CLIPTokenizer],
-        size: int,
+        params: HyperParams,
         vae_scale_factor: float,
-        use_priors: bool = True,
         augment: bool = True,
     ):
         self.instance = instance
         self.prior = prior
-        self.size = size
+        self.params = params
+        self.size = params.model.resolution
         self.vae_scale_factor = vae_scale_factor
-        self.use_priors = use_priors
+        self.use_priors = bool(params.prior_loss_weight)
         self.tokenizers = tokenizers
         self.augment = augment
 
@@ -150,6 +151,12 @@ class DreamBoothDataset(Dataset):
         path = self.instance.data
         return images(path)
 
+    @lru_cache
+    def masked_instance_image(self, index):
+        path = self.instance_images[index]
+        image = self.open_image(path)
+        return Image.fromarray(FaceHelper(self.params, image).mask())
+
     def image_transforms(self, augment: bool = True):
         return image_transforms(self.size, self.augment and augment)
 
@@ -160,17 +167,21 @@ class DreamBoothDataset(Dataset):
         return (self[i] for i in range(self._length))
 
     @staticmethod
-    def open_image(path: Path, convert: bool = True):
+    def open_image(path: Path, convert: bool = True, mask: bool = False):
         img = exif_transpose(Image.open(path))
-        if not convert or img.mode == "RGB":
-            return img
-        else:
-            return img.convert("RGB")
+        if convert and img.mode != "RGB":
+            img = img.convert("RGB")
+        return img
 
     def _instance_image(self, index):
-        path = self.instance_images[index % len(self.instance_images)]
         do_augment, index = divmod(index, len(self.instance_images))
-        image = self.image_transforms(do_augment)(self.open_image(path))
+        if do_augment:
+            image = self.masked_instance_image(index % len(self.instance_images))
+        else:
+            path = self.instance_images[index % len(self.instance_images)]
+            image = self.open_image(path)
+
+        image = self.image_transforms(do_augment)(image)
         prompt = self.instance.prompt
 
         return {

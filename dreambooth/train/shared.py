@@ -163,13 +163,14 @@ def image_transforms(
     ]
     if augment:
         t += [
-            TT.RandomChoice(
+            TT.ColorJitter(brightness=0.5, hue=0.3),
+            TT.RandomApply(
                 [
-                    TT.RandomPerspective(),
+                    TT.RandomPerspective(distortion_scale=0.3),
                     TT.RandomAffine(
-                        degrees=(10, 40), translate=(0.1, 0.3), scale=(0.5, 0.75)
+                        degrees=(10, 30), translate=(0.1, 0.3), scale=(0.5, 0.75)
                     ),
-                    TT.ColorJitter(brightness=0.5, hue=0.3),
+                    TT.RandomErasing(scale=(0.02, 0.10)),
                 ]
             ),
         ]

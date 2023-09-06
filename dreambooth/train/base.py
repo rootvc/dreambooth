@@ -27,10 +27,10 @@ from accelerate.utils import InitProcessGroupKwargs, release_memory
 from diffusers import (
     AutoencoderKL,
     DDPMScheduler,
-    DPMSolverMultistepScheduler,
     SchedulerMixin,
     StableDiffusionPipeline,
     UNet2DConditionModel,
+    UniPCMultistepScheduler,
     get_scheduler,
 )
 from diffusers.models.attention_processor import LoRAXFormersAttnProcessor
@@ -228,7 +228,7 @@ class BaseTrainer(ABC):
             instance=self.instance_class,
             prior=self.params.prior_class or self.generate_priors(),
             tokenizers=tokenizers,
-            size=self.params.model.resolution,
+            params=self.params,
             vae_scale_factor=vae.config.scaling_factor,
         )
 
@@ -260,6 +260,7 @@ class BaseTrainer(ABC):
             * self.accelerator.num_processes,
             num_training_steps=max_train_steps * self.accelerator.num_processes,
             num_cycles=self.params.lr_cycles,
+            power=2.0,
         )
 
         (
@@ -490,9 +491,10 @@ class BaseTrainer(ABC):
         self.accelerator.wait_for_everyone()
 
         pipe = _pipe()
-        pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+        pipe.scheduler = UniPCMultistepScheduler.from_config(
             pipe.scheduler.config,
-            # disable_corrector=[0],
+            disable_corrector=[0],
+            use_karras_sigmas=True,
             **get_variance_type(pipe.scheduler),
         )
         return pipe.to(self.accelerator.device)
