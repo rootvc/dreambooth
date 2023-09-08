@@ -452,10 +452,6 @@ class BaseTrainer(ABC):
             params,
         ) = self._prepare_models()
 
-        def _pipe():
-            args, kwargs = self._unwrap_pipe_args(unet, text_encoders, tokenizers, vae)
-            return self._pipeline(*args, **kwargs, torch_dtype=self.params.dtype)
-
         release_memory()
 
         dprint("Starting training...")
@@ -475,12 +471,6 @@ class BaseTrainer(ABC):
                 tokenizers,
                 params,
             )
-            if (
-                self.params.debug_outputs
-                and self.accelerator.is_main_process
-                and epoch > 7
-            ):
-                self.eval(_pipe())
 
             if self.exceeded_max_steps():
                 dprint("Max steps exceeded. Stopping training.")
@@ -488,7 +478,8 @@ class BaseTrainer(ABC):
 
         self.accelerator.wait_for_everyone()
 
-        pipe = _pipe()
+        args, kwargs = self._unwrap_pipe_args(unet, text_encoders, tokenizers, vae)
+        pipe = self._pipeline(*args, **kwargs, torch_dtype=self.params.dtype)
         pipe.scheduler = UniPCMultistepScheduler.from_config(
             pipe.scheduler.config,
             disable_corrector=[0],

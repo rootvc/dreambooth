@@ -80,7 +80,7 @@ class CachedLatentsDataset(Dataset):
         self._cached_latents = {}
         self._warmed = False
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def _compute_latents(self, batch: list[dict[str, torch.FloatTensor]]):
         images = list(
             itertools.chain(

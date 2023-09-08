@@ -77,7 +77,8 @@ class Evaluator:
         device: torch.device,
         params: HyperParams,
         instance_class: Class,
-        pipeline: StableDiffusionControlNetPipeline,
+        pipeline: StableDiffusionControlNetPipeline
+        | StableDiffusionXLControlNetPipeline,
     ):
         self.params = params
         self.instance_class = instance_class
@@ -86,6 +87,10 @@ class Evaluator:
 
     def _preprocess(self, pil_image: Image.Image):
         return FaceHelper.preprocess(self.params, pil_image)
+
+    @property
+    def is_xl(self):
+        return isinstance(self.pipeline, StableDiffusionXLControlNetPipeline)
 
     @cached_property
     def test_images(self):
@@ -123,31 +128,58 @@ class Evaluator:
 
         return refiner, compel
 
-    def _gen_latents(self, ds: PromptDataset, batch: list[tuple[str, torch.Tensor]]):
+    def _gen_latents_xl(self, ds: PromptDataset, batch: list[tuple[str, torch.Tensor]]):
         prompts, embeddings = zip(*batch)
-        # conditionings, pools = zip(*embeddings)
+        conditionings, pools = zip(*embeddings)
 
-        # embeds = torch.cat(conditionings, dim=0)
-        # pooled_embeds = torch.cat(pools, dim=0)
-        # neg_embeds, neg_pools = ds.compel([self.params.negative_prompt] * len(prompts))
+        embeds = torch.cat(conditionings, dim=0)
+        pooled_embeds = torch.cat(pools, dim=0)
+        neg_embeds, neg_pools = ds.compel([self.params.negative_prompt] * len(prompts))
 
-        # [
-        #     embeds,
-        #     neg_embeds,
-        # ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
+        [
+            embeds,
+            neg_embeds,
+        ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
 
-        # (embeds, pooled_embeds, neg_embeds, neg_pools) = [
-        #     x.to(self.device, dtype=self.params.dtype)
-        #     for x in (embeds, pooled_embeds, neg_embeds, neg_pools)
-        # ]
+        (embeds, pooled_embeds, neg_embeds, neg_pools) = [
+            x.to(self.device, dtype=self.params.dtype)
+            for x in (embeds, pooled_embeds, neg_embeds, neg_pools)
+        ]
 
         return self.pipeline(
-            prompt=list(prompts),
-            negative_prompt=[self.params.negative_prompt] * len(prompts),
-            # prompt_embeds=embeds,
-            # pooled_prompt_embeds=pooled_embeds,
-            # negative_prompt_embeds=neg_embeds,
-            # negative_pooled_prompt_embeds=neg_pools,
+            prompt_embeds=embeds,
+            pooled_prompt_embeds=pooled_embeds,
+            negative_prompt_embeds=neg_embeds,
+            negative_pooled_prompt_embeds=neg_pools,
+            width=self.params.model.resolution,
+            height=self.params.model.resolution,
+            # image=random.choices(self.test_images, k=len(prompts)),
+            num_inference_steps=self.params.test_steps,
+            guidance_scale=self.params.test_guidance_scale,
+            # strength=self.params.test_strength,
+            # controlnet_conditioning_scale=self.params.test_strength,
+            cross_attention_kwargs={"scale": self.params.lora_alpha},
+        ).images
+
+    def _gen_latents(self, ds: PromptDataset, batch: list[tuple[str, torch.Tensor]]):
+        if self.is_xl:
+            return self._gen_latents_xl(ds, batch)
+
+        prompts, embeddings = zip(*batch)
+        embeds = torch.cat(embeddings, dim=0)
+        neg_embeds = ds.compel([self.params.negative_prompt] * len(prompts))
+        [
+            embeds,
+            neg_embeds,
+        ] = ds.compel.pad_conditioning_tensors_to_same_length([embeds, neg_embeds])
+
+        (embeds, neg_embeds) = [
+            x.to(self.device, dtype=self.params.dtype) for x in (embeds, neg_embeds)
+        ]
+
+        return self.pipeline(
+            prompt_embeds=embeds,
+            negative_prompt_embeds=neg_embeds,
             # width=self.params.model.resolution,
             # height=self.params.model.resolution,
             # image=random.choices(self.test_images, k=len(prompts)),
@@ -242,7 +274,7 @@ class Evaluator:
             dprint("Waiting for other processes to finish...")
             torch.distributed.barrier(async_op=True).wait(timeout=timedelta(seconds=30))
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def generate(self):
         dprint("Generating images...")
         prompts, images = cast(

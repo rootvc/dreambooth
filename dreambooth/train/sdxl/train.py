@@ -91,7 +91,7 @@ class Trainer(BaseTrainer):
         )
         return tok_1, tok_2
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def _pipeline(
         self,
         unet: Optional[UNet2DConditionModel] = None,

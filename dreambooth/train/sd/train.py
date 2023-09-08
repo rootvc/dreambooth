@@ -67,7 +67,7 @@ class Trainer(BaseTrainer):
             use_fast=False,
         )
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def _pipeline(
         self,
         unet: Optional[UNet2DConditionModel] = None,
@@ -82,11 +82,9 @@ class Trainer(BaseTrainer):
                 self.params.model.name,
                 revision=self.params.model.revision,
                 safety_checker=None,
-                vae=(vae or self._vae()).eval().to(dtype=torch.float32),
-                unet=(unet or self._unet()).eval().to(dtype=self.params.dtype),
-                text_encoder=(text_encoder or self._text_encoder())
-                .eval()
-                .to(dtype=self.params.dtype),
+                vae=(vae or self._vae()).eval(),
+                unet=(unet or self._unet()).eval(),
+                text_encoder=(text_encoder or self._text_encoder()).eval(),
                 tokenizer=tokenizer or self._tokenizer(),
                 controlnet=ControlNetModel.from_pretrained(
                     self.params.model.control_net,
