@@ -321,16 +321,10 @@ class BaseTrainer(ABC):
             text_encoder.train()
 
         for batch in loader:
-            # latent_dist, tokens = batch["latent_dist"], batch["tokens"]
-            batch["tokens"]
-            pixel_values = batch["pixel_values"].to(dtype=vae.dtype)
-            model_input = vae.encode(pixel_values).latent_dist.sample()
-            model_input = model_input * vae.config.scaling_factor
-            latents = model_input
-
-            # latents = latent_dist.sample()
-            # latents = latents * scaling_factor
-            # latents = latents.squeeze(0).to(self.accelerator.device).float()
+            latent_dist = batch["latent_dist"].to(self.accelerator.device)
+            latents = latent_dist.sample()
+            latents = latents * scaling_factor
+            latents = latents.squeeze(0).float()
 
             # Sample noise that we'll add to the latents
             noise = torch.randn_like(latents)

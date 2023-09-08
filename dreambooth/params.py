@@ -128,12 +128,12 @@ class HyperParams(BaseModel):
     input_perterbation: float = 0.000
 
     # LoRA
-    lora_rank: int = 8
-    lora_alpha: float = 1.0
+    lora_rank: int = 16
+    lora_alpha: float = 0.90
     lora_dropout: float = 0.1
 
     # Text Encoder
-    lora_text_rank: int = 8
+    lora_text_rank: int = 16
     lora_text_alpha: float = 1.0
     lora_text_dropout: float = 0.1
 

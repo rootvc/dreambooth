@@ -17,6 +17,7 @@ import torch.jit
 from diffusers import (
     AutoencoderKL,
 )
+from diffusers.models.vae import DiagonalGaussianDistribution
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 from torch.utils.data import Dataset
@@ -33,6 +34,11 @@ from dreambooth.train.shared import (
     image_transforms,
     images,
 )
+
+
+class DiagonalGaussianDistributionWithTo(DiagonalGaussianDistribution):
+    def to(self, *args, **kwargs):
+        return self.__class__(self.parameters.to(*args, **kwargs))
 
 
 class PromptDataset(Dataset):
@@ -83,10 +89,14 @@ class CachedLatentsDataset(Dataset):
             )
         )
         images = (
-            torch.stack(images).to("cpu", memory_format=torch.contiguous_format).float()
+            torch.stack(images)
+            .to(self.accelerator.device, memory_format=torch.contiguous_format)
+            .float()
         )
-        # latent_dist = self.vae.to(self.accelerator.device).encode(images).latent_dist
-        # latent_dist = DiagonalGaussianDistribution(latent_dist.parameters.to("cpu"))
+        latent_dist = self.vae.to(self.accelerator.device).encode(images).latent_dist
+        latent_dist = DiagonalGaussianDistributionWithTo(
+            latent_dist.parameters.to("cpu")
+        )
 
         tokens = list(
             itertools.chain(
@@ -96,8 +106,7 @@ class CachedLatentsDataset(Dataset):
         )
 
         return {
-            "pixel_values": images,
-            # "latent_dist": latent_dist,
+            "latent_dist": latent_dist,
             "tokens": tokens,
         }
 
