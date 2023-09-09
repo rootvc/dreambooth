@@ -118,7 +118,7 @@ class HyperParams(BaseModel):
     use_diffusers_unet: bool = False
     loading_workers: int = 4
     ti_train_epochs: int = 0
-    lora_train_epochs: int = 10
+    lora_train_epochs: int = 12
     lr_scheduler: str = "polynomial"
     lr_warmup_steps: int = 100
     lr_cycles: int = 3

@@ -33,7 +33,7 @@ from diffusers import (
     UniPCMultistepScheduler,
     get_scheduler,
 )
-from diffusers.models.attention_processor import LoRAXFormersAttnProcessor
+from diffusers.models.attention_processor import LoRAAttnProcessor2_0
 from torch.utils.data import DataLoader
 from transformers import CLIPTextModel
 
@@ -129,7 +129,7 @@ class BaseTrainer(ABC):
             )
 
         vae.requires_grad_(False)
-        vae.enable_xformers_memory_efficient_attention()
+        # vae.enable_xformers_memory_efficient_attention()
         return vae.to(self.accelerator.device, dtype=torch.float32, non_blocking=True)
 
     def _unet(self, **kwargs) -> UNet2DConditionModel:
@@ -139,13 +139,12 @@ class BaseTrainer(ABC):
             tap=lambda x: x.requires_grad_(False),
             **kwargs,
         )
-        unet.enable_xformers_memory_efficient_attention()
+        # unet.enable_xformers_memory_efficient_attention()
         unet = unet.to(
             self.accelerator.device, dtype=self.params.dtype, non_blocking=True
         )
-        return unet
-        # .to(memory_format=torch.channels_last)
-        # return torch.compile(unet, mode="reduce-overhead", fullgraph=True)
+        unet = unet.to(memory_format=torch.channels_last)
+        return torch.compile(unet, mode="reduce-overhead", fullgraph=True)
 
     def _unet_for_lora(self, **kwargs):
         unet = self._unet(**kwargs)
@@ -168,7 +167,7 @@ class BaseTrainer(ABC):
             else:
                 raise ValueError(f"unexpected attn processor name: {name}")
 
-            module = LoRAXFormersAttnProcessor(
+            module = LoRAAttnProcessor2_0(
                 hidden_size=hidden_size,
                 cross_attention_dim=cross_attention_dim,
                 rank=self.params.lora_rank,
@@ -530,6 +529,7 @@ def get_params() -> HyperParams:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
             torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
+            torch._dynamo.config.suppress_errors = True
             params.dynamo_backend = "inductor"
             os.environ["ACCELERATE_MIXED_PRECISION"] = "bf16"
         case (7, _):

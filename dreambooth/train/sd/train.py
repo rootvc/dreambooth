@@ -92,7 +92,7 @@ class Trainer(BaseTrainer):
                 ).to(self.accelerator.device, dtype=self.params.dtype),
                 **kwargs,
             ).to(self.accelerator.device, torch_dtype=self.params.dtype)
-            pipe.enable_xformers_memory_efficient_attention()
+            # pipe.enable_xformers_memory_efficient_attention()
             # pipe.fuse_lora(self.params.lora_alpha)
             return pipe
 

@@ -116,7 +116,7 @@ class Evaluator:
             torch_dtype=self.params.dtype,
             variant=self.params.model.variant,
         ).to(self.device)
-        refiner.enable_xformers_memory_efficient_attention()
+        # refiner.enable_xformers_memory_efficient_attention()
 
         compel = Compel(
             tokenizer=refiner.tokenizer_2,
