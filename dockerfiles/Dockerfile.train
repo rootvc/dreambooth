@@ -14,6 +14,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 ADD --link requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -c constraints.txt -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install --upgrade --pre --upgrade-strategy only-if-needed --no-deps -c constraints.txt controlnet-aux==0.0.7
 
 FROM rootventures/pytorch:latest
 
