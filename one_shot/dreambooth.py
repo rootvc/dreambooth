@@ -1,3 +1,4 @@
+import os
 import random
 from contextlib import ExitStack
 from functools import cached_property
@@ -32,7 +33,19 @@ class OneShotDreambooth:
 
     def __enter__(self):
         set_torch_config()
+        self._load_models()
+        self._set_cache_monitor()
 
+    def __exit__(self):
+        self.exit_stack.close()
+        if self.dirty:
+            self.volume.commit()
+
+    @method()
+    def generate(self, id: str):
+        return Request(self, id).generate()
+
+    def _load_models(self):
         self.detector = self._download_model(
             LineartDetector, self.params.model.detector
         )
@@ -55,10 +68,16 @@ class OneShotDreambooth:
 
         pipe.fuse_lora(lora_scale=self.params.lora_scale)
 
-    def __exit__(self):
-        self.exit_stack.close()
-        if self.dirty:
-            self.volume.commit()
+    def _set_cache_monitor(self):
+        cache_dir = Path(os.environ["CACHE_DIR"])
+        mtime = cache_dir.stat().st_mtime
+        self.exit_stack.callback(
+            lambda: setattr(
+                self,
+                "dirty",
+                True if cache_dir.stat().st_mtime != mtime else self.dirty,
+            )
+        )
 
     def _download_model(
         self, klass: type[M], name: str, method: str = "from_pretrained", **kwargs
@@ -69,10 +88,6 @@ class OneShotDreambooth:
         except OSError:
             self.dirty = True
         return meth(name, **kwargs).to("cuda", dtype=self.params.dtype)
-
-    @method()
-    def generate(self, id: str):
-        return Request(self, id).generate()
 
 
 class Request:
