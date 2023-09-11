@@ -1,5 +1,6 @@
 import os
 import random
+from collections import Counter
 from contextlib import ExitStack
 from functools import cached_property
 from pathlib import Path
@@ -17,6 +18,7 @@ from diffusers import (
 from diffusers.loaders import LoraLoaderMixin
 from modal import Volume, method
 
+from dreambooth.train.helpers.face import FaceHelper
 from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
 from one_shot.params import Params, Settings
 from one_shot.prompt import Prompts
@@ -130,10 +132,8 @@ class Request:
             )
 
     def demographics(self):
-        try:
-            return {"race": "asian", "gender": "woman"}
-        except Exception:
-            return {"race": "beautiful", "gender": "person"}
+        res = [FaceHelper(self.params, img).demographics() for img in self.images()]
+        return {k: Counter(r[k] for r in res).most_common(1)[0] for k in res[0]}
 
     def generate(self):
         return self.ensemble(

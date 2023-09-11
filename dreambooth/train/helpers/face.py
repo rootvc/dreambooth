@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.distributed
 import torch.multiprocessing
+from deepface import DeepFace
 from PIL import Image
 from torchvision.transforms.functional import resize
 
@@ -89,3 +90,13 @@ class FaceHelper:
         except IndexError:
             masked = canny
         return Image.fromarray(masked)
+
+    def demographics(self):
+        try:
+            res = DeepFace.analyze(self.image, actions=("gender", "race"))[0]
+            return {
+                "race": res["dominant_race"],
+                "gender": res["dominant_gender"].lower(),
+            }
+        except Exception:
+            return {"race": "beautiful", "gender": "person"}
