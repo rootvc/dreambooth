@@ -13,6 +13,8 @@ from diffusers.models import (
 from diffusers.schedulers import KarrasDiffusionSchedulers
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
 
+from one_shot.prompt import Prompts
+
 
 class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline):
     def __init__(
@@ -44,6 +46,7 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
     def __call__(
         self,
         *args,
+        prompts: Prompts,
         high_noise_frac: float,
         **kwargs,
     ):
@@ -53,6 +56,7 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
                 *args,
                 denoising_end=high_noise_frac,
                 output_type="latent",
+                **prompts.kwargs_for_xl(),
                 **kwargs,
             )
             .images
@@ -61,5 +65,6 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
             *args,
             denoising_start=high_noise_frac,
             image=latents,
+            **prompts.kwargs_for_refiner(),
             **kwargs,
         )

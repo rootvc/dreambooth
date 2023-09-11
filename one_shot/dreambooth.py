@@ -18,6 +18,7 @@ from modal import Volume, method
 
 from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
 from one_shot.params import Params, Settings
+from one_shot.prompt import Prompts
 from one_shot.types import M
 from one_shot.utils import images, open_image, set_torch_config
 
@@ -91,6 +92,8 @@ class OneShotDreambooth:
 
 
 class Request:
+    ensemble: StableDiffusionXLAdapterEnsemblePipeline
+
     def __init__(self, dreambooth: OneShotDreambooth, id: str):
         self.dreambooth = dreambooth
         self.id = id
@@ -125,11 +128,14 @@ class Request:
     def generate(self):
         return self.ensemble(
             image=random.choices(list(self._controls()), k=self.params.images),
-            prompt=[
-                self.params.prompt_template.format(prompt=p, **self._demographics())
-                for p in random.sample(self.params.prompts, k=self.params.images)
-            ],
-            negative_prompt=self.params.negative_prompt,
+            prompts=Prompts(
+                self.ensemble,
+                [
+                    self.params.prompt_template.format(prompt=p, **self._demographics())
+                    for p in random.sample(self.params.prompts, k=self.params.images)
+                ],
+                self.params.negative_prompt,
+            ),
             guidance_scale=self.params.guidance_scale,
             adapter_conditioning_scale=self.params.conditioning_strength,
             adapter_conditioning_factor=self.params.conditioning_factor,
