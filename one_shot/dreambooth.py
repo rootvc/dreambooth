@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import Generator
 
 import numpy as np
+from cachetools import Cache, cachedmethod
 from controlnet_aux import LineartDetector
 from diffusers import (
     DiffusionPipeline,
@@ -20,14 +21,14 @@ from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
 from one_shot.params import Params, Settings
 from one_shot.prompt import Prompts
 from one_shot.types import M
-from one_shot.utils import images, open_image, set_torch_config
+from one_shot.utils import collect, images, open_image, set_torch_config
 
 
 class OneShotDreambooth:
     settings = Settings()
 
     def __init__(self, volume: Volume):
-        self.volume = Volume
+        self.volume = volume
         self.params = Params()
         self.exit_stack = ExitStack()
         self.dirty = False
@@ -41,6 +42,10 @@ class OneShotDreambooth:
         self.exit_stack.close()
         if self.dirty:
             self.volume.commit()
+
+    @method()
+    def warm(self):
+        return Request(self, "test").generate()
 
     @method()
     def generate(self, id: str):
@@ -97,7 +102,6 @@ class Request:
     def __init__(self, dreambooth: OneShotDreambooth, id: str):
         self.dreambooth = dreambooth
         self.id = id
-        self._images = {}
 
     def __getattr__(self, attr: str):
         return getattr(self.dreambooth, attr)
@@ -108,12 +112,15 @@ class Request:
         (self.settings.bucket / "dataset" / self.id).download_to(dir)
         return dir
 
+    @cachedmethod(Cache)
+    @collect
     def images(self) -> Generator[np.ndarray, None, None]:
         for path in images(self.image_dir):
             if path not in self._images:
-                self._images[path] = open_image(self.params, path)
-            yield self._images[path]
+                yield open_image(self.params, path)
 
+    @cachedmethod(Cache)
+    @collect
     def controls(self):
         for image in self.images():
             yield self.detector(
@@ -123,7 +130,10 @@ class Request:
             )
 
     def demographics(self):
-        return {"race": "asian", "gender": "woman"}
+        try:
+            return {"race": "asian", "gender": "woman"}
+        except Exception:
+            return {"race": "beautiful", "gender": "person"}
 
     def generate(self):
         return self.ensemble(

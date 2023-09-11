@@ -1,5 +1,6 @@
+from functools import wraps
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Generator, ParamSpec, TypeVar
 
 import numpy as np
 import torch
@@ -13,6 +14,9 @@ from torchvision import transforms as TT
 from dreambooth.train.helpers.face import FaceHelper
 from dreambooth.train.shared import images as images
 from one_shot.params import Params
+
+T = TypeVar("T")
+P = ParamSpec("P")
 
 
 def set_torch_config():
@@ -39,3 +43,11 @@ def open_image(params: Params, path: Path) -> np.ndarray:
         img = img.convert("RGB")
     img = image_transforms(params.model.resolution)(img)
     return FaceHelper(params, img).mask()
+
+
+def collect(fn: Callable[P, Generator[T, None, None]]) -> Callable[P, list[T]]:
+    @wraps(fn)
+    def wrapped(*args: P.args, **kwargs: P.kwargs):
+        return list(fn(*args, **kwargs))
+
+    return wrapped
