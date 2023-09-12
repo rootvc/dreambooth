@@ -61,9 +61,7 @@ class Prompts:
         )
 
     def kwargs_for_xl(self):
-        conditionings, pools = zip(*self.xl_compel(self.raw))
-        embeds = torch.cat(conditionings, dim=0)
-        pools = torch.cat(pools, dim=0)
+        embeds, pools = self.xl_compel(self.raw)
         return self._kwargs(self.xl_compel, embeds, pools)
 
     def kwargs_for_refiner(self):

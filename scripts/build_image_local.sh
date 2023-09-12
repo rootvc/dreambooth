@@ -2,16 +2,17 @@
 set -euxo pipefail
 
 export DOCKER_BUILDKIT=1
+export DEPOT_PROJECT=dww35s1t1q
 
 build_push() {
   DOCKERFILE="dockerfiles/$1"
   IMAGE_NAME="rootventures/$2"
 
   depot build \
+    --project $DEPOT_PROJECT \
     --pull \
-    --cache-from=type=registry,ref=rootventures/$2:cache \
     --platform linux/amd64 \
-    -o type=registry,oci-mediatypes=true,compression=estargz \
+    -o type=registry,oci-mediatypes=true,compression=gzip,force-compression=true \
     -f "$DOCKERFILE" . \
     -t "$IMAGE_NAME:latest" \
     -t "$IMAGE_NAME:main"

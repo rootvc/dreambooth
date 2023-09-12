@@ -1,30 +1,29 @@
-from modal import Image as DockerImage
-from modal import Stub, Volume, method
+from loguru import logger
+from modal import is_local
 
-from one_shot.dreambooth import OneShotDreambooth, Request
+from one_shot.config import init_config, init_logging
+from one_shot.modal import fn_kwargs, stub, volume
 
-stub = Stub()
-volume = stub.volume = Volume.persisted("model-cache")
+if is_local():
+    import dreambooth_old  # noqa: F401
+
+    from one_shot.modal.dreambooth import Dreambooth  # noqa: F401
 
 
-@stub.cls(
-    image=DockerImage.from_registry("rootventures/train-dreambooth-modal:latest"),
-    gpu="A100",
-    volumes={"/root/cache": volume},
-)
-class Dreambooth(OneShotDreambooth):
-    def __init__(self):
-        super().__init__(volume)
-
-    @method()
-    def warm(self):
-        return Request(self, "test").generate()
-
-    @method()
-    def generate(self, id: str):
-        return Request(self, id).generate()
+init_logging(logger)
 
 
 @stub.local_entrypoint()
 def main():
-    Dreambooth().warm.remote()
+    from one_shot.modal.dreambooth import Dreambooth
+
+    Dreambooth().warm.remote().show()
+
+
+@stub.function(**fn_kwargs, timeout=60 * 15)
+def seed():
+    init_config(split_gpus=False)
+    from one_shot.dreambooth import OneShotDreambooth, Request
+
+    with OneShotDreambooth(volume) as dreambooth:
+        Request(dreambooth, "test").face.compile_models()

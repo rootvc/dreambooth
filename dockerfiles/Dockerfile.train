@@ -1,6 +1,23 @@
 # syntax=docker/dockerfile:1.4
 
+FROM nvcr.io/nvidia/tensorflow:23.08-tf2-py3 as tf
+
+RUN mkdir /tmp/tensorflow && \
+  cp -R \
+  /usr/local/lib/python3.10/dist-packages/flatbuffers* \
+  /usr/local/lib/python3.10/dist-packages/keras* \
+  /usr/local/lib/python3.10/dist-packages/h5py* \
+  /usr/local/lib/python3.10/dist-packages/libclang* \
+  /usr/local/lib/python3.10/dist-packages/google_pasta* \
+  /usr/local/lib/python3.10/dist-packages/termcolor* \
+  /usr/local/lib/python3.10/dist-packages/wrapt* \
+  /usr/local/lib/python3.10/dist-packages/opt_einsum* \
+  /usr/local/lib/python3.10/dist-packages/tensorflow* \
+  /tmp/tensorflow/
+
 FROM rootventures/pytorch:latest AS pip
+
+COPY --link --from=tf /tmp/tensorflow/ /usr/local/lib/python3.10/dist-packages/
 
 ADD --link constraints.txt constraints.txt
 ADD --link environment.txt environment.txt
@@ -8,14 +25,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -c constraints.txt -r environment.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --no-deps \
-  mediapipe
+  pip install --upgrade --pre --upgrade-strategy only-if-needed --no-deps mediapipe -c constraints.txt
 
 ADD --link requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -c constraints.txt -r requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --upgrade --pre --upgrade-strategy only-if-needed --no-deps -c constraints.txt controlnet-aux==0.0.7 deepface
+  pip install --upgrade --pre --upgrade-strategy only-if-needed --no-deps -c constraints.txt \
+  controlnet-aux==0.0.7 deepface scikit-image
 
 FROM rootventures/pytorch:latest
 

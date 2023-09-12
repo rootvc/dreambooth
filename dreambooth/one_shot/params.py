@@ -5,6 +5,7 @@ from pydantic import BaseModel, BaseSettings
 
 class Settings(BaseSettings):
     bucket_name: str
+    cache_dir: str
 
     @property
     def bucket(self) -> CloudPath:
@@ -26,7 +27,7 @@ class Params(BaseModel):
 
     dtype: torch.dtype = torch.bfloat16
     model: Model = Model()
-    batch_size: int = 1
+    batch_size: int = 4
 
     negative_prompt: str = ", ".join(
         [
@@ -55,7 +56,7 @@ class Params(BaseModel):
     ]
 
     steps: int = 30
-    images: int = 4
+    images: int = 1
 
     detect_resolution: int = 384
     guidance_scale: float = 10.5

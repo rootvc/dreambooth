@@ -6,4 +6,6 @@ bitsandbytes==0.41.1
 ftfy
 rich
 gdown
-tensorflow
+lazy_loader
+timm
+loguru

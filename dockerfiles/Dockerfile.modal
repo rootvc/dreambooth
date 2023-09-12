@@ -5,20 +5,21 @@ FROM rootventures/train-dreambooth:latest
 WORKDIR /dreambooth
 
 ENV CACHE_DIR /root/cache
-ENV HF_MODEL_CACHE $CACHE_DIR/models
+ENV XDG_CACHE_HOME $CACHE_DIR
+ENV HF_HOME $CACHE_DIR/huggingface
 ENV TRITON_CACHE_DIR $CACHE_DIR/triton
 ENV TORCHINDUCTOR_CACHE_DIR $CACHE_DIR/torchinductor
 ENV PYTORCH_KERNEL_CACHE_PATH $CACHE_DIR/torch
+ENV DEEPFACE_HOME $CACHE_DIR
 
 ENV PYTHONUNBUFFERED 1
-ENV RUNPOD_DEBUG_LEVEL WARN
 ENV TOKENIZERS_PARALLELISM true
 ENV ACCELERATE_MIXED_PRECISION bf16
 
 ADD --link constraints.txt constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade-strategy only-if-needed -c constraints.txt \
-  runpod cloudpathlib==0.13.0
+  cloudpathlib[s3]
 
 ADD --link data/config/accelerate/standalone.yml /root/.cache/huggingface/accelerate/default_config.yaml
 ADD --link . .

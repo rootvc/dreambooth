@@ -1,14 +1,14 @@
 import os
 import random
-from collections import Counter
 from contextlib import ExitStack
-from functools import cached_property
+from functools import cache, cached_property
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Generator
 
 import numpy as np
-from cachetools import Cache, cachedmethod
+import torch
+from accelerate.utils import get_max_memory
 from controlnet_aux import LineartDetector
 from diffusers import (
     DiffusionPipeline,
@@ -16,14 +16,25 @@ from diffusers import (
     T2IAdapter,
 )
 from diffusers.loaders import LoraLoaderMixin
+from diffusers.models.attention_processor import AttnProcessor2_0
+from dreambooth_old.train.download_eval_models import download as download_eval_models
+from dreambooth_old.train.shared import grid
+from loguru import logger
 from modal import Volume
+from torchvision.transforms.functional import to_tensor
 
-from dreambooth.train.helpers.face import FaceHelper
 from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
+from one_shot.face import Face
 from one_shot.params import Params, Settings
 from one_shot.prompt import Prompts
 from one_shot.types import M
-from one_shot.utils import collect, images, open_image, set_torch_config
+from one_shot.utils import (
+    close_all_files,
+    collect,
+    get_mtime,
+    images,
+    open_image,
+)
 
 
 class OneShotDreambooth:
@@ -36,58 +47,116 @@ class OneShotDreambooth:
         self.dirty = False
 
     def __enter__(self):
-        set_torch_config()
+        logger.info("Starting...")
         self._load_models()
+        logger.info("Loaded models")
         self._set_cache_monitor()
+        return self
 
-    def __exit__(self):
+    def __exit__(self, *_args):
+        logger.info("Exiting...")
         self.exit_stack.close()
         if self.dirty:
+            logger.warning("Cache was modified, committing")
+            del self.ensemble, self.detector
+            close_all_files(os.environ["CACHE_DIR"])
             self.volume.commit()
 
     def _load_models(self):
+        if download_eval_models(Path(self.settings.cache_dir)):
+            self.dirty = True
+
+        Face.load_models()
+
         self.detector = self._download_model(
-            LineartDetector, self.params.model.detector
+            LineartDetector, self.params.model.detector, default_kwargs={}
+        ).to("cuda")
+
+        refiner = self._download_model(DiffusionPipeline, self.params.model.refiner)
+        refiner.unet.set_attn_processor(AttnProcessor2_0())
+        refiner.unet = torch.compile(
+            refiner.unet.to(memory_format=torch.channels_last),
+            fullgraph=True,
         )
 
         pipe = self.ensemble = self._download_model(
             StableDiffusionXLAdapterEnsemblePipeline,
             self.params.model.name,
-            refiner=self._download_model(DiffusionPipeline, self.params.model.refiner),
-            adapter=self._download_model(T2IAdapter, self.params.model.t2i_adapter),
+            refiner=refiner,
+            adapter=self._download_model(
+                T2IAdapter,
+                self.params.model.t2i_adapter,
+            ),
         )
+
+        pipe.unet.set_attn_processor(AttnProcessor2_0())
+        pipe.unet = torch.compile(
+            pipe.unet.to(memory_format=torch.channels_last),
+            fullgraph=True,
+        )
+
         pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
             pipe.scheduler.config
         )
 
         for repo, lora in self.params.model.loras.items():
-            weights = self._download_model(
+            self._download_model(
                 LoraLoaderMixin, repo, weight_name=lora, method="lora_state_dict"
             )
-            pipe.load_lora_weights(weights)
+            pipe.load_lora_weights(repo, weight_name=lora)
 
         pipe.fuse_lora(lora_scale=self.params.lora_scale)
 
     def _set_cache_monitor(self):
-        cache_dir = Path(os.environ["CACHE_DIR"])
-        mtime = cache_dir.stat().st_mtime
+        mtime = get_mtime(Path(os.environ["CACHE_DIR"]))
         self.exit_stack.callback(
             lambda: setattr(
                 self,
                 "dirty",
-                True if cache_dir.stat().st_mtime != mtime else self.dirty,
+                True
+                if get_mtime(Path(os.environ["CACHE_DIR"])) > mtime
+                else self.dirty,
             )
         )
 
     def _download_model(
-        self, klass: type[M], name: str, method: str = "from_pretrained", **kwargs
+        self,
+        klass: type[M],
+        name: str,
+        method: str = "from_pretrained",
+        default_kwargs: dict = {
+            "local_files_only": True,
+            "use_safetensors": True,
+            "device_map": "auto",
+            "max_memory": {
+                k: v
+                for k, v in get_max_memory().items()
+                if k != torch.cuda.device_count() - 1
+            },
+            "low_cpu_mem_usage": True,
+        },
+        **kwargs,
     ) -> M:
+        logger.info(f"Loading {klass.__name__}({name})...")
+
         meth = getattr(klass, method)
         try:
-            return meth(name, **kwargs, local_files_only=True)
+            return meth(name, **default_kwargs, **kwargs)
         except OSError:
             self.dirty = True
-        return meth(name, **kwargs).to("cuda", dtype=self.params.dtype)
+        logger.warning(f"Downloading {klass.__name__}({name})...")
+        model = meth(
+            name,
+            **{k: v for k, v in default_kwargs.items() if k != "local_files_only"},
+            **kwargs,
+        )
+
+        if hasattr(model, "to"):
+            return model.to(torch_dtype=self.params.dtype)
+        elif isinstance(model, dict):
+            for k, v in model.items():
+                model[k] = v.to(dtype=self.params.dtype)
+        return model
 
 
 class Request:
@@ -106,34 +175,44 @@ class Request:
         (self.settings.bucket / "dataset" / self.id).download_to(dir)
         return dir
 
-    @cachedmethod(Cache)
+    @cache
     @collect
     def images(self) -> Generator[np.ndarray, None, None]:
+        logger.info("Loading images...")
         for path in images(self.image_dir):
-            if path not in self._images:
-                yield open_image(self.params, path)
+            logger.debug(f"Loading {path}...")
+            yield open_image(self.params, path)
 
-    @cachedmethod(Cache)
+    @cache
     @collect
     def controls(self):
-        for image in self.images():
+        logger.info("Loading controls...")
+        for i, image in enumerate(self.images()):
+            logger.debug(f"Loading controls for {i}...")
             yield self.detector(
                 image,
                 detect_resolution=self.params.detect_resolution,
                 image_resolution=self.params.model.resolution,
             )
 
-    def demographics(self):
-        res = [FaceHelper(self.params, img).demographics() for img in self.images()]
-        return {k: Counter(r[k] for r in res).most_common(1)[0] for k in res[0]}
+    @property
+    def face(self):
+        return Face(self.params, self.images())
 
+    def demographics(self):
+        return {"race": "beautiful", "gender": "person"}
+        return self.face.demographics()
+
+    @torch.inference_mode()
     def generate(self):
-        return self.ensemble(
-            image=random.choices(list(self._controls()), k=self.params.images),
+        logger.info("Generating...")
+        images = random.choices(list(self.controls()), k=self.params.images)
+        images = self.ensemble(
+            image=torch.stack([to_tensor(i) for i in images]).to("cuda"),
             prompts=Prompts(
                 self.ensemble,
                 [
-                    self.params.prompt_template.format(prompt=p, **self._demographics())
+                    self.params.prompt_template.format(prompt=p, **self.demographics())
                     for p in random.sample(self.params.prompts, k=self.params.images)
                 ],
                 self.params.negative_prompt,
@@ -143,3 +222,4 @@ class Request:
             adapter_conditioning_factor=self.params.conditioning_factor,
             high_noise_frac=self.params.high_noise_frac,
         ).images
+        return grid(images)

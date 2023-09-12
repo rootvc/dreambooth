@@ -1,38 +1,37 @@
+import gc
+import os
+import subprocess
 from functools import wraps
 from pathlib import Path
 from typing import Callable, Generator, ParamSpec, TypeVar
 
 import numpy as np
+import psutil
 import torch
 import torch._dynamo.config
 import torch.backends.cuda
 import torch.backends.cudnn
+from deepface import DeepFace
+from dreambooth_old.train.helpers.face import FaceHelper
+from dreambooth_old.train.shared import images as images
+from loguru import logger
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 from torchvision import transforms as TT
 
-from dreambooth.train.helpers.face import FaceHelper
-from dreambooth.train.shared import images as images
 from one_shot.params import Params
 
 T = TypeVar("T")
 P = ParamSpec("P")
 
 
-def set_torch_config():
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
-    torch._dynamo.config.suppress_errors = True
-
-
 def image_transforms(size: int) -> Callable[[Image.Image], torch.Tensor]:
     return TT.Compose(
         [
-            TT.ToTensor(),
             TT.Resize(size, interpolation=TT.InterpolationMode.LANCZOS),
-            TT.Normalize([0.5], [0.5]),
-            TT.ToPILImage(),
+            # TT.ToTensor(),
+            # TT.Normalize([0.5], [0.5]),
+            # TT.ToPILImage(),
         ]
     )
 
@@ -51,3 +50,41 @@ def collect(fn: Callable[P, Generator[T, None, None]]) -> Callable[P, list[T]]:
         return list(fn(*args, **kwargs))
 
     return wrapped
+
+
+def close_all_files(prefix: str):
+    subprocess.run(["ls", "-la", prefix], check=True)
+
+    if hasattr(DeepFace, "model_obj"):
+        delattr(DeepFace, "model_obj")
+    if hasattr(FaceHelper, "_face_detector"):
+        delattr(FaceHelper, "_face_detector")
+    if hasattr(DeepFace, "model_obj"):
+        delattr(DeepFace, "model_obj")
+    gc.collect()
+
+    def close_all_files(p):
+        for f in p.open_files():
+            if not f.path.startswith(prefix):
+                continue
+            logger.warning(f"Closing {f.path}")
+            try:
+                os.close(f.fd)
+            except OSError:
+                pass
+
+    process = psutil.Process()
+    for child in process.children(recursive=True):
+        close_all_files(child)
+    close_all_files(process)
+
+    subprocess.run(["lsof", "+D", prefix], check=True)
+
+    # os.closerange(3, os.sysconf("SC_OPEN_MAX"))
+
+
+def get_mtime(path: Path):
+    try:
+        return max(p.stat().st_mtime for p in path.rglob("*"))
+    except ValueError:
+        return path.stat().st_mtime

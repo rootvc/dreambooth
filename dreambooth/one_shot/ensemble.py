@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Union
 
+import torch
 from diffusers import (
     DiffusionPipeline,
     StableDiffusionXLAdapterPipeline,
@@ -11,6 +12,8 @@ from diffusers.models import (
     UNet2DConditionModel,
 )
 from diffusers.schedulers import KarrasDiffusionSchedulers
+from loguru import logger
+from PIL import Image
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
 
 if TYPE_CHECKING:
@@ -46,14 +49,17 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
 
     def __call__(
         self,
+        image: Union[torch.Tensor, Image.Image, list[Image.Image]],
         *args,
         prompts: "Prompts",
         high_noise_frac: float,
         **kwargs,
     ):
+        logger.info("Generating latents")
         latents = (
             super()
             .__call__(
+                image=image,
                 *args,
                 denoising_end=high_noise_frac,
                 output_type="latent",
@@ -62,10 +68,11 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
             )
             .images
         )
+        logger.info("Refining latents")
         return self.refiner(
             *args,
             denoising_start=high_noise_frac,
             image=latents,
             **prompts.kwargs_for_refiner(),
-            **kwargs,
+            **{k: v for k, v in kwargs.items() if not k.startswith("adapter_")},
         )
