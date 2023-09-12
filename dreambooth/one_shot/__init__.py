@@ -1,7 +1,7 @@
 from modal import Image as DockerImage
-from modal import Stub, Volume
+from modal import Stub, Volume, method
 
-from .dreambooth import OneShotDreambooth
+from one_shot.dreambooth import OneShotDreambooth, Request
 
 stub = Stub()
 volume = stub.volume = Volume.persisted("model-cache")
@@ -15,3 +15,16 @@ volume = stub.volume = Volume.persisted("model-cache")
 class Dreambooth(OneShotDreambooth):
     def __init__(self):
         super().__init__(volume)
+
+    @method()
+    def warm(self):
+        return Request(self, "test").generate()
+
+    @method()
+    def generate(self, id: str):
+        return Request(self, id).generate()
+
+
+@stub.local_entrypoint()
+def main():
+    Dreambooth().warm.remote()

@@ -1,4 +1,4 @@
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 from diffusers import (
     DiffusionPipeline,
@@ -13,7 +13,8 @@ from diffusers.models import (
 from diffusers.schedulers import KarrasDiffusionSchedulers
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
 
-from one_shot.prompt import Prompts
+if TYPE_CHECKING:
+    from one_shot.prompt import Prompts
 
 
 class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline):
@@ -46,7 +47,7 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
     def __call__(
         self,
         *args,
-        prompts: Prompts,
+        prompts: "Prompts",
         high_noise_frac: float,
         **kwargs,
     ):

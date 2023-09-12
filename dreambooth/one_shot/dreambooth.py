@@ -16,7 +16,7 @@ from diffusers import (
     T2IAdapter,
 )
 from diffusers.loaders import LoraLoaderMixin
-from modal import Volume, method
+from modal import Volume
 
 from dreambooth.train.helpers.face import FaceHelper
 from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
@@ -44,14 +44,6 @@ class OneShotDreambooth:
         self.exit_stack.close()
         if self.dirty:
             self.volume.commit()
-
-    @method()
-    def warm(self):
-        return Request(self, "test").generate()
-
-    @method()
-    def generate(self, id: str):
-        return Request(self, id).generate()
 
     def _load_models(self):
         self.detector = self._download_model(

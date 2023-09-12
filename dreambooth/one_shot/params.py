@@ -1,5 +1,3 @@
-from functools import cached_property
-
 import torch
 from cloudpathlib import CloudPath
 from pydantic import BaseModel, BaseSettings
@@ -8,7 +6,7 @@ from pydantic import BaseModel, BaseSettings
 class Settings(BaseSettings):
     bucket_name: str
 
-    @cached_property
+    @property
     def bucket(self) -> CloudPath:
         return CloudPath(self.bucket_name)
 
@@ -23,6 +21,9 @@ class Model(BaseModel):
 
 
 class Params(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
     dtype: torch.dtype = torch.bfloat16
     model: Model = Model()
     batch_size: int = 1

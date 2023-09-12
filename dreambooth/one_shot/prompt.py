@@ -1,15 +1,17 @@
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 import torch
 from compel import Compel, ReturnedEmbeddingsType
 
-from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
+if TYPE_CHECKING:
+    from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
 
 
 class Prompts:
     def __init__(
         self,
-        pipeline: StableDiffusionXLAdapterEnsemblePipeline,
+        pipeline: "StableDiffusionXLAdapterEnsemblePipeline",
         raw: list[str],
         negative: str,
     ):

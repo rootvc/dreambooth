@@ -9,9 +9,9 @@ build_push() {
 
   depot build \
     --pull \
-    --push \
     --cache-from=type=registry,ref=rootventures/$2:cache \
     --platform linux/amd64 \
+    -o type=registry,oci-mediatypes=true,compression=estargz \
     -f "$DOCKERFILE" . \
     -t "$IMAGE_NAME:latest" \
     -t "$IMAGE_NAME:main"
