@@ -64,4 +64,4 @@ class Params(BaseModel):
     conditioning_factor: float = 0.9
     lora_scale = 0.4
     high_noise_frac: float = 0.8
-    mask_padding: float = 0.15
+    mask_padding: float = 0.05

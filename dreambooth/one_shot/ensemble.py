@@ -57,8 +57,7 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
     ):
         logger.info("Generating latents")
         latents = (
-            super()
-            .__call__(
+            super().__call__(
                 image=image,
                 *args,
                 denoising_end=high_noise_frac,
@@ -66,7 +65,7 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
                 **prompts.kwargs_for_xl(),
                 **kwargs,
             )
-            .images
+            # .images
         )
         return latents
         logger.info("Refining latents")

@@ -6,7 +6,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Generator
 
-import numpy as np
 import torch
 from accelerate.utils import get_max_memory
 from controlnet_aux import LineartDetector
@@ -21,6 +20,7 @@ from dreambooth_old.train.download_eval_models import download as download_eval_
 from dreambooth_old.train.shared import grid
 from loguru import logger
 from modal import Volume
+from PIL import Image
 from torchvision.transforms.functional import to_tensor
 
 from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
@@ -74,10 +74,10 @@ class OneShotDreambooth:
 
         refiner = self._download_model(DiffusionPipeline, self.params.model.refiner)
         refiner.unet.set_attn_processor(AttnProcessor2_0())
-        # refiner.unet = torch.compile(
-        #     refiner.unet.to(memory_format=torch.channels_last),
-        #     fullgraph=True,
-        # )
+        refiner.unet = torch.compile(
+            refiner.unet.to(memory_format=torch.channels_last),
+            fullgraph=True,
+        )
 
         pipe = self.ensemble = self._download_model(
             StableDiffusionXLAdapterEnsemblePipeline,
@@ -177,7 +177,7 @@ class Request:
 
     @cache
     @collect
-    def images(self) -> Generator[np.ndarray, None, None]:
+    def images(self) -> Generator[Image.Image, None, None]:
         logger.info("Loading images...")
         for path in images(self.image_dir):
             logger.debug(f"Loading {path}...")
@@ -187,7 +187,7 @@ class Request:
     @collect
     def controls(self):
         logger.info("Loading controls...")
-        for i, image in enumerate(self.images()):
+        for i, image in enumerate(self.face.faces()):
             logger.debug(f"Loading controls for {i}...")
             yield self.detector(
                 image,
@@ -195,7 +195,7 @@ class Request:
                 image_resolution=self.params.model.resolution,
             )
 
-    @property
+    @cached_property
     def face(self):
         return Face(self.params, self.images())
 
@@ -206,6 +206,7 @@ class Request:
     @torch.inference_mode()
     def generate(self):
         logger.info("Generating...")
+        return grid(self.face.faces())
         images = random.choices(list(self.controls()), k=self.params.images)
         images = self.ensemble(
             image=torch.stack([to_tensor(i) for i in images]).to("cuda"),

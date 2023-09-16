@@ -5,12 +5,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Callable, Generator, ParamSpec, TypeVar
 
-import numpy as np
 import psutil
-import torch
-import torch._dynamo.config
-import torch.backends.cuda
-import torch.backends.cudnn
 from deepface import DeepFace
 from dreambooth_old.train.helpers.face import FaceHelper
 from dreambooth_old.train.shared import images as images
@@ -25,7 +20,7 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
-def image_transforms(size: int) -> Callable[[Image.Image], torch.Tensor]:
+def image_transforms(size: int) -> Callable[[Image.Image], Image.Image]:
     return TT.Compose(
         [
             TT.Resize(size, interpolation=TT.InterpolationMode.LANCZOS),
@@ -36,12 +31,11 @@ def image_transforms(size: int) -> Callable[[Image.Image], torch.Tensor]:
     )
 
 
-def open_image(params: Params, path: Path) -> np.ndarray:
+def open_image(params: Params, path: Path) -> Image.Image:
     img = exif_transpose(Image.open(path))
     if img.mode != "RGB":
         img = img.convert("RGB")
-    img = image_transforms(params.model.resolution)(img)
-    return FaceHelper(params, img).mask()
+    return image_transforms(params.model.resolution)(img)
 
 
 def collect(fn: Callable[P, Generator[T, None, None]]) -> Callable[P, list[T]]:
@@ -54,8 +48,8 @@ def collect(fn: Callable[P, Generator[T, None, None]]) -> Callable[P, list[T]]:
 
 def close_all_files(prefix: str):
     logger.warning(f"Closing all files with prefix {prefix}")
-    subprocess.run(["ls", "-la", prefix], check=True)
-    subprocess.run(["ps afx"], check=True)
+    subprocess.run(["ls", "-la", prefix])
+    subprocess.run(["ps", "afx"])
 
     if hasattr(DeepFace, "model_obj"):
         delattr(DeepFace, "model_obj")

@@ -31,6 +31,7 @@ def init_config(split_gpus=True):
     torch._dynamo.config.suppress_errors = True
 
     tf.get_logger().setLevel(logging.INFO)
+    tf.config.optimizer.set_jit("autoclustering")
 
     if split_gpus and not is_local():
         gpus = tf.config.list_physical_devices("GPU")

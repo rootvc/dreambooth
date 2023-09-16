@@ -1,4 +1,6 @@
 from collections import Counter
+from functools import cache as f_cache
+from functools import cached_property
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Generator
@@ -7,12 +9,79 @@ import keras
 import numpy as np
 import tensorflow as tf
 from deepface import DeepFace
+from deepface.detectors import OpenCvWrapper
 from dreambooth_old.train.shared import grid
 from loguru import logger
+from PIL import Image
+from pydantic import BaseModel, Field
 from tensorflow.python.compiler.tensorrt import trt_convert as trt
 from tensorflow.python.saved_model import signature_constants, tag_constants
+from torchvision.transforms.functional import to_pil_image
 
 from one_shot.params import Params, Settings
+from one_shot.utils import collect
+
+OpenCvWrapper.get_opencv_path = lambda: "/usr/local/share/opencv4/haarcascades/"
+
+
+class Bounds(BaseModel):
+    dims: tuple[int, ...]
+    shape: tuple[int, ...]
+
+    origin_x: int = Field(int, alias="x")
+    origin_y: int = Field(int, alias="y")
+    width: int = Field(int, alias="w")
+    height: int = Field(int, alias="h")
+
+    @property
+    def mid_y(self):
+        return self.shape[0] // 2
+
+    @property
+    def mid_x(self):
+        return self.shape[1] // 2
+
+    @property
+    def quadrant(self):
+        if self.origin_y < self.mid_y:
+            if self.origin_x < self.mid_x:
+                return 0
+            else:
+                return 1
+        else:
+            if self.origin_x < self.mid_x:
+                return 2
+            else:
+                return 3
+
+    def _slice(self, mask_padding: float):
+        buffer_y = int(self.dims[0] * mask_padding)
+        buffer_x = int(self.dims[1] * mask_padding)
+
+        start_y = max(0, self.origin_y - buffer_y)
+        end_y = min(self.shape[0], self.origin_y + self.height + buffer_y)
+        start_x = max(0, self.origin_x - buffer_x)
+        end_x = min(self.shape[1], self.origin_x + self.width + buffer_x)
+
+        return (slice(start_y, end_y), slice(start_x, end_x))
+
+    def slice(self, mask_padding: float):
+        original_slices = self._slice(mask_padding)
+        quadrant = self.quadrant
+
+        if quadrant == 0:
+            return original_slices
+        elif quadrant == 1:
+            return (original_slices[0], slice(0, original_slices[1].stop - self.mid_x))
+        elif quadrant == 2:
+            return (slice(0, original_slices[0].stop - self.mid_y), original_slices[1])
+        elif quadrant == 3:
+            return (
+                slice(0, original_slices[0].stop - self.mid_y),
+                slice(0, original_slices[1].stop - self.mid_x),
+            )
+        else:
+            raise ValueError(f"Invalid quadrant: {quadrant}")
 
 
 class CompiledModel:
@@ -40,27 +109,50 @@ class Face:
     settings = Settings()
     cache: Path = Path(settings.cache_dir) / "face"
 
-    def __init__(self, params: Params, images: list[np.ndarray]):
+    def __init__(self, params: Params, images: list[Image.Image]):
         self.params = params
         self.images = images
 
-    def _demographics(self, **kwargs):
+    @cached_property
+    def image(self):
+        return np.asarray(grid(self.images))
+
+    @f_cache
+    def analyze(self, **kwargs):
         return DeepFace.analyze(
-            np.array(grid(self.images)),
+            self.image,
             actions=("gender", "race"),
-            detector_backend="mediapipe",
+            detector_backend="retinaface",
+            **kwargs,
         )
+
+    @property
+    def dims(self):
+        return np.asarray(self.images[0]).shape
+
+    @f_cache
+    @collect
+    def faces(self):
+        for face in self.analyze():
+            bounds = Bounds(**face["region"], dims=self.dims, shape=self.image.shape)
+            y, x = bounds.slice(self.params.mask_padding)
+            image = np.asarray(self.images[bounds.quadrant])
+            masked = np.zeros(self.dims, dtype=image.dtype)
+            masked[y, x] = image[y, x]
+            yield to_pil_image(masked)
 
     def demographics(self):
         logger.info("Analyzing demographics...")
         try:
-            res = self._demographics()
+            faces = self.analyze()
         except Exception as e:
             logger.exception(e)
             return {"race": "beautiful", "gender": "person"}
-        logger.info("Demographics: {}", res)
+        logger.info("Demographics: {}", faces)
         return {
-            k.removeprefix("dominant_"): Counter(r[k] for r in res).most_common(1)[0][0]
+            k.removeprefix("dominant_"): (
+                Counter(r[k] for r in faces).most_common(1)[0][0]
+            )
             for k in {"dominant_gender", "dominant_race"}
         }
 
@@ -77,13 +169,11 @@ class Face:
                 logger.warning("Failed to load {}", name)
 
     def compile_models(self):
-        self._demographics(enforce_detection=False, align=False)
-        content, _, _ = DeepFace.functions.extract_faces(
-            self.images[0], detector_backend="skip"
-        )[0]
+        self.analyze(enforce_detection=False, align=False)
+        content = self.faces()[0]
 
         def input_fn() -> Generator[tuple[np.ndarray], None, None]:
-            yield (content,)
+            yield (np.asarray(content),)
 
         for name in self.MODELS:
             if (self.cache / name).exists():
