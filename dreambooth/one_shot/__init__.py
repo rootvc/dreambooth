@@ -23,7 +23,8 @@ def main():
 @stub.function(**fn_kwargs)
 def seed():
     init_config(split_gpus=False)
-    from one_shot.dreambooth import OneShotDreambooth, Request
+    from one_shot.dreambooth import OneShotDreambooth
+    from one_shot.dreambooth.request import Request
 
     with OneShotDreambooth(volume) as dreambooth:
         Request(dreambooth, "test").face.compile_models()

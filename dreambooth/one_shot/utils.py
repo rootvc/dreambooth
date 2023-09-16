@@ -1,18 +1,15 @@
 import gc
-import os
 import subprocess
 from functools import wraps
 from pathlib import Path
 from typing import Callable, Generator, ParamSpec, TypeVar
 
-import psutil
 from deepface import DeepFace
 from dreambooth_old.train.shared import images as images
 from loguru import logger
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 from retinaface import RetinaFace
-from torch._dynamo import reset as reset_dynamo
 from torch._inductor.autotune_process import tuning_process
 from torch._inductor.codecache import AsyncCompile
 from torchvision import transforms as TT
@@ -76,40 +73,6 @@ def close_all_files(cache_dir: str):
     AsyncCompile.pool().shutdown()
     AsyncCompile.process_pool().shutdown()
     tuning_process.terminate()
-    reset_dynamo()
-
-    gc.collect()
-
-    def close_all_files(p):
-        for f in p.open_files():
-            if not f.path.startswith(cache_dir):
-                continue
-            logger.info(f"Closing {f.path}")
-            try:
-                os.close(f.fd)
-            except OSError as e:
-                logger.warning(f"Failed to close {f.path}: {e}")
-
-    process = psutil.Process()
-    children = process.children(recursive=True)
-
-    for proc in psutil.process_iter():
-        close_all_files(proc)
-        if proc not in children:
-            continue
-        if "multiprocessing.resource_tracker" in proc.cmdline()[-1]:
-            continue
-        logger.warning("Terminating child: {} [{}]", proc, proc.num_fds())
-        logger.info(proc.cmdline())
-        proc.terminate()
-        try:
-            proc.wait(1)
-        except psutil.TimeoutExpired:
-            logger.warning("Killing proc: {}", proc)
-            proc.kill()
-        else:
-            logger.info("Child exited: {}", proc)
-    close_all_files(process)
     gc.collect()
     logger.info("Closed all files")
 

@@ -1,4 +1,5 @@
 import torch
+from accelerate.utils import get_max_memory
 from cloudpathlib import CloudPath
 from pydantic import BaseModel, BaseSettings
 
@@ -10,6 +11,22 @@ class Settings(BaseSettings):
     @property
     def bucket(self) -> CloudPath:
         return CloudPath(self.bucket_name)
+
+    @property
+    def max_memory(self):
+        return {
+            k: v
+            for k, v in get_max_memory().items()
+            if k != torch.cuda.device_count() - 1
+        }
+
+    @property
+    def loading_kwargs(self):
+        return {
+            "local_files_only": True,
+            "use_safetensors": True,
+            "low_cpu_mem_usage": True,
+        }
 
 
 class Model(BaseModel):
@@ -31,8 +48,9 @@ class Params(BaseModel):
 
     negative_prompt: str = ", ".join(
         [
-            "(eyes closed)+",
+            "(eyes closed)++",
             "(deformed eyes)++",
+            "crossed eyes",
             "deformed iris",
             "out of focus",
             "lens blur",
@@ -49,7 +67,7 @@ class Params(BaseModel):
         ]
     )
 
-    prompt_template = "a closeup portrait photo of a ({race})- {gender}, ({prompt})++++, focused+, 4k photo, highly detailed, vibrant colors"
+    prompt_template = "a closeup portrait photo of a ({race})- {gender}, ({prompt})++++, 4k photo, highly detailed, (vibrant colors)+"
     prompts = [
         "a clown in full makeup",
         "a 3D render of a robotic cyborg",
@@ -60,12 +78,12 @@ class Params(BaseModel):
         "a Marvel superhero",
     ]
 
-    steps: int = 30
+    steps: int = 25
     images: int = 4
 
     detect_resolution: int = 384
-    guidance_scale: float = 5.0
-    conditioning_strength: float = 1.2
+    guidance_scale: float = 4.5
+    conditioning_strength: float = 1.3
     conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 0.8

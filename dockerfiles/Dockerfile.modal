@@ -8,6 +8,7 @@ ENV CACHE_DIR /root/cache
 ENV XDG_CACHE_HOME $CACHE_DIR
 ENV HF_HOME $CACHE_DIR/huggingface
 ENV DEEPFACE_HOME $CACHE_DIR
+ENV XLA_CACHE_DIR $CACHE_DIR/tf_xla_cache
 
 ENV CACHE_STAGING_DIR /root/cache-staging
 ENV TORCHINDUCTOR_CACHE_DIR $CACHE_STAGING_DIR/torchinductor
@@ -15,7 +16,7 @@ ENV PYTORCH_KERNEL_CACHE_PATH $CACHE_STAGING_DIR/torch
 
 RUN mkdir -p $CACHE_DIR $CACHE_STAGING_DIR
 
-ENV TF_XLA_FLAGS "--tf_xla_deterministic_cluster_names --tf_xla_persistent_cache_directory=$CACHE_DIR/tf_xla_cache"
+ENV TF_XLA_FLAGS "--tf_xla_deterministic_cluster_names --tf_xla_persistent_cache_directory=$XLA_CACHE_DIR"
 
 ENV PYTHONUNBUFFERED 1
 ENV TOKENIZERS_PARALLELISM true
