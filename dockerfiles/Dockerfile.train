@@ -45,7 +45,7 @@ ENV TORCHINDUCTOR_SEARCH_AUTOTUNE_CACHE 1
 
 RUN \
   apt-get update && \
-  apt-get install -y pixz pigz && \
+  apt-get install -y pixz pigz rsync && \
   rm -rf /var/lib/apt/lists/*
 
 

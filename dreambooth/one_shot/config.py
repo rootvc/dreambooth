@@ -40,5 +40,5 @@ def init_config(split_gpus=True):
         devices = tf.config.list_logical_devices("GPU")
         assert len(devices) == len(gpus) - 1
 
-    transformers.utils.logging.set_verbosity_info()
-    diffusers.utils.logging.set_verbosity_info()
+    transformers.utils.logging.set_verbosity_warning()
+    diffusers.utils.logging.set_verbosity_warning()

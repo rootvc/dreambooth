@@ -141,6 +141,7 @@ class Face:
             masked[y, x] = image[y, x]
             yield to_pil_image(masked)
 
+    @f_cache
     def demographics(self):
         logger.info("Analyzing demographics...")
         try:
@@ -148,11 +149,10 @@ class Face:
         except Exception as e:
             logger.exception(e)
             return {"race": "beautiful", "gender": "person"}
-        logger.info("Demographics: {}", faces)
         return {
             k.removeprefix("dominant_"): (
                 Counter(r[k] for r in faces).most_common(1)[0][0]
-            )
+            ).lower()
             for k in {"dominant_gender", "dominant_race"}
         }
 

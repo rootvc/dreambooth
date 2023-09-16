@@ -31,6 +31,11 @@ class Params(BaseModel):
 
     negative_prompt: str = ", ".join(
         [
+            "(eyes closed)+",
+            "(deformed eyes)++",
+            "deformed iris",
+            "out of focus",
+            "lens blur",
             "extra digit",
             "fewer digits",
             "cropped",
@@ -44,7 +49,7 @@ class Params(BaseModel):
         ]
     )
 
-    prompt_template = '("a closeup portrait photo of a {race} {gender}", "{prompt}", "4k photo, highly detailed, vibrant colors").and()'
+    prompt_template = "a closeup portrait photo of a ({race})- {gender}, ({prompt})++++, focused+, 4k photo, highly detailed, vibrant colors"
     prompts = [
         "a clown in full makeup",
         "a 3D render of a robotic cyborg",
@@ -56,12 +61,12 @@ class Params(BaseModel):
     ]
 
     steps: int = 30
-    images: int = 1
+    images: int = 4
 
     detect_resolution: int = 384
-    guidance_scale: float = 10.5
-    conditioning_strength: float = 0.9
-    conditioning_factor: float = 0.9
+    guidance_scale: float = 5.0
+    conditioning_strength: float = 1.2
+    conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 0.8
     mask_padding: float = 0.05

@@ -20,7 +20,7 @@ def main():
     Dreambooth().warm.remote().show()
 
 
-@stub.function(**fn_kwargs, timeout=60 * 15)
+@stub.function(**fn_kwargs)
 def seed():
     init_config(split_gpus=False)
     from one_shot.dreambooth import OneShotDreambooth, Request

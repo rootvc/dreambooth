@@ -15,7 +15,6 @@ from diffusers import (
     T2IAdapter,
 )
 from diffusers.loaders import LoraLoaderMixin
-from diffusers.models.attention_processor import AttnProcessor2_0
 from dreambooth_old.train.download_eval_models import download as download_eval_models
 from dreambooth_old.train.shared import grid
 from loguru import logger
@@ -31,6 +30,7 @@ from one_shot.types import M
 from one_shot.utils import (
     close_all_files,
     collect,
+    consolidate_cache,
     get_mtime,
     images,
     open_image,
@@ -55,12 +55,14 @@ class OneShotDreambooth:
 
     def __exit__(self, *_args):
         logger.info("Exiting...")
+        consolidate_cache(os.environ["CACHE_DIR"], os.environ["CACHE_STAGING_DIR"])
         self.exit_stack.close()
         if self.dirty:
             logger.warning("Cache was modified, committing")
             del self.ensemble, self.detector
             close_all_files(os.environ["CACHE_DIR"])
             self.volume.commit()
+            logger.warning("Cache committed")
 
     def _load_models(self):
         if download_eval_models(Path(self.settings.cache_dir)):
@@ -72,12 +74,10 @@ class OneShotDreambooth:
             LineartDetector, self.params.model.detector, default_kwargs={}
         ).to("cuda")
 
-        refiner = self._download_model(DiffusionPipeline, self.params.model.refiner)
-        refiner.unet.set_attn_processor(AttnProcessor2_0())
-        refiner.unet = torch.compile(
-            refiner.unet.to(memory_format=torch.channels_last),
-            fullgraph=True,
+        refiner = self._download_model(
+            DiffusionPipeline, self.params.model.refiner, safety_checker=None
         )
+        refiner.enable_xformers_memory_efficient_attention()
 
         pipe = self.ensemble = self._download_model(
             StableDiffusionXLAdapterEnsemblePipeline,
@@ -87,14 +87,9 @@ class OneShotDreambooth:
                 T2IAdapter,
                 self.params.model.t2i_adapter,
             ),
+            safety_checker=None,
         )
-
-        pipe.unet.set_attn_processor(AttnProcessor2_0())
-        pipe.unet = torch.compile(
-            pipe.unet.to(memory_format=torch.channels_last),
-            fullgraph=True,
-        )
-
+        pipe.enable_xformers_memory_efficient_attention()
         pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
             pipe.scheduler.config
         )
@@ -187,7 +182,7 @@ class Request:
     @collect
     def controls(self):
         logger.info("Loading controls...")
-        for i, image in enumerate(self.face.faces()):
+        for i, image in enumerate(self.images()):
             logger.debug(f"Loading controls for {i}...")
             yield self.detector(
                 image,
@@ -199,22 +194,24 @@ class Request:
     def face(self):
         return Face(self.params, self.images())
 
+    @cached_property
     def demographics(self):
-        return {"race": "beautiful", "gender": "person"}
-        return self.face.demographics()
+        demos = self.face.demographics()
+        logger.info(demos)
+        return demos
 
     @torch.inference_mode()
     def generate(self):
         logger.info("Generating...")
-        return grid(self.face.faces())
-        images = random.choices(list(self.controls()), k=self.params.images)
+        images = random.choices(self.controls(), k=self.params.images)
+        prompts = random.sample(self.params.prompts, k=self.params.images)
         images = self.ensemble(
             image=torch.stack([to_tensor(i) for i in images]).to("cuda"),
             prompts=Prompts(
                 self.ensemble,
                 [
-                    self.params.prompt_template.format(prompt=p, **self.demographics())
-                    for p in random.sample(self.params.prompts, k=self.params.images)
+                    self.params.prompt_template.format(prompt=p, **self.demographics)
+                    for p in prompts
                 ],
                 self.params.negative_prompt,
             ),
@@ -222,5 +219,7 @@ class Request:
             adapter_conditioning_scale=self.params.conditioning_strength,
             adapter_conditioning_factor=self.params.conditioning_factor,
             high_noise_frac=self.params.high_noise_frac,
+            num_inference_steps=self.params.steps,
         ).images
-        return grid(images)
+        logger.info("Prompts: {}", prompts)
+        return grid(self.controls() + images)
