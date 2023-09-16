@@ -62,12 +62,13 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
                 image=image,
                 *args,
                 denoising_end=high_noise_frac,
-                output_type="latent",
+                # output_type="latent",
                 **prompts.kwargs_for_xl(),
                 **kwargs,
             )
             .images
         )
+        return latents
         logger.info("Refining latents")
         return self.refiner(
             *args,

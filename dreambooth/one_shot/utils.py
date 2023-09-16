@@ -53,7 +53,9 @@ def collect(fn: Callable[P, Generator[T, None, None]]) -> Callable[P, list[T]]:
 
 
 def close_all_files(prefix: str):
+    logger.warning(f"Closing all files with prefix {prefix}")
     subprocess.run(["ls", "-la", prefix], check=True)
+    subprocess.run(["ps afx"], check=True)
 
     if hasattr(DeepFace, "model_obj"):
         delattr(DeepFace, "model_obj")
@@ -75,10 +77,11 @@ def close_all_files(prefix: str):
 
     process = psutil.Process()
     for child in process.children(recursive=True):
+        logger.warning(child)
         close_all_files(child)
     close_all_files(process)
 
-    subprocess.run(["lsof", "+D", prefix], check=True)
+    subprocess.run(["lsof"])
 
     # os.closerange(3, os.sysconf("SC_OPEN_MAX"))
 

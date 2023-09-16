@@ -74,10 +74,10 @@ class OneShotDreambooth:
 
         refiner = self._download_model(DiffusionPipeline, self.params.model.refiner)
         refiner.unet.set_attn_processor(AttnProcessor2_0())
-        refiner.unet = torch.compile(
-            refiner.unet.to(memory_format=torch.channels_last),
-            fullgraph=True,
-        )
+        # refiner.unet = torch.compile(
+        #     refiner.unet.to(memory_format=torch.channels_last),
+        #     fullgraph=True,
+        # )
 
         pipe = self.ensemble = self._download_model(
             StableDiffusionXLAdapterEnsemblePipeline,

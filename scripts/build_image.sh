@@ -18,7 +18,7 @@ pull_build_push() {
   IMAGE_NAME="rootventures/$2:latest"
   docker build \
     --pull \
-    -o type=registry,oci-mediatypes=true \
+    -o type=registry,oci-mediatypes=true,compression=gzip,force-compression=true \
     --cache-to=type=local,dest=/tmp/cache/docker/$2 \
     --cache-to=type=registry,ref=rootventures/$2:cache \
     --cache-from type=local,src=/tmp/cache/docker/$2 \
@@ -32,9 +32,9 @@ pull_build_push() {
 init
 
 pull_build_push Dockerfile.pytorch pytorch min
-pull_build_push Dockerfile.train train-dreambooth min
+# pull_build_push Dockerfile.train train-dreambooth min
 # pull_build_push Dockerfile.sagemaker train-dreambooth-sagemaker min
-pull_build_push Dockerfile.runpod train-dreambooth-runpod min
+# pull_build_push Dockerfile.runpod train-dreambooth-runpod min
 
 # docker build \
 #   -o type=registry,oci-mediatypes=true,compression=zstd \
@@ -45,9 +45,9 @@ pull_build_push Dockerfile.runpod train-dreambooth-runpod min
 
 # pull_build_push Dockerfile dreambooth
 
-docker tag rootventures/train-dreambooth-runpod:latest rootventures/train-dreambooth-runpod:main
-docker push rootventures/train-dreambooth-runpod:main
+# docker tag rootventures/train-dreambooth-runpod:latest rootventures/train-dreambooth-runpod:main
+# docker push rootventures/train-dreambooth-runpod:main
 
-docker run rootventures/train-dreambooth-runpod:latest ./scripts/upload_models.sh
+# docker run rootventures/train-dreambooth-runpod:latest ./scripts/upload_models.sh
 
 # docker system prune -f
