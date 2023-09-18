@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 from accelerate.utils import get_max_memory
 from cloudpathlib import CloudPath
@@ -12,13 +14,15 @@ class Settings(BaseSettings):
     def bucket(self) -> CloudPath:
         return CloudPath(self.bucket_name)
 
-    @property
-    def max_memory(self):
-        return {
-            k: v
-            for k, v in get_max_memory().items()
-            if k != torch.cuda.device_count() - 1
-        }
+    def max_memory(self, device: Optional[int] = None):
+        memory = get_max_memory()
+        if device and device >= 0:
+            return {
+                device: memory[device],
+                **{k: v for k, v in memory.items() if k != device},
+            }
+        else:
+            return memory
 
     @property
     def loading_kwargs(self):
@@ -26,6 +30,7 @@ class Settings(BaseSettings):
             "local_files_only": True,
             "use_safetensors": True,
             "low_cpu_mem_usage": True,
+            "torch_dtype": torch.bfloat16,
         }
 
 
@@ -34,7 +39,11 @@ class Model(BaseModel):
     detector: str = "lllyasviel/Annotators"
     refiner: str = "stabilityai/stable-diffusion-xl-refiner-1.0"
     t2i_adapter: str = "TencentARC/t2i-adapter-lineart-sdxl-1.0"
-    loras: dict[str, str] = {name: "sd_xl_offset_example-lora_1.0.safetensors"}
+    inpainter: str = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
+    loras: dict[str, dict[str, str]] = {
+        "base": {name: "sd_xl_offset_example-lora_1.0.safetensors"},
+        "inpainter": {"118427": "civitai"},
+    }
     resolution: int = 1024
 
 
@@ -67,6 +76,7 @@ class Params(BaseModel):
         ]
     )
 
+    inpaint_prompt_template = "({race} {gender})---, {color} eyes, perfecteyes"
     prompt_template = "a closeup portrait photo of a ({race})- {gender}, ({prompt})++++, 4k photo, highly detailed, (vibrant colors)+"
     prompts = [
         "a clown in full makeup",
@@ -83,6 +93,7 @@ class Params(BaseModel):
 
     detect_resolution: int = 384
     guidance_scale: float = 4.5
+    inpainting_strength = 0.5
     conditioning_strength: float = 1.3
     conditioning_factor: float = 1.0
     lora_scale = 0.4

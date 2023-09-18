@@ -9,3 +9,4 @@ gdown
 lazy_loader
 timm
 loguru
+colormath

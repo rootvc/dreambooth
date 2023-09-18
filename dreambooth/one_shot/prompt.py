@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 class Compels:
     xl: Compel
     refiner: Compel
+    inpainter: Compel
 
 
 @dataclass
@@ -47,3 +48,7 @@ class Prompts:
     def kwargs_for_refiner(self):
         embeds, pools = self.compels.refiner(self.raw)
         return self._kwargs(self.compels.refiner, embeds, pools)
+
+    def kwargs_for_inpainter(self):
+        embeds, pools = self.compels.inpainter(self.raw)
+        return self._kwargs(self.compels.inpainter, embeds, pools)

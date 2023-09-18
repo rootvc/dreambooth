@@ -8,12 +8,17 @@ from typing import Any, Generator
 import keras
 import numpy as np
 import tensorflow as tf
+from colormath.color_conversions import convert_color
+from colormath.color_diff import delta_e_cie2000 as cdiff
+from colormath.color_objects import LabColor
+from colormath.color_objects import sRGBColor as Color
 from deepface import DeepFace
 from deepface.detectors import OpenCvWrapper
 from dreambooth_old.train.shared import grid
 from loguru import logger
 from PIL import Image
 from pydantic import BaseModel, Field
+from retinaface import RetinaFace
 from tensorflow.python.compiler.tensorrt import trt_convert as trt
 from tensorflow.python.saved_model import signature_constants, tag_constants
 from torchvision.transforms.functional import to_pil_image
@@ -103,6 +108,33 @@ class CompiledModel:
         return self.graph(**{self.input_name: inputs})["output_0"].numpy()
 
 
+class Colors:
+    HEX: dict[str, str] = {
+        "52220B": "brown",
+        "3C0C0A": "brown",
+        "422020": "black",
+        "803405": "light brown",
+        "A46524": "amber",
+        "8A9090": "gray",
+        "6A984D": "green",
+        "869078": "green",
+        "728699": "blue",
+        "83AED2": "light blue",
+    }
+
+    @staticmethod
+    @f_cache
+    def convert(hex: str) -> LabColor:
+        return convert_color(Color.new_from_rgb_hex(hex), LabColor)
+
+    @classmethod
+    def closest(cls, color: Color):
+        return min(
+            cls.HEX.items(),
+            key=lambda kv: cdiff(convert_color(color, LabColor), cls.convert(kv[0])),
+        )[1]
+
+
 class Face:
     MODELS = ("Gender", "Race")
 
@@ -155,6 +187,40 @@ class Face:
             ).lower()
             for k in {"dominant_gender", "dominant_race"}
         }
+
+    @collect
+    def eye_masks(self):
+        for face in self.images:
+            img = np.asarray(face)
+            logger.info("Detecting faces...")
+
+            detected = RetinaFace.detect_faces(img)
+            if not isinstance(detected, dict):
+                yield face, None
+                continue
+
+            mask = np.zeros(img.shape, img.dtype)
+            colors = []
+
+            for face in detected.values():
+                logger.info("Face: {}", face)
+
+                for eye in (
+                    face["landmarks"]["right_eye"],
+                    face["landmarks"]["left_eye"],
+                ):
+                    bounds = Bounds(
+                        dims=self.dims, shape=self.dims, x=eye[0], y=eye[1], h=0, w=0
+                    )
+                    y, x = bounds._slice(self.params.mask_padding)
+                    mask[y, x] = 255
+                    colors.append(
+                        Color(*np.mean(img[y, x], axis=(0, 1)), is_upscaled=True)
+                    )
+
+            yield to_pil_image(mask), Counter(
+                Colors.closest(c) for c in colors
+            ).most_common(1)[0][0]
 
     @classmethod
     def load_models(cls):

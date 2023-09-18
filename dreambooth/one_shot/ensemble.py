@@ -2,8 +2,8 @@ from typing import TYPE_CHECKING, Union
 
 import torch
 from diffusers import (
-    DiffusionPipeline,
     StableDiffusionXLAdapterPipeline,
+    StableDiffusionXLImg2ImgPipeline,
 )
 from diffusers.models import (
     AutoencoderKL,
@@ -30,7 +30,7 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
         tokenizer_2: CLIPTokenizer,
         unet: UNet2DConditionModel,
         adapter: Union[T2IAdapter, MultiAdapter, list[T2IAdapter]],
-        refiner: DiffusionPipeline,
+        refiner: StableDiffusionXLImg2ImgPipeline,
         scheduler: KarrasDiffusionSchedulers,
         force_zeros_for_empty_prompt: bool = True,
     ):

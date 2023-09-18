@@ -1,5 +1,5 @@
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Optional, cast
 
 import torch
@@ -9,17 +9,20 @@ from compel import Compel, ReturnedEmbeddingsType
 from diffusers import (
     EulerAncestralDiscreteScheduler,
     StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
 from loguru import logger
 from PIL import Image
-from torch.multiprocessing import SimpleQueue
+from torch.multiprocessing import Queue
 from torchvision.transforms.functional import to_tensor
 
-from one_shot.config import init_torch_config
+from one_shot.config import init_config, init_tf
 from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
+from one_shot.face import Face
 from one_shot.params import Params, Settings
 from one_shot.prompt import Compels, Prompts
+from one_shot.utils import civitai_path
 
 if TYPE_CHECKING:
     from one_shot.dreambooth import Queues
@@ -40,6 +43,7 @@ class ProcessRequest:
 @dataclass
 class ProcessModels:
     ensemble: StableDiffusionXLAdapterEnsemblePipeline
+    inpainter: StableDiffusionXLInpaintPipeline
     compels: Compels
 
 
@@ -58,14 +62,15 @@ class Process:
             store=dist.FileStore("/tmp/filestore", world_size),
         )
         logger.info("Process {} started", rank)
-        init_torch_config()
+        init_config()
+        init_tf()
         cls(params, queues.proc[rank], queues.response).wait()
 
     def __init__(
         self,
         params: Params,
-        recv: "SimpleQueue[Optional[ProcessRequest]]",
-        resp: "SimpleQueue[list[Image.Image]]",
+        recv: "Queue[Optional[ProcessRequest]]",
+        resp: "Queue[list[Image.Image]]",
     ):
         self.params = params
         self.recv = recv
@@ -78,15 +83,32 @@ class Process:
     @torch.inference_mode()
     def _load_models(self) -> ProcessModels:
         self.logger.info("Loading models...")
+        torch.cuda.set_device(self.state.device)
 
         refiner: StableDiffusionXLImg2ImgPipeline = (
             StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                self.params.model.refiner,
-                safety_checker=None,
-                **self.settings.loading_kwargs,
+                self.params.model.refiner, **self.settings.loading_kwargs
             ).to(self.state.device, torch_dtype=self.params.dtype)
         )
         refiner.enable_xformers_memory_efficient_attention()
+
+        inpainter: StableDiffusionXLInpaintPipeline = (
+            StableDiffusionXLInpaintPipeline.from_pretrained(
+                self.params.model.inpainter, **self.settings.loading_kwargs
+            ).to(self.state.device, torch_dtype=self.params.dtype)
+        )
+        for repo, lora in self.params.model.loras["base"].items():
+            if lora == "civitai":
+                inpainter.load_lora_weights(
+                    str(civitai_path(repo)), **self.settings.loading_kwargs
+                )
+            else:
+                inpainter.load_lora_weights(
+                    repo, weight_name=lora, **self.settings.loading_kwargs
+                )
+        inpainter.fuse_lora(lora_scale=self.params.lora_scale)
+        inpainter = inpainter.to(self.state.device, torch_dtype=self.params.dtype)
+        inpainter.enable_xformers_memory_efficient_attention()
 
         adapter: T2IAdapter = T2IAdapter.from_pretrained(
             self.params.model.t2i_adapter, **self.settings.loading_kwargs
@@ -98,15 +120,19 @@ class Process:
                 self.params.model.name,
                 refiner=refiner,
                 adapter=adapter,
-                safety_checker=None,
                 **self.settings.loading_kwargs,
             ).to(self.state.device, torch_dtype=self.params.dtype)
         )
 
-        for repo, lora in self.params.model.loras.items():
-            ensemble.load_lora_weights(
-                repo, weight_name=lora, **self.settings.loading_kwargs
-            )
+        for repo, lora in self.params.model.loras["base"].items():
+            if lora == "civitai":
+                ensemble.load_lora_weights(
+                    str(civitai_path(repo)), **self.settings.loading_kwargs
+                )
+            else:
+                ensemble.load_lora_weights(
+                    repo, weight_name=lora, **self.settings.loading_kwargs
+                )
         ensemble.fuse_lora(lora_scale=self.params.lora_scale)
         ensemble = ensemble.to(self.state.device, torch_dtype=self.params.dtype)
 
@@ -129,9 +155,20 @@ class Process:
             requires_pooled=True,
             device=self.state.device,
         )
+        inpainter_compel = Compel(
+            [inpainter.tokenizer, inpainter.tokenizer_2],
+            [inpainter.text_encoder, inpainter.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
+            device=self.state.device,
+        )
 
         return ProcessModels(
-            ensemble=ensemble, compels=Compels(xl=xl_compel, refiner=refiner_compel)
+            ensemble=ensemble,
+            compels=Compels(
+                xl=xl_compel, refiner=refiner_compel, inpainter=inpainter_compel
+            ),
+            inpainter=inpainter,
         )
 
     def wait(self):
@@ -163,10 +200,6 @@ class Process:
             self.params.negative_prompt,
         )
 
-        self.logger.warning(
-            "Device: {}, {}", self.state.device, self.models.ensemble.device
-        )
-
         images = self.models.ensemble(
             image=images,
             prompts=prompts,
@@ -175,6 +208,29 @@ class Process:
             adapter_conditioning_factor=self.params.conditioning_factor,
             high_noise_frac=self.params.high_noise_frac,
             num_inference_steps=self.params.steps,
+        ).images
+
+        self.logger.info("Touching up images...")
+
+        masks, colors = map(list, zip(*Face(self.params, images).eye_masks()))
+        self.logger.info("Colors: {}", colors)
+
+        prompts = replace(
+            prompts,
+            raw=[
+                self.params.inpaint_prompt_template.format(
+                    color=c, **request.demographics
+                )
+                for c in colors
+            ],
+            negative="",
+        )
+
+        images = self.models.inpainter(
+            **prompts.kwargs_for_inpainter(),
+            image=images,
+            mask_image=masks,
+            strength=self.params.inpainting_strength,
         ).images
 
         self.logger.info("Sending response...")

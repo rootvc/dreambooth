@@ -26,5 +26,7 @@ def seed():
     from one_shot.dreambooth import OneShotDreambooth
     from one_shot.dreambooth.request import Request
 
-    with OneShotDreambooth(volume) as dreambooth:
-        Request(dreambooth, "test").face.compile_models()
+    dreambooth = OneShotDreambooth(volume)
+    dreambooth.__enter__(skip_procs=True)
+    Request(dreambooth, "test").face.compile_models()
+    dreambooth.__exit__(None, None, None)

@@ -82,7 +82,7 @@ class Request:
         for i in range(self.dreambooth.world_size):
             logger.debug(f"Receiving response from {i}...")
             try:
-                yield self.dreambooth.queues.response.get(timeout=30)
+                yield self.dreambooth.queues.response.get(timeout=90)
             except Empty:
                 self.dreambooth.ctx.join(0)
                 raise

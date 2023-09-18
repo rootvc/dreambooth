@@ -1,9 +1,12 @@
 import gc
+import os
 import subprocess
 from functools import wraps
 from pathlib import Path
 from typing import Callable, Generator, ParamSpec, TypeVar
+from urllib.parse import urlencode
 
+import requests
 from deepface import DeepFace
 from dreambooth_old.train.shared import images as images
 from loguru import logger
@@ -82,3 +85,18 @@ def get_mtime(path: Path):
         return max(p.stat().st_mtime for p in path.rglob("*"))
     except ValueError:
         return path.stat().st_mtime
+
+
+def civitai_path(model: str):
+    return Path(os.environ["CACHE_DIR"]) / "civitai" / model / "model.safetensors"
+
+
+def download_civitai_model(model: str):
+    path = civitai_path(model)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    query = {"type": "Model", "format": "SafeTensor"}
+    req = requests.get(
+        f"https://civitai.com/api/download/models/{model}?{urlencode(query)}"
+    )
+    req.raise_for_status()
+    path.write_bytes(req.content)

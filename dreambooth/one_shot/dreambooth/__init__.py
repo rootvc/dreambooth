@@ -8,8 +8,9 @@ import torch
 import torch.multiprocessing
 from controlnet_aux import LineartDetector
 from diffusers import (
-    DiffusionPipeline,
     StableDiffusionXLAdapterPipeline,
+    StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
 from diffusers.loaders import LoraLoaderMixin
@@ -24,6 +25,7 @@ from one_shot.types import M
 from one_shot.utils import (
     close_all_files,
     consolidate_cache,
+    download_civitai_model,
     get_mtime,
 )
 
@@ -57,12 +59,13 @@ class OneShotDreambooth:
         self.exit_stack = ExitStack()
         self.dirty = False
 
-    def __enter__(self):
-        logger.info("Starting with max memory: {}", self.settings.max_memory)
+    def __enter__(self, skip_procs: bool = False):
+        logger.info("Starting with max memory: {}", self.settings.max_memory())
+        if not skip_procs:
+            self.queues, self.ctx = self._start_processes()
         self._download_models()
         torch.cuda.empty_cache()
         self.models = self._load_models()
-        self.queues, self.ctx = self._start_processes()
         self._set_cache_monitor()
         return self
 
@@ -72,39 +75,69 @@ class OneShotDreambooth:
         self.exit_stack.close()
         if self.dirty:
             logger.warning("Cache was modified, committing")
-            del self.models
+            self._cleanup()
             close_all_files(os.environ["CACHE_DIR"])
             self.volume.commit()
             logger.warning("Cache committed")
-        self.ctx.join()
+        elif hasattr(self, "ctx"):
+            self.ctx.join()
+
+    def _cleanup(self):
+        del self.models
+        if not hasattr(self, "ctx"):
+            return
+        for proc in self.ctx.processes:
+            proc.terminate()
+            proc.join()
+            proc.close()
+        self.queues.response.close()
+        for queue in self.queues.proc:
+            queue.close()
+        del self.ctx, self.queues
 
     @torch.inference_mode()
     def _download_models(self):
         logger.info("Downloading models...")
+        torch.cuda.set_device(torch.cuda.device_count() - 1)
 
         if download_eval_models(Path(self.settings.cache_dir)):
             self.dirty = True
         Face.load_models()
         self._download_model(
-            DiffusionPipeline, self.params.model.refiner, safety_checker=None
+            StableDiffusionXLImg2ImgPipeline, self.params.model.refiner
         )
         self._download_model(
             StableDiffusionXLAdapterPipeline,
             self.params.model.name,
-            adapter=self._download_model(T2IAdapter, self.params.model.t2i_adapter),
-            safety_checker=None,
+            adapter=self._download_model(
+                T2IAdapter, self.params.model.t2i_adapter, method="from_pretrained"
+            ),
         )
-        for repo, lora in self.params.model.loras.items():
-            self._download_model(
-                LoraLoaderMixin, repo, weight_name=lora, method="lora_state_dict"
-            )
+        self._download_model(
+            StableDiffusionXLInpaintPipeline,
+            self.params.model.inpainter,
+        )
+        for loras in self.params.model.loras.values():
+            for repo, lora in loras.items():
+                if lora == "civitai":
+                    download_civitai_model(repo)
+                else:
+                    self._download_model(
+                        LoraLoaderMixin,
+                        repo,
+                        weight_name=lora,
+                        method="lora_state_dict",
+                    )
 
     @torch.inference_mode()
     def _load_models(self) -> SharedModels:
         logger.info("Loading models...")
         detector = self._download_model(
-            LineartDetector, self.params.model.detector, default_kwargs={}
-        )
+            LineartDetector,
+            self.params.model.detector,
+            default_kwargs={},
+            method="from_pretrained",
+        ).to(f"cuda:{torch.cuda.device_count() - 1}")
         return SharedModels(detector=detector)
 
     def _set_cache_monitor(self):
@@ -123,10 +156,10 @@ class OneShotDreambooth:
         self,
         klass: type[M],
         name: str,
-        method: str = "from_pretrained",
+        method: str = "download",
         default_kwargs: dict = {
             "device_map": "auto",
-            "max_memory": settings.max_memory,
+            "max_memory": settings.max_memory(torch.cuda.device_count() - 1),
             **settings.loading_kwargs,
         },
         **kwargs,
@@ -155,7 +188,7 @@ class OneShotDreambooth:
     def _start_processes(self) -> tuple[Queues, torch.multiprocessing.ProcessContext]:
         logger.info("Starting processes...")
         queues = Queues(
-            proc=[mp.Queue(1) for _ in range(self.world_size)],
+            proc=[mp.Queue(2) for _ in range(self.world_size)],
             response=mp.Queue(self.world_size),
         )
 
