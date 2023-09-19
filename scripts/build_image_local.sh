@@ -13,12 +13,14 @@ build_push() {
     --pull \
     --platform linux/amd64 \
     -o type=registry,oci-mediatypes=true,compression=gzip,force-compression=true \
+    --cache-to=type=registry,ref=rootventures/$2:cache \
+    --cache-from=type=registry,ref=rootventures/$2:cache \
     -f "$DOCKERFILE" . \
     -t "$IMAGE_NAME:latest" \
     -t "$IMAGE_NAME:main"
 }
 
-build_push Dockerfile.pytorch pytorch min
+# build_push Dockerfile.pytorch pytorch min
 build_push Dockerfile.train train-dreambooth min
 build_push Dockerfile.modal train-dreambooth-modal min
 # build_push Dockerfile.runpod train-dreambooth-runpod min

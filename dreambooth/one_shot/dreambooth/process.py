@@ -1,7 +1,9 @@
+import itertools
 import os
 import random
-from dataclasses import asdict, dataclass, replace
-from typing import TYPE_CHECKING, Optional, cast
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, Iterator, Optional, TypeVar
 
 import torch
 import torch.distributed as dist
@@ -16,6 +18,7 @@ from diffusers import (
 )
 from loguru import logger
 from PIL import Image
+from pydantic import BaseModel, Field
 from torch.multiprocessing import Queue
 from torchvision.transforms.functional import to_tensor
 
@@ -30,16 +33,34 @@ if TYPE_CHECKING:
     from one_shot.dreambooth import Queues
 
 
-@dataclass
-class GenerationRequest:
+T = TypeVar("T")
+
+
+class GenerationRequest(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
     images: list[Image.Image]
     prompts: list[str]
+    params: dict[str, list[Any]] = Field(default_factory=dict)
 
 
-@dataclass
-class ProcessRequest:
+class ProcessRequest(BaseModel):
     demographics: dict[str, str]
     generation: GenerationRequest
+
+
+class ProcessResponseSentinel(BaseModel):
+    rank: int = Field(default_factory=lambda: int(os.environ["RANK"]))
+
+
+class ProcessResponse(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
+    images: list[Image.Image]
+    params: dict[str, Any] = Field(default_factory=dict)
+    rank: int = Field(default_factory=lambda: int(os.environ["RANK"]))
 
 
 @dataclass
@@ -72,7 +93,7 @@ class Process:
         self,
         params: Params,
         recv: "Queue[Optional[ProcessRequest]]",
-        resp: "Queue[list[Image.Image]]",
+        resp: "Queue[ProcessResponse | ProcessResponseSentinel]",
     ):
         self.params = params
         self.recv = recv
@@ -89,6 +110,7 @@ class Process:
 
         base: StableDiffusionXLPipeline = StableDiffusionXLPipeline.from_pretrained(
             self.params.model.name,
+            vae=self.params.model.vae,
             **self.settings.loading_kwargs,
         ).to(self.state.device, torch_dtype=self.params.dtype)
         for repo, lora in self.params.model.loras["base"].items():
@@ -201,15 +223,29 @@ class Process:
         while True:
             if request := self.recv.get():
                 self.logger.info("Received request: {}", request.generation.prompts)
-                self.generate(request)
+                if request.generation.params:
+                    self.tune(request)
+                else:
+                    self.generate(request)
             else:
                 self.logger.info("Received stop signal")
                 break
 
-    @torch.inference_mode()
-    def generate(self, request: ProcessRequest):
-        with self.state.split_between_processes(asdict(request.generation)) as split:
-            generation = GenerationRequest(**cast(dict, split))
+    @contextmanager
+    def _split(self, obj: T) -> Iterator[T]:
+        with self.state.split_between_processes(obj) as res:
+            yield res
+
+    def _pre_generate(self, request: ProcessRequest):
+        params = [
+            dict(zip(request.generation.params.keys(), v))
+            for v in itertools.product(*request.generation.params.values())
+        ]
+        with self._split(params) as params:
+            self.logger.debug("Params: {}", params)
+
+        with self._split(request.generation.dict(exclude={"params"})) as split:
+            generation = GenerationRequest(**split)
 
         images = torch.stack([to_tensor(i) for i in generation.images]).to(
             self.state.device, dtype=self.params.dtype
@@ -229,18 +265,30 @@ class Process:
                 )
             ],
         )
+        return generation, params, images, prompts
 
+    def _generate(
+        self,
+        generation: GenerationRequest,
+        inputs: torch.Tensor,
+        prompts: Prompts,
+        demographics: dict[str, str],
+        **params,
+    ) -> list[Image.Image]:
         images = self.models.ensemble(
-            image=images,
-            prompts=prompts,
-            guidance_scale=self.params.guidance_scale,
-            adapter_conditioning_scale=random.triangular(
-                *self.params.conditioning_strength
-            ),
-            adapter_conditioning_factor=self.params.conditioning_factor,
-            high_noise_frac=self.params.high_noise_frac,
-            num_inference_steps=self.params.steps,
-            refiner_strength=self.params.refiner_strength,
+            **{
+                "image": inputs,
+                "prompts": prompts,
+                "guidance_scale": self.params.guidance_scale,
+                "adapter_conditioning_scale": random.triangular(
+                    *self.params.conditioning_strength
+                ),
+                "adapter_conditioning_factor": self.params.conditioning_factor,
+                "high_noise_frac": self.params.high_noise_frac,
+                "num_inference_steps": self.params.steps,
+                "refiner_strength": self.params.refiner_strength,
+                **params,
+            }
         ).images
 
         self.logger.info("Touching up images...")
@@ -252,14 +300,14 @@ class Process:
             prompts,
             raw=[
                 self.params.inpaint_prompt_template.format(
-                    prompt=p, color=c, **request.demographics
+                    prompt=p, color=c, **demographics
                 )
                 for p, c in zip(generation.prompts, colors)
             ],
             negative=[self.params.negative_prompt] * len(generation.prompts),
         )
 
-        images = self.models.inpainter(
+        return self.models.inpainter(
             **prompts.kwargs_for_inpainter(),
             image=images,
             mask_image=masks,
@@ -267,5 +315,24 @@ class Process:
             num_inference_steps=self.params.inpainting_steps,
         ).images
 
-        self.logger.info("Sending response...")
-        self.resp.put(images)
+    @torch.inference_mode()
+    def generate(self, request: ProcessRequest):
+        generation, _, inputs, prompts = self._pre_generate(request)
+        self.logger.info("Generating images...")
+        images = self._generate(generation, inputs, prompts, request.demographics)
+        self.logger.debug("Sending response...")
+        self.resp.put(ProcessResponse(images=images))
+        self.resp.put(ProcessResponseSentinel())
+
+    @torch.inference_mode()
+    def tune(self, request: ProcessRequest):
+        generation, paramsets, inputs, prompts = self._pre_generate(request)
+        for params in paramsets:
+            self.logger.info("Using params: {}", params)
+            images = self._generate(
+                generation, inputs, prompts, request.demographics, **params
+            )
+            self.resp.put(ProcessResponse(images=images, params=params))
+
+        self.logger.info("Sending sentinel...")
+        self.resp.put(ProcessResponseSentinel())

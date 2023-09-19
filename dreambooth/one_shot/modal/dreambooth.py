@@ -1,3 +1,5 @@
+import random
+
 from modal import method
 
 from one_shot.config import init_config
@@ -15,8 +17,10 @@ class Dreambooth(OneShotDreambooth):
         super().__init__(volume)
 
     @method()
-    def warm(self):
-        return Request(self, "test").generate()
+    def tune(self, ids: list[str] = ["test"], params: dict = {}):
+        random.shuffle(ids)
+        for id in ids:
+            yield from Request(self, id).tune(params)
 
     @method()
     def generate(self, id: str):

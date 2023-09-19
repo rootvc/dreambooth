@@ -27,7 +27,7 @@ def init_logging(logger: Logger = default_logger):
 
     logger.add(
         sys.stderr,
-        level=logging.INFO,
+        level=logging.DEBUG,
         format=format,
         backtrace=True,
         diagnose=True,

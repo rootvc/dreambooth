@@ -100,3 +100,7 @@ def download_civitai_model(model: str):
     )
     req.raise_for_status()
     path.write_bytes(req.content)
+
+
+def exclude(d: dict, keys: set[str]):
+    return {k: v for k, v in d.items() if k not in keys}

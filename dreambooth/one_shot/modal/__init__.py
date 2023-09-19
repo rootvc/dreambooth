@@ -6,7 +6,7 @@ volume = stub.volume = Volume.persisted("model-cache")
 
 fn_kwargs = {
     "image": DockerImage.from_registry("rootventures/train-dreambooth-modal:latest"),
-    "gpu": gpu.A100(count=3),
+    "gpu": gpu.A100(count=2),
     "memory": 30518,
     "cpu": 8.0,
     "volumes": {"/root/cache": volume},

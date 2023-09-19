@@ -216,7 +216,7 @@ def hash_image(image: Image.Image) -> str:
     return hash_bytes(image.tobytes())
 
 
-def grid(images: list[Image.Image] | list[np.ndarray]) -> Image.Image:
+def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Image:
     tensors = torch.stack([to_tensor(img) for img in images])
-    grid = make_grid(tensors, nrow=2, pad_value=255, padding=10)
+    grid = make_grid(tensors, nrow=w, pad_value=255, padding=10)
     return to_pil_image(grid)

@@ -17,7 +17,6 @@ from diffusers.loaders import LoraLoaderMixin
 from dreambooth_old.train.download_eval_models import download as download_eval_models
 from loguru import logger
 from modal import Volume
-from PIL import Image
 
 from one_shot.face import Face
 from one_shot.params import Params, Settings
@@ -30,7 +29,7 @@ from one_shot.utils import (
     get_mtime,
 )
 
-from .process import Process, ProcessRequest
+from .process import Process, ProcessRequest, ProcessResponse, ProcessResponseSentinel
 
 mp = torch.multiprocessing.get_context("forkserver")
 
@@ -43,7 +42,7 @@ class SharedModels:
 @dataclass
 class Queues:
     proc: list["torch.multiprocessing.Queue[Optional[ProcessRequest]]"]
-    response: "torch.multiprocessing.Queue[list[Image.Image]]"
+    response: "torch.multiprocessing.Queue[ProcessResponse | ProcessResponseSentinel]"
 
 
 class OneShotDreambooth:
@@ -105,11 +104,14 @@ class OneShotDreambooth:
             self.dirty = True
         Face.load_models()
         self._download_model(
-            StableDiffusionXLImg2ImgPipeline, self.params.model.refiner
+            StableDiffusionXLImg2ImgPipeline,
+            self.params.model.refiner,
+            vae=self.params.model.vae,
         )
         self._download_model(
             StableDiffusionXLAdapterPipeline,
             self.params.model.name,
+            vae=self.params.model.vae,
             adapter=self._download_model(
                 T2IAdapter, self.params.model.t2i_adapter, method="from_pretrained"
             ),
@@ -117,6 +119,7 @@ class OneShotDreambooth:
         self._download_model(
             StableDiffusionXLInpaintPipeline,
             self.params.model.inpainter,
+            vae=self.params.model.vae,
         )
         for loras in self.params.model.loras.values():
             for repo, lora in loras.items():
@@ -183,7 +186,7 @@ class OneShotDreambooth:
         )
 
         if hasattr(model, "to"):
-            return model.to(torch_dtype=self.params.dtype)
+            return model.to(self.params.dtype)
         elif isinstance(model, dict):
             for k, v in model.items():
                 model[k] = v.to(dtype=self.params.dtype)

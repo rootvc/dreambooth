@@ -1,3 +1,4 @@
+import shutil
 from collections import Counter
 from functools import cache as f_cache
 from functools import cached_property
@@ -151,12 +152,13 @@ class Face:
 
     @f_cache
     def analyze(self, **kwargs):
-        return DeepFace.analyze(
+        res = DeepFace.analyze(
             self.image,
             actions=("gender", "race"),
             detector_backend="retinaface",
             **kwargs,
         )
+        return res
 
     @property
     def dims(self):
@@ -178,6 +180,7 @@ class Face:
         logger.info("Analyzing demographics...")
         try:
             faces = self.analyze()
+            logger.warning("Faces: {}", faces)
         except Exception as e:
             logger.exception(e)
             return {"race": "beautiful", "gender": "person"}
@@ -224,6 +227,7 @@ class Face:
 
     @classmethod
     def load_models(cls):
+        return
         if not hasattr(DeepFace, "model_obj"):
             DeepFace.model_obj = {}
         for name in cls.MODELS:
@@ -235,6 +239,7 @@ class Face:
                 logger.warning("Failed to load {}", name)
 
     def compile_models(self):
+        return
         self.analyze(enforce_detection=False, align=False)
         content = self.faces()[0]
 
@@ -243,15 +248,15 @@ class Face:
 
         for name in self.MODELS:
             if (self.cache / name).exists():
-                logger.info(f"Skipping {name}...")
-                continue
+                pass
+                shutil.rmtree(self.cache / name)
+                # logger.info(f"Skipping {name}...")
+                # continue
             logger.info(f"Compiling {name}...")
             model: keras.Model = DeepFace.model_obj[name]
             with TemporaryDirectory() as dir:
                 model.export(dir)
-                converter = trt.TrtGraphConverterV2(
-                    input_saved_model_dir=dir, precision_mode=trt.TrtPrecisionMode.FP16
-                )
+                converter = trt.TrtGraphConverterV2(input_saved_model_dir=dir)
                 logger.info("Converting...")
                 converter.convert()
                 logger.info("Building...")

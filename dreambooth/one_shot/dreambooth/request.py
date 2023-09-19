@@ -1,17 +1,24 @@
 import itertools
+import json
 import random
 from functools import cache, cached_property
 from pathlib import Path
 from queue import Empty
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Generator
+from typing import TYPE_CHECKING, Generator, Optional
 
+import cv2
+import numpy as np
 import torch
 from dreambooth_old.train.shared import grid
 from loguru import logger
 from PIL import Image
 
-from one_shot.dreambooth.process import GenerationRequest, ProcessRequest
+from one_shot.dreambooth.process import (
+    GenerationRequest,
+    ProcessRequest,
+    ProcessResponseSentinel,
+)
 from one_shot.face import Face
 from one_shot.utils import (
     collect,
@@ -64,30 +71,77 @@ class Request:
         logger.info(demos)
         return demos
 
-    @torch.inference_mode()
-    @collect
-    def _generate(self):
-        images = random.choices(self.controls(), k=self.dreambooth.params.images)
-        prompts = random.sample(
-            self.dreambooth.params.prompts, k=self.dreambooth.params.images
+    def _generate(self, params: Optional[dict[str, list[int | float]]] = None):
+        multiplier = self.dreambooth.world_size if params else 1  # check if tuning
+        images = random.choices(
+            self.controls(), k=self.dreambooth.params.images * multiplier
         )
-        generation = GenerationRequest(images, prompts)
+        prompts = random.sample(
+            self.dreambooth.params.prompts, k=self.dreambooth.params.images * multiplier
+        )
+        generation = GenerationRequest(
+            images=images, prompts=prompts, params=params or {}
+        )
+        logger.info("Generation request: {}", generation)
 
         logger.info("Sending generation requests...")
         for i, queue in enumerate(self.dreambooth.queues.proc):
             logger.debug(f"Sending request to {i}...")
-            queue.put_nowait(ProcessRequest(self.demographics, generation))
+            queue.put_nowait(
+                ProcessRequest(demographics=self.demographics, generation=generation)
+            )
 
         logger.info("Receiving generation responses...")
-        for i in range(self.dreambooth.world_size):
-            logger.debug(f"Receiving response from {i}...")
+        remaining = set(range(self.dreambooth.world_size))
+        while remaining:
+            logger.debug("Receiving response...")
             try:
-                yield self.dreambooth.queues.response.get(timeout=90)
+                resp = self.dreambooth.queues.response.get(timeout=120)
+                if isinstance(resp, ProcessResponseSentinel):
+                    logger.info("Rank {} is done!", resp.rank)
+                    remaining.remove(resp.rank)
+                else:
+                    logger.info("Received response: {}", resp)
+                    yield resp
             except Empty:
                 self.dreambooth.ctx.join(0)
                 raise
 
+    @torch.inference_mode()
     def generate(self):
-        return grid(
-            self.controls() + list(itertools.chain.from_iterable(self._generate()))
-        )
+        imgs = itertools.chain.from_iterable(r.images for r in self._generate())
+        yield grid(self.controls() + list(imgs))
+
+    @torch.inference_mode()
+    def tune(self, params: dict[str, list[int | float]]):
+        logger.info("Tuning with params: {}", params)
+        grids = [
+            grid(self.images()[: self.dreambooth.params.images]),
+            grid(self.controls()[: self.dreambooth.params.images]),
+        ]
+        for resp in self._generate(params):
+            img = grid(resp.images)
+            text_kwargs = {
+                "text": json.dumps(
+                    {
+                        "_".join(s[:3] for s in k.split("_")): round(v, 2)
+                        for k, v in resp.params.items()
+                    },
+                ),
+                "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
+                "fontScale": 1,
+                "thickness": 2,
+            }
+            (_, text_w), _ = cv2.getTextSize(**text_kwargs)
+            image = cv2.putText(
+                img=np.array(img),
+                org=(img.height // 10, img.width // 2 - text_w // 4),
+                color=(255, 255, 255),
+                lineType=cv2.LINE_AA,
+                **text_kwargs,
+            )
+            img = Image.fromarray(image)
+            grids.append(img)
+
+        logger.info("Tuning complete!")
+        yield grid(grids, w=8)
