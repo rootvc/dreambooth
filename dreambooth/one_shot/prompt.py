@@ -21,13 +21,13 @@ class Prompts:
     device: torch.device
     dtype: torch.dtype
     raw: list[str]
-    negative: str
+    negative: list[str]
 
     def _to(self, d: dict):
         return {k: v.to(self.device, dtype=self.dtype) for k, v in d.items()}
 
     def _kwargs(self, compel: Compel, embeds: torch.Tensor, pools: torch.Tensor):
-        neg_embeds, neg_pools = compel([self.negative] * len(self.raw))
+        neg_embeds, neg_pools = compel(self.negative)
         [
             embeds,
             neg_embeds,

@@ -56,32 +56,50 @@ class Params(BaseModel):
     batch_size: int = 4
 
     negative_prompt: str = ", ".join(
-        ["out of focus", "lens blur", "low quality", "deformed eyes", "eyes closed"]
+        [
+            "out of focus",
+            "lens blur",
+            "low quality",
+            "deformed eyes",
+            "eyes closed",
+            "distorted face",
+            "disfigured",
+            "airbrushed+",
+        ]
     )
-    prompt_template = "closeup (4k photo)++ a ({race})-- {gender}, ({prompt})++++, (cinematic camera)++, highly detailed, realistic+, (vibrant colors)+"
-    inpaint_prompt_template = (
-        "({race} {gender})--, ({prompt})---, ({color} eyes)+, perfecteyes++"
-    )
+    negative_colors = [
+        "purple----",
+        "pink----",
+        "green----",
+        "brown----",
+        "(low contrast)---",
+    ]
+    prompt_template = "closeup (4k photo)+ of a ({race})-- ({gender})-, ({prompt})++++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
+    inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({race} {gender})-, ({prompt})--"
     prompts = [
-        "a clown in full makeup",
-        "a 3D render of a robotic cyborg",
-        "a zombie",
-        "a vampire",
-        "a character from a painting by van Gough",
-        "an anime character from Naruto",
-        "a Marvel superhero",
+        "(white face makeup)+, green hair, the joker, red nose, brilliant colors",
+        "mysterious {race}, cyberpunk, the universe, cosmos and nebula on clothing",
+        "(90s style)-, leather jacket, smug, vintage, antique car, distingushed, no makeup",
+        "classy {gender}, wearing a rainbow suit, pop art style, painting by andy warhol",
+        "zombie, (decaying skin and clothing)-, (rotting skin)-, inside an abandoned building",
+        "handsome vampire, serious, black cape, pale skin, bright eyes, red lips, moonlit night",
+        "(8-bit video game)+, pixelated+, minecraft, lego, blocky, colors of nature, farmer",
+        "Marvel++ superhero+, superhero costume, flying in the air, sky+, nyc skyline in background, high contrast, simple colors",
+        "a monarch, game of thrones, on the iron throne, wearing a crown, magestic, regal, powerful, bold",
+        "rock star, face makeup, wearing a slick outfit, performing for fans, grungy, dark colors, moody",
+        "character from tron, neon, techno, futuristic, dark background, black clothing, (high contrast)++",
     ]
 
-    steps: int = 25
+    steps: int = 50
     inpainting_steps = 15
     images: int = 4
 
     detect_resolution: int = 384
     guidance_scale: float = 12.5
-    refiner_strength = 0.3
-    inpainting_strength = 0.75
-    conditioning_strength: float = 1.75
+    refiner_strength = 0.30
+    inpainting_strength = 0.80
+    conditioning_strength: tuple[float, float] = (2.28, 2.35)
     conditioning_factor: float = 1.0
     lora_scale = 0.3
-    high_noise_frac: float = 0.8
+    high_noise_frac: float = 0.90
     mask_padding: float = 0.05

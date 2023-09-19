@@ -1,4 +1,5 @@
 import os
+import random
 from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Optional, cast
 
@@ -112,6 +113,9 @@ class Process:
             ).to(self.state.device, torch_dtype=self.params.dtype)
         )
         refiner.enable_xformers_memory_efficient_attention()
+        refiner.scheduler = EulerAncestralDiscreteScheduler.from_config(
+            refiner.scheduler.config
+        )
 
         inpainter: StableDiffusionXLInpaintPipeline = (
             StableDiffusionXLInpaintPipeline.from_pretrained(
@@ -218,14 +222,21 @@ class Process:
                 self.params.prompt_template.format(prompt=p, **request.demographics)
                 for p in generation.prompts
             ],
-            self.params.negative_prompt,
+            [
+                self.params.negative_prompt + ", " + color
+                for color in random.choices(
+                    self.params.negative_colors, k=len(generation.prompts)
+                )
+            ],
         )
 
         images = self.models.ensemble(
             image=images,
             prompts=prompts,
             guidance_scale=self.params.guidance_scale,
-            adapter_conditioning_scale=self.params.conditioning_strength,
+            adapter_conditioning_scale=random.triangular(
+                *self.params.conditioning_strength
+            ),
             adapter_conditioning_factor=self.params.conditioning_factor,
             high_noise_frac=self.params.high_noise_frac,
             num_inference_steps=self.params.steps,
@@ -245,7 +256,7 @@ class Process:
                 )
                 for p, c in zip(generation.prompts, colors)
             ],
-            negative="",
+            negative=[self.params.negative_prompt] * len(generation.prompts),
         )
 
         images = self.models.inpainter(
