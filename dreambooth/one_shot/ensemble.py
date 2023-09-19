@@ -53,9 +53,10 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
         *args,
         prompts: "Prompts",
         high_noise_frac: float,
+        refiner_strength: float,
         **kwargs,
     ):
-        logger.info("Generating latents")
+        logger.info("Generating original latents")
         latents = (
             super()
             .__call__(
@@ -75,4 +76,5 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
             image=latents,
             **prompts.kwargs_for_refiner(),
             **{k: v for k, v in kwargs.items() if not k.startswith("adapter_")},
+            strength=refiner_strength,
         )

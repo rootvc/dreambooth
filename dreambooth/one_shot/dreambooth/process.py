@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, Optional, cast
 import torch
 import torch.distributed as dist
 from accelerate import PartialState
-from compel import Compel, ReturnedEmbeddingsType
+from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
 from diffusers import (
     EulerAncestralDiscreteScheduler,
     StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLInpaintPipeline,
+    StableDiffusionXLPipeline,
     T2IAdapter,
 )
 from loguru import logger
@@ -85,22 +86,49 @@ class Process:
         self.logger.info("Loading models...")
         torch.cuda.set_device(self.state.device)
 
+        base: StableDiffusionXLPipeline = StableDiffusionXLPipeline.from_pretrained(
+            self.params.model.name,
+            **self.settings.loading_kwargs,
+        ).to(self.state.device, torch_dtype=self.params.dtype)
+        for repo, lora in self.params.model.loras["base"].items():
+            if lora == "civitai":
+                base.load_lora_weights(
+                    str(civitai_path(repo)), **self.settings.loading_kwargs
+                )
+            else:
+                base.load_lora_weights(
+                    repo, weight_name=lora, **self.settings.loading_kwargs
+                )
+        base.fuse_lora(lora_scale=self.params.lora_scale)
+        base = base.to(self.state.device, torch_dtype=self.params.dtype)
+        base.enable_xformers_memory_efficient_attention()
+
         refiner: StableDiffusionXLImg2ImgPipeline = (
             StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                self.params.model.refiner, **self.settings.loading_kwargs
+                self.params.model.refiner,
+                text_encoder_2=base.text_encoder_2,
+                vae=base.vae,
+                **self.settings.loading_kwargs,
             ).to(self.state.device, torch_dtype=self.params.dtype)
         )
         refiner.enable_xformers_memory_efficient_attention()
 
         inpainter: StableDiffusionXLInpaintPipeline = (
             StableDiffusionXLInpaintPipeline.from_pretrained(
-                self.params.model.inpainter, **self.settings.loading_kwargs
+                self.params.model.inpainter,
+                text_encoder=base.text_encoder,
+                text_encoder_2=base.text_encoder_2,
+                vae=base.vae,
+                **self.settings.loading_kwargs,
             ).to(self.state.device, torch_dtype=self.params.dtype)
         )
-        for repo, lora in self.params.model.loras["base"].items():
+        for repo, lora in self.params.model.loras["inpainter"].items():
             if lora == "civitai":
+                path = civitai_path(repo)
                 inpainter.load_lora_weights(
-                    str(civitai_path(repo)), **self.settings.loading_kwargs
+                    str(path.parent),
+                    weight_name=str(path.name),
+                    **self.settings.loading_kwargs,
                 )
             else:
                 inpainter.load_lora_weights(
@@ -118,25 +146,15 @@ class Process:
         ensemble: StableDiffusionXLAdapterEnsemblePipeline = (
             StableDiffusionXLAdapterEnsemblePipeline.from_pretrained(
                 self.params.model.name,
+                text_encoder=base.text_encoder,
+                text_encoder_2=base.text_encoder_2,
+                vae=base.vae,
+                unet=base.unet,
                 refiner=refiner,
                 adapter=adapter,
                 **self.settings.loading_kwargs,
             ).to(self.state.device, torch_dtype=self.params.dtype)
         )
-
-        for repo, lora in self.params.model.loras["base"].items():
-            if lora == "civitai":
-                ensemble.load_lora_weights(
-                    str(civitai_path(repo)), **self.settings.loading_kwargs
-                )
-            else:
-                ensemble.load_lora_weights(
-                    repo, weight_name=lora, **self.settings.loading_kwargs
-                )
-        ensemble.fuse_lora(lora_scale=self.params.lora_scale)
-        ensemble = ensemble.to(self.state.device, torch_dtype=self.params.dtype)
-
-        ensemble.enable_xformers_memory_efficient_attention()
         ensemble.scheduler = EulerAncestralDiscreteScheduler.from_config(
             ensemble.scheduler.config
         )
@@ -147,6 +165,7 @@ class Process:
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=[False, True],
             device=self.state.device,
+            textual_inversion_manager=DiffusersTextualInversionManager(ensemble),
         )
         refiner_compel = Compel(
             tokenizer=ensemble.refiner.tokenizer_2,
@@ -154,6 +173,7 @@ class Process:
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=True,
             device=self.state.device,
+            textual_inversion_manager=DiffusersTextualInversionManager(ensemble),
         )
         inpainter_compel = Compel(
             [inpainter.tokenizer, inpainter.tokenizer_2],
@@ -161,6 +181,7 @@ class Process:
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=[False, True],
             device=self.state.device,
+            textual_inversion_manager=DiffusersTextualInversionManager(inpainter),
         )
 
         return ProcessModels(
@@ -208,6 +229,7 @@ class Process:
             adapter_conditioning_factor=self.params.conditioning_factor,
             high_noise_frac=self.params.high_noise_frac,
             num_inference_steps=self.params.steps,
+            refiner_strength=self.params.refiner_strength,
         ).images
 
         self.logger.info("Touching up images...")
@@ -219,9 +241,9 @@ class Process:
             prompts,
             raw=[
                 self.params.inpaint_prompt_template.format(
-                    color=c, **request.demographics
+                    prompt=p, color=c, **request.demographics
                 )
-                for c in colors
+                for p, c in zip(generation.prompts, colors)
             ],
             negative="",
         )
@@ -231,6 +253,7 @@ class Process:
             image=images,
             mask_image=masks,
             strength=self.params.inpainting_strength,
+            num_inference_steps=self.params.inpainting_steps,
         ).images
 
         self.logger.info("Sending response...")

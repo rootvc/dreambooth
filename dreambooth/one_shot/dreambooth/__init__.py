@@ -23,6 +23,7 @@ from one_shot.face import Face
 from one_shot.params import Params, Settings
 from one_shot.types import M
 from one_shot.utils import (
+    civitai_path,
     close_all_files,
     consolidate_cache,
     download_civitai_model,
@@ -120,6 +121,9 @@ class OneShotDreambooth:
         for loras in self.params.model.loras.values():
             for repo, lora in loras.items():
                 if lora == "civitai":
+                    if civitai_path(repo).exists():
+                        continue
+                    self.dirty = True
                     download_civitai_model(repo)
                 else:
                     self._download_model(

@@ -203,7 +203,7 @@ class Face:
             colors = []
 
             for face in detected.values():
-                logger.info("Face: {}", face)
+                logger.debug("Face: {}", face)
 
                 for eye in (
                     face["landmarks"]["right_eye"],
@@ -212,7 +212,7 @@ class Face:
                     bounds = Bounds(
                         dims=self.dims, shape=self.dims, x=eye[0], y=eye[1], h=0, w=0
                     )
-                    y, x = bounds._slice(self.params.mask_padding)
+                    y, x = bounds._slice(self.params.mask_padding * 1.25)
                     mask[y, x] = 255
                     colors.append(
                         Color(*np.mean(img[y, x], axis=(0, 1)), is_upscaled=True)

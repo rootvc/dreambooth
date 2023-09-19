@@ -42,7 +42,7 @@ class Model(BaseModel):
     inpainter: str = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
     loras: dict[str, dict[str, str]] = {
         "base": {name: "sd_xl_offset_example-lora_1.0.safetensors"},
-        "inpainter": {"118427": "civitai"},
+        "inpainter": {"128461": "civitai"},
     }
     resolution: int = 1024
 
@@ -56,46 +56,32 @@ class Params(BaseModel):
     batch_size: int = 4
 
     negative_prompt: str = ", ".join(
-        [
-            "(eyes closed)++",
-            "(deformed eyes)++",
-            "crossed eyes",
-            "deformed iris",
-            "out of focus",
-            "lens blur",
-            "extra digit",
-            "fewer digits",
-            "cropped",
-            "worst quality",
-            "low quality",
-            "glitch",
-            "deformed",
-            "mutated",
-            "ugly",
-            "disfigured",
-        ]
+        ["out of focus", "lens blur", "low quality", "deformed eyes", "eyes closed"]
     )
-
-    inpaint_prompt_template = "({race} {gender})---, {color} eyes, perfecteyes"
-    prompt_template = "a closeup portrait photo of a ({race})- {gender}, ({prompt})++++, 4k photo, highly detailed, (vibrant colors)+"
+    prompt_template = "closeup (4k photo)++ a ({race})-- {gender}, ({prompt})++++, (cinematic camera)++, highly detailed, realistic+, (vibrant colors)+"
+    inpaint_prompt_template = (
+        "({race} {gender})--, ({prompt})---, ({color} eyes)+, perfecteyes++"
+    )
     prompts = [
         "a clown in full makeup",
         "a 3D render of a robotic cyborg",
         "a zombie",
         "a vampire",
-        "a character from a van Gough painting",
+        "a character from a painting by van Gough",
         "an anime character from Naruto",
         "a Marvel superhero",
     ]
 
     steps: int = 25
+    inpainting_steps = 15
     images: int = 4
 
     detect_resolution: int = 384
-    guidance_scale: float = 4.5
-    inpainting_strength = 0.5
-    conditioning_strength: float = 1.3
+    guidance_scale: float = 12.5
+    refiner_strength = 0.3
+    inpainting_strength = 0.75
+    conditioning_strength: float = 1.75
     conditioning_factor: float = 1.0
-    lora_scale = 0.4
+    lora_scale = 0.3
     high_noise_frac: float = 0.8
     mask_padding: float = 0.05
