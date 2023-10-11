@@ -10,7 +10,8 @@ import transformers
 from diffusers.utils.logging import disable_progress_bar
 from loguru import logger as default_logger
 from loguru._logger import Logger
-from modal import is_local
+
+from one_shot import logger
 
 
 def init_logging(logger: Logger = default_logger):
@@ -48,23 +49,6 @@ def init_torch_config():
     diffusers.utils.logging.set_verbosity_warning()
 
 
-def init_tf():
-    import tensorflow as tf
-
-    gpus = tf.config.list_physical_devices("GPU")
-    assert len(gpus) > 1
-    tf.config.set_visible_devices(gpus[-1], "GPU")
-    devices = tf.config.list_logical_devices("GPU")
-    assert len(devices) == 1
-
-
-def init_config(split_gpus=True):
+def init_config():
+    logger.info("Initializing Torch config...")
     init_torch_config()
-
-    import tensorflow as tf
-
-    if split_gpus and not is_local():
-        init_tf()
-
-    tf.get_logger().setLevel(logging.DEBUG)
-    tf.config.optimizer.set_jit("autoclustering")

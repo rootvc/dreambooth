@@ -20,4 +20,4 @@ RUN --mount=type=cache,target=/opt/ccache \
 
 RUN pip install ninja
 RUN --mount=type=cache,target=/root/.cache/pip \
-  MAX_JOBS=8 pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
+  MAX_JOBS=32 pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers

@@ -6,19 +6,20 @@ from typing import Optional
 
 import torch
 import torch.multiprocessing
-from controlnet_aux import LineartDetector
+from controlnet_aux.lineart import LineartDetector
 from diffusers import (
+    AutoencoderKL,
     StableDiffusionXLAdapterPipeline,
     StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
 from diffusers.loaders import LoraLoaderMixin
-from dreambooth_old.train.download_eval_models import download as download_eval_models
-from loguru import logger
 from modal import Volume
+from transformers import ViltForQuestionAnswering, ViltProcessor
 
-from one_shot.face import Face
+from one_shot import logger
+from one_shot.face import FaceHelper, FaceHelperModels
 from one_shot.params import Params, Settings
 from one_shot.types import M
 from one_shot.utils import (
@@ -37,6 +38,7 @@ mp = torch.multiprocessing.get_context("forkserver")
 @dataclass
 class SharedModels:
     detector: LineartDetector
+    face: FaceHelperModels
 
 
 @dataclass
@@ -47,7 +49,7 @@ class Queues:
 
 class OneShotDreambooth:
     settings = Settings()
-    world_size = torch.cuda.device_count() - 1
+    world_size = torch.cuda.device_count()
 
     models: SharedModels
     queues: Queues
@@ -60,7 +62,12 @@ class OneShotDreambooth:
         self.dirty = False
 
     def __enter__(self, skip_procs: bool = False):
-        logger.info("Starting with max memory: {}", self.settings.max_memory())
+        logger.info(
+            "Starting with max memory: {} on cloud {} ({})",
+            self.settings.max_memory(),
+            os.getenv("MODAL_CLOUD_PROVIDER", "unknown"),
+            os.getenv("MODAL_REGION", "???"),
+        )
         if not skip_procs:
             self.queues, self.ctx = self._start_processes()
         self._download_models()
@@ -100,18 +107,37 @@ class OneShotDreambooth:
         logger.info("Downloading models...")
         torch.cuda.set_device(torch.cuda.device_count() - 1)
 
-        if download_eval_models(Path(self.settings.cache_dir)):
-            self.dirty = True
-        Face.load_models()
+        self._download_model(
+            ViltProcessor,
+            FaceHelper.MODEL,
+            method="from_pretrained",
+            default_kwargs={},
+        )
+        self._download_model(
+            ViltForQuestionAnswering,
+            FaceHelper.MODEL,
+            method="from_pretrained",
+            default_kwargs={},
+        )
         self._download_model(
             StableDiffusionXLImg2ImgPipeline,
             self.params.model.refiner,
-            vae=self.params.model.vae,
+            vae=self._download_model(
+                AutoencoderKL,
+                self.params.model.vae,
+                method="from_pretrained",
+                variant=None,
+            ),
         )
         self._download_model(
             StableDiffusionXLAdapterPipeline,
             self.params.model.name,
-            vae=self.params.model.vae,
+            vae=self._download_model(
+                AutoencoderKL,
+                self.params.model.vae,
+                method="from_pretrained",
+                variant=None,
+            ),
             adapter=self._download_model(
                 T2IAdapter, self.params.model.t2i_adapter, method="from_pretrained"
             ),
@@ -119,7 +145,12 @@ class OneShotDreambooth:
         self._download_model(
             StableDiffusionXLInpaintPipeline,
             self.params.model.inpainter,
-            vae=self.params.model.vae,
+            vae=self._download_model(
+                AutoencoderKL,
+                self.params.model.vae,
+                method="from_pretrained",
+                variant=None,
+            ),
         )
         for loras in self.params.model.loras.values():
             for repo, lora in loras.items():
@@ -145,7 +176,9 @@ class OneShotDreambooth:
             default_kwargs={},
             method="from_pretrained",
         ).to(f"cuda:{torch.cuda.device_count() - 1}")
-        return SharedModels(detector=detector)
+        return SharedModels(
+            detector=detector, face=FaceHelperModels.load(torch.cuda.device_count() - 1)
+        )
 
     def _set_cache_monitor(self):
         mtime = get_mtime(Path(os.environ["CACHE_DIR"]))
@@ -175,14 +208,16 @@ class OneShotDreambooth:
 
         meth = getattr(klass, method)
         try:
-            return meth(name, **default_kwargs, **kwargs)
+            return meth(name, **{**default_kwargs, **kwargs})
         except OSError:
             self.dirty = True
         logger.warning(f"Downloading {klass.__name__}({name})...")
         model = meth(
             name,
-            **{k: v for k, v in default_kwargs.items() if k != "local_files_only"},
-            **kwargs,
+            **{
+                **{k: v for k, v in default_kwargs.items() if k != "local_files_only"},
+                **kwargs,
+            },
         )
 
         if hasattr(model, "to"):
@@ -190,6 +225,17 @@ class OneShotDreambooth:
         elif isinstance(model, dict):
             for k, v in model.items():
                 model[k] = v.to(dtype=self.params.dtype)
+
+        logger.info(f"Loaded {klass.__name__}({name})")
+
+        try:
+            logger.info("Committing cache...")
+            self.volume.commit()
+        except Exception:
+            logger.error("Failed to commit cache")
+        else:
+            logger.info("Committed cache")
+
         return model
 
     def _start_processes(self) -> tuple[Queues, torch.multiprocessing.ProcessContext]:

@@ -1,12 +1,14 @@
 git+https://github.com/huggingface/accelerate.git@main#egg=accelerate
 git+https://github.com/huggingface/diffusers.git@main#egg=diffusers
 git+https://github.com/damian0815/compel.git@main#egg=compel
-safetensors>=0.3.1
-bitsandbytes==0.41.1
+safetensors>=0.4.0
 ftfy
 rich
 gdown
 lazy_loader
 timm
 loguru
-colormath
+pypdl
+onnxruntime-openvino
+insightface
+opencv-python-headless==4.8.0.74

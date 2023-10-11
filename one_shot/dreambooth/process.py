@@ -10,6 +10,7 @@ import torch.distributed as dist
 from accelerate import PartialState
 from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
 from diffusers import (
+    AutoencoderKL,
     EulerAncestralDiscreteScheduler,
     StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLInpaintPipeline,
@@ -22,12 +23,12 @@ from pydantic import BaseModel, Field
 from torch.multiprocessing import Queue
 from torchvision.transforms.functional import to_tensor
 
-from one_shot.config import init_config, init_tf
+from one_shot.config import init_config
 from one_shot.ensemble import StableDiffusionXLAdapterEnsemblePipeline
-from one_shot.face import Face
+from one_shot.face import FaceHelper, FaceHelperModels
 from one_shot.params import Params, Settings
 from one_shot.prompt import Compels, Prompts
-from one_shot.utils import civitai_path
+from one_shot.utils import civitai_path, exclude
 
 if TYPE_CHECKING:
     from one_shot.dreambooth import Queues
@@ -68,6 +69,7 @@ class ProcessModels:
     ensemble: StableDiffusionXLAdapterEnsemblePipeline
     inpainter: StableDiffusionXLInpaintPipeline
     compels: Compels
+    face: FaceHelperModels
 
 
 class Process:
@@ -86,7 +88,6 @@ class Process:
         )
         logger.info("Process {} started", rank)
         init_config()
-        init_tf()
         cls(params, queues.proc[rank], queues.response).wait()
 
     def __init__(
@@ -110,9 +111,14 @@ class Process:
 
         base: StableDiffusionXLPipeline = StableDiffusionXLPipeline.from_pretrained(
             self.params.model.name,
-            vae=self.params.model.vae,
+            vae=AutoencoderKL.from_pretrained(
+                self.params.model.vae,
+                **exclude(self.settings.loading_kwargs, {"variant"}),
+            ),
             **self.settings.loading_kwargs,
-        ).to(self.state.device, torch_dtype=self.params.dtype)
+        ).to(
+            self.state.device, torch_dtype=self.params.dtype
+        )  # type: ignore
         for repo, lora in self.params.model.loras["base"].items():
             if lora == "civitai":
                 base.load_lora_weights(
@@ -216,6 +222,7 @@ class Process:
                 xl=xl_compel, refiner=refiner_compel, inpainter=inpainter_compel
             ),
             inpainter=inpainter,
+            face=FaceHelperModels.load(self.state.process_index),
         )
 
     def wait(self):
@@ -293,7 +300,10 @@ class Process:
 
         self.logger.info("Touching up images...")
 
-        masks, colors = map(list, zip(*Face(self.params, images).eye_masks()))
+        masks, colors = map(
+            list,
+            zip(*FaceHelper(self.params, self.models.face, images).eye_masks()),
+        )
         self.logger.info("Colors: {}", colors)
 
         prompts = replace(

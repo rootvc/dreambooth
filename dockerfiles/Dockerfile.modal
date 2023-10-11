@@ -19,11 +19,9 @@ RUN mkdir -p $CACHE_DIR $CACHE_STAGING_DIR
 ENV PYTHONUNBUFFERED 1
 ENV TOKENIZERS_PARALLELISM true
 ENV ACCELERATE_MIXED_PRECISION bf16
-ENV TF_FORCE_GPU_ALLOW_GROWTH true
 
-ADD --link constraints.txt constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --upgrade-strategy only-if-needed -c constraints.txt \
+  pip install --upgrade-strategy only-if-needed \
   cloudpathlib[s3]
 
 ADD --link data/config/accelerate/standalone.yml /root/.cache/huggingface/accelerate/default_config.yaml

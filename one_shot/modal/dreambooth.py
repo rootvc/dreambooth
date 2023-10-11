@@ -2,10 +2,6 @@ import random
 
 from modal import method
 
-from one_shot.config import init_config
-
-init_config(split_gpus=True)
-
 from one_shot.dreambooth import OneShotDreambooth
 from one_shot.dreambooth.request import Request
 from one_shot.modal import fn_kwargs, stub, volume

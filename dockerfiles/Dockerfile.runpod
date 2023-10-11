@@ -83,9 +83,8 @@ ENV ACCELERATE_MIXED_PRECISION bf16
 ENV HF_MODEL_CACHE /root/.cache/huggingface/models
 
 
-ADD --link constraints.txt constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install --upgrade-strategy only-if-needed -c constraints.txt \
+  pip install --upgrade-strategy only-if-needed  \
   runpod cloudpathlib==0.13.0
 
 ADD --link data/config/accelerate/standalone.yml /root/.cache/huggingface/accelerate/default_config.yaml

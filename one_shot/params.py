@@ -45,8 +45,9 @@ class Model(BaseModel):
     inpainter: str = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
     loras: dict[str, dict[str, str]] = {
         "base": {name: "sd_xl_offset_example-lora_1.0.safetensors"},
-        "inpainter": {"126688": "civitai"},
+        "inpainter": {"131991": "civitai"},  # Juggernaut Cinematic XL LoRA
     }
+
     resolution: int = 1024
 
 

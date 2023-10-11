@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Generator, Optional
 import cv2
 import numpy as np
 import torch
-from dreambooth_old.train.shared import grid
 from loguru import logger
 from PIL import Image
 
@@ -19,15 +18,16 @@ from one_shot.dreambooth.process import (
     ProcessRequest,
     ProcessResponseSentinel,
 )
-from one_shot.face import Face
+from one_shot.face import FaceHelper
 from one_shot.utils import (
     collect,
+    grid,
     images,
     open_image,
 )
 
 if TYPE_CHECKING:
-    from dreambooth.one_shot.dreambooth import OneShotDreambooth
+    from one_shot.dreambooth import OneShotDreambooth
 
 
 class Request:
@@ -63,7 +63,9 @@ class Request:
 
     @cached_property
     def face(self):
-        return Face(self.dreambooth.params, self.images())
+        return FaceHelper(
+            self.dreambooth.params, self.dreambooth.models.face, self.images()
+        )
 
     @cached_property
     def demographics(self):
