@@ -2,6 +2,15 @@
 
 FROM rootventures/pytorch:latest AS pip
 
+RUN \
+  apt-get update && \
+  apt-get install -y libwebp-dev && \
+  rm -rf /var/lib/apt/lists/*
+
+
+RUN pip uninstall -y pillow && \
+  CC="cc -mavx2" pip install -U --force-reinstall pillow-simd --no-binary :all: -C webp=enable
+
 ADD --link environment.txt environment.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -r environment.txt

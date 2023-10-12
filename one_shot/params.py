@@ -81,11 +81,11 @@ class Params(BaseModel):
         "brown----",
         "(low contrast)---",
     ]
-    prompt_template = "closeup (4k photo)+ of a ({race})-- ({gender})-, ({prompt})++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
-    inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({race} {gender})-, ({prompt})-"
+    prompt_template = "closeup (4k photo)+ of a ({ethnicity})-- ({gender})-, ({prompt})++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
+    inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})-, ({prompt})-"
     prompts = [
         "(white face makeup)+, green hair, the joker, red nose, brilliant colors",
-        "mysterious {race}, cyberpunk, the universe, cosmos and nebula on clothing",
+        "mysterious {ethnicity}, cyberpunk, the universe, cosmos and nebula on clothing",
         "(90s style)-, leather jacket, smug, vintage, antique car, distingushed, no makeup",
         "classy {gender}, wearing a rainbow suit, pop art style, painting by andy warhol",
         "zombie, (decaying skin and clothing)-, (rotting skin)-, inside an abandoned building",
@@ -109,4 +109,4 @@ class Params(BaseModel):
     conditioning_factor: float = 1.0
     lora_scale = 0.3
     high_noise_frac: float = 0.95
-    mask_padding: float = 0.05
+    mask_padding: float = 0.10

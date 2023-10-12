@@ -13,6 +13,7 @@ import torch
 from loguru import logger
 from PIL import Image
 
+from one_shot.dreambooth.model import Model
 from one_shot.dreambooth.process import (
     GenerationRequest,
     ProcessRequest,
@@ -69,11 +70,14 @@ class Request:
 
     @cached_property
     def demographics(self):
+        return {"ethnicity": "beautiful", "gender": "person"}
         demos = self.face.demographics()
         logger.info(demos)
         return demos
 
-    def _generate(self, params: Optional[dict[str, list[int | float]]] = None):
+    def _generate(
+        self, params: Optional[dict[str, list[int | float]]] = None, throw: bool = False
+    ):
         multiplier = self.dreambooth.world_size if params else 1  # check if tuning
         images = random.choices(
             self.controls(), k=self.dreambooth.params.images * multiplier
@@ -105,9 +109,21 @@ class Request:
                 else:
                     logger.info("Received response: {}", resp)
                     yield resp
-            except Empty:
-                self.dreambooth.ctx.join(0)
-                raise
+            except Empty as e:
+                try:
+                    self.dreambooth.ctx.join(0)
+                except Exception as ex:
+                    if throw:
+                        raise ex
+                    else:
+                        logger.exception("Error in subprocess, ending...")
+                        break
+                else:
+                    if throw:
+                        raise e
+                    else:
+                        logger.exception("Timeout waiting for response, ending...")
+                        break
 
     @torch.inference_mode()
     def generate(self):
@@ -120,30 +136,60 @@ class Request:
         grids = [
             grid(self.images()[: self.dreambooth.params.images]),
             grid(self.controls()[: self.dreambooth.params.images]),
+            grid(self.face.primary_faces()[: self.dreambooth.params.images]),
         ]
-        for resp in self._generate(params):
-            img = grid(resp.images)
-            text_kwargs = {
-                "text": json.dumps(
-                    {
-                        "_".join(s[:3] for s in k.split("_")): round(v, 2)
-                        for k, v in resp.params.items()
-                    },
-                ),
-                "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
-                "fontScale": 1,
-                "thickness": 2,
-            }
-            (_, text_w), _ = cv2.getTextSize(**text_kwargs)
-            image = cv2.putText(
-                img=np.array(img),
-                org=(img.height // 10, img.width // 2 - text_w // 4),
-                color=(255, 255, 255),
-                lineType=cv2.LINE_AA,
-                **text_kwargs,
+        model = Model("lineart")
+        grids.append(
+            grid(
+                model.run(
+                    image=self.images()[:2],
+                    prompt="a man dressed as a ninja",
+                    negative_prompt="extra digit, fewer digits, cropped, worst quality, low quality, glitch, deformed, mutated, ugly, disfigured",
+                    adapter_name="lineart",
+                    num_inference_steps=25,
+                    guidance_scale=5.0,
+                    adapter_conditioning_scale=0.9,
+                    adapter_conditioning_factor=0.8,
+                    seed=42,
+                    apply_preprocess=True,
+                )
             )
-            img = Image.fromarray(image)
-            grids.append(img)
+        )
+        if False:
+            for resp in self._generate(params):
+                img = grid(resp.images)
+                text_kwargs = {
+                    "text": json.dumps(
+                        {
+                            "_".join(s[:3] for s in k.split("_")): round(v, 2)
+                            for k, v in resp.params.items()
+                        },
+                    ),
+                    "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
+                    "fontScale": 1,
+                    "thickness": 2,
+                }
+                (_, text_w), _ = cv2.getTextSize(**text_kwargs)
+                image = cv2.putText(
+                    img=np.array(img),
+                    org=(img.height // 10, img.width // 2 - text_w // 4),
+                    color=(255, 255, 255),
+                    lineType=cv2.LINE_AA,
+                    **text_kwargs,
+                )
+                img = Image.fromarray(image)
+                grids.append(img)
 
-        logger.info("Tuning complete!")
-        yield grid(grids, w=8)
+        logger.info("Persisting tuning...")
+        path = Path(self.dreambooth.settings.cache_dir) / "tune" / f"{self.id}.webp"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        final = grid(grids, w=self.dreambooth.world_size).reduce(4)
+        try:
+            final.save(path, quality=70)
+        except Exception:
+            path = path.with_suffix(".png")
+            final.save(path, optimize=True)
+        self.dreambooth.volume.commit()
+
+        logger.info("Tuning complete!\n{}", path.stat())
+        yield path

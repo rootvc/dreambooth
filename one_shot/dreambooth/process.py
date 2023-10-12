@@ -12,6 +12,7 @@ from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsT
 from diffusers import (
     AutoencoderKL,
     EulerAncestralDiscreteScheduler,
+    StableDiffusionXLAdapterPipeline,
     StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLInpaintPipeline,
     StableDiffusionXLPipeline,
@@ -170,10 +171,18 @@ class Process:
         inpainter = inpainter.to(self.state.device, torch_dtype=self.params.dtype)
         inpainter.enable_xformers_memory_efficient_attention()
 
-        adapter: T2IAdapter = T2IAdapter.from_pretrained(
-            self.params.model.t2i_adapter, **self.settings.loading_kwargs
-        )
-        adapter.adapter = adapter.adapter.to(self.state.device, dtype=self.params.dtype)
+        # adapter: T2IAdapter = T2IAdapter.from_pretrained(
+        #     self.params.model.t2i_adapter,
+        #     **self.settings.loading_kwargs,
+        #     varient="fp16",
+        # )
+        # adapter.adapter = adapter.adapter.to(self.state.device, dtype=self.params.dtype)
+
+        adapter = T2IAdapter.from_pretrained(
+            self.params.model.t2i_adapter,
+            torch_dtype=torch.float16,
+            varient="fp16",
+        ).to(self.state.device)
 
         ensemble: StableDiffusionXLAdapterEnsemblePipeline = (
             StableDiffusionXLAdapterEnsemblePipeline.from_pretrained(
@@ -282,6 +291,45 @@ class Process:
         demographics: dict[str, str],
         **params,
     ) -> list[Image.Image]:
+        adapter = T2IAdapter.from_pretrained(
+            self.params.model.t2i_adapter,
+            torch_dtype=torch.float16,
+            varient="fp16",
+        ).to(self.state.device)
+        pipe = StableDiffusionXLAdapterPipeline.from_pretrained(
+            self.params.model.name,
+            vae=AutoencoderKL.from_pretrained(
+                "madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16
+            ),
+            adapter=adapter,
+            scheduler=EulerAncestralDiscreteScheduler.from_pretrained(
+                self.params.model.name, subfolder="scheduler"
+            ),
+            torch_dtype=torch.float16,
+            variant="fp16",
+        ).to(self.state.device)
+        pipe.enable_xformers_memory_efficient_attention()
+        pipe.load_lora_weights(
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            weight_name="sd_xl_offset_example-lora_1.0.safetensors",
+        )
+        pipe.fuse_lora(lora_scale=0.4)
+
+        generator = torch.Generator(device=self.state.device).manual_seed(42)
+        return pipe(
+            prompt=["a man dressed as a ninja"] * len(inputs),
+            negative_prompt=[
+                "extra digit, fewer digits, cropped, worst quality, low quality, glitch, deformed, mutated, ugly, disfigured"
+            ]
+            * len(inputs),
+            image=inputs,
+            num_inference_steps=25,
+            adapter_conditioning_scale=0.9,
+            adapter_conditioning_factor=0.8,
+            generator=generator,
+            guidance_scale=5,
+        ).images
+
         images = self.models.ensemble(
             **{
                 "image": inputs,

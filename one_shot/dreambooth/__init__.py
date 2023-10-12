@@ -16,10 +16,10 @@ from diffusers import (
 )
 from diffusers.loaders import LoraLoaderMixin
 from modal import Volume
-from transformers import ViltForQuestionAnswering, ViltProcessor
+from transformers import BlipForQuestionAnswering, BlipProcessor
 
 from one_shot import logger
-from one_shot.face import FaceHelper, FaceHelperModels
+from one_shot.face import FaceHelperModels
 from one_shot.params import Params, Settings
 from one_shot.types import M
 from one_shot.utils import (
@@ -61,7 +61,7 @@ class OneShotDreambooth:
         self.exit_stack = ExitStack()
         self.dirty = False
 
-    def __enter__(self, skip_procs: bool = False):
+    def __enter__(self, skip_procs: bool = True):
         logger.info(
             "Starting with max memory: {} on cloud {} ({})",
             self.settings.max_memory(),
@@ -108,16 +108,19 @@ class OneShotDreambooth:
         torch.cuda.set_device(torch.cuda.device_count() - 1)
 
         self._download_model(
-            ViltProcessor,
-            FaceHelper.MODEL,
+            BlipProcessor,
+            FaceHelperModels.MODEL,
             method="from_pretrained",
-            default_kwargs={},
+            default_kwargs={"local_files_only": True},
         )
         self._download_model(
-            ViltForQuestionAnswering,
-            FaceHelper.MODEL,
+            BlipForQuestionAnswering,
+            FaceHelperModels.MODEL,
             method="from_pretrained",
-            default_kwargs={},
+            default_kwargs={
+                "torch_dtype": torch.float16,
+                "local_files_only": True,
+            },
         )
         self._download_model(
             StableDiffusionXLImg2ImgPipeline,
@@ -139,7 +142,10 @@ class OneShotDreambooth:
                 variant=None,
             ),
             adapter=self._download_model(
-                T2IAdapter, self.params.model.t2i_adapter, method="from_pretrained"
+                T2IAdapter,
+                self.params.model.t2i_adapter,
+                method="from_pretrained",
+                varient="fp16",
             ),
         )
         self._download_model(

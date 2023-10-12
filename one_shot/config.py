@@ -1,5 +1,7 @@
 import logging
+import os
 import sys
+from pathlib import Path
 
 import diffusers
 import torch
@@ -50,5 +52,15 @@ def init_torch_config():
 
 
 def init_config():
+    for env_var in (
+        "CACHE_DIR",
+        "CACHE_STAGING_DIR",
+        "TORCH_HOME",
+        "HF_HOME",
+        "TORCHINDUCTOR_CACHE_DIR",
+        "PYTORCH_KERNEL_CACHE_PATH",
+    ):
+        if path := os.getenv(env_var):
+            Path(path).mkdir(parents=True, exist_ok=True)
     logger.info("Initializing Torch config...")
     init_torch_config()

@@ -8,17 +8,16 @@ from pathlib import Path
 from typing import Generator, Iterator, cast
 
 import numpy as np
-import snoop
-import torch
+import torch.amp
 from insightface.app import FaceAnalysis
 from loguru import logger
 from PIL import Image
 from pydantic import BaseModel, Field
 from torchvision.transforms.functional import to_pil_image
-from transformers import ViltForQuestionAnswering, ViltProcessor
+from transformers import BlipForQuestionAnswering, BlipProcessor
 
 from one_shot.params import Params, Settings
-from one_shot.utils import Face, collect, extract_face, grid
+from one_shot.utils import Face, collect, exclude, extract_face, grid
 
 settings = Settings()
 
@@ -85,20 +84,20 @@ class Bounds(BaseModel):
 
 @dataclass
 class FaceHelperModels:
-    MODEL = "dandelin/vilt-b32-finetuned-vqa"
+    MODEL = "ybelkada/blip-vqa-base"
 
-    processor: ViltProcessor
-    model: ViltForQuestionAnswering
+    rank: int
+    processor: BlipProcessor
+    model: BlipForQuestionAnswering
     detector: FaceAnalysis
 
     @classmethod
     def load(cls, rank: int):
-        kwargs = {
-            "local_files_only": True,
-            "low_cpu_mem_usage": True,
-        }
-        processor = ViltProcessor.from_pretrained(cls.MODEL, **kwargs)
-        model = ViltForQuestionAnswering.from_pretrained(cls.MODEL, **kwargs)
+        kwargs = exclude(settings.loading_kwargs, {"use_safetensors", "variant"})
+        processor = BlipProcessor.from_pretrained(cls.MODEL, **kwargs)
+        model = BlipForQuestionAnswering.from_pretrained(cls.MODEL, **kwargs).to(
+            rank, dtype=torch.float16
+        )
 
         cache_path = Path(settings.cache_dir) / "insightface"
         detector = FaceAnalysis(
@@ -108,18 +107,15 @@ class FaceHelperModels:
                     "OpenVINOExecutionProvider",
                     {"device_type": "CPU_FP16", "cache_dir": cache_path / "vino_cache"},
                 ),
-                "CPUExecutionProvider",
             ],
             allowed_modules=["detection", "landmark_2d_106", "landmark_3d_68"],
         )
         detector.prepare(rank)
 
-        return cls(processor, model, detector)
+        return cls(rank, processor, model, detector)
 
 
 class FaceHelper:
-    MODEL = "dandelin/vilt-b32-finetuned-vqa"
-
     cache: Path = Path(settings.cache_dir) / "face"
 
     def __init__(
@@ -127,11 +123,11 @@ class FaceHelper:
     ):
         self.params = params
         self.images = images
-        self.processor, self.model, self.detector = [
-            models.processor,
-            models.model,
-            models.detector,
-        ]
+
+        self.rank = models.rank
+        self.processor = models.processor
+        self.model = models.model
+        self.detector = models.detector
 
     @cached_property
     def image(self):
@@ -145,22 +141,22 @@ class FaceHelper:
     def _analyze(
         self, images: list[Image.Image], attr: str
     ) -> Generator[str, None, None]:
-        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-            encoding = self.processor(
-                images,
-                [f"What is the {attr} of the person?"] * len(images),
-                return_tensors="pt",
-            )
-            outputs = self.model(**encoding)
-            for logits in outputs.logits:
-                idx = logits.argmax(-1).item()
-                yield self.model.config.id2label[idx]
+        inputs = self.processor(
+            images,
+            [
+                f"What is the {attr} of the person? Answer with only one word/phrase and nothing else."
+            ]
+            * len(images),
+            return_tensors="pt",
+        ).to(self.rank, self.params.dtype)
+        outputs = self.model.generate(**inputs, max_length=50)
+        yield from self.processor.batch_decode(outputs, skip_special_tokens=True)
 
     @f_cache
     def analyze(self):
         results: dict[str, list[str]] = {}
-        for attr in ("race", "gender"):
-            results[attr] = self._analyze(self.images, attr)
+        for attr in ("ethnicity", "gender"):
+            results[attr] = self._analyze(self.primary_faces(), attr)
         return results
 
     @property
@@ -197,6 +193,12 @@ class FaceHelper:
         for i, face in self.face_bounds():
             yield self._face_from_bounds(i, face)
 
+    @collect
+    def primary_faces(self):
+        for i, faces in itertools.groupby(self.face_bounds(), itemgetter(0)):
+            face = next(faces)[1]
+            yield self._face_from_bounds(i, face)
+
     @f_cache
     def demographics(self):
         logger.info("Analyzing demographics...")
@@ -208,7 +210,7 @@ class FaceHelper:
             return demos
         except Exception as e:
             logger.exception(e)
-            return {"race": "beautiful", "gender": "person"}
+            return {"ethnicity": "beautiful", "gender": "person"}
 
     @collect
     def eye_masks(self) -> Generator[tuple[Image.Image, str], None, None]:
@@ -225,10 +227,6 @@ class FaceHelper:
                     y, x = bounds._slice(self.params.mask_padding * 1.25)
                     mask[y, x] = 255
                 colors.append(
-                    snoop.pp.deep(
-                        lambda: self._analyze(
-                            [self._face_from_bounds(i, face)], "eye color"
-                        )[0]
-                    )
+                    self._analyze([self._face_from_bounds(i, face)], "eye color")[0]
                 )
             yield to_pil_image(mask), Counter(colors).most_common(1)[0][0]

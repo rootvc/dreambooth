@@ -1,24 +1,21 @@
-from pathlib import Path
-from tempfile import mkdtemp
-
 from loguru import logger
+from modal import is_local
 
 from one_shot.config import init_config, init_logging
 from one_shot.dreambooth import OneShotDreambooth
 from one_shot.modal import fn_kwargs, stub, volume
 from one_shot.modal.dreambooth import Dreambooth
 
-logger.info("Initializing config...")
 init_logging(logger)
-init_config()
+
+if not is_local():
+    logger.info("Initializing config...")
+    init_config()
 
 
-@stub.local_entrypoint()
-def main():
-    dir = Path(mkdtemp())
-    logger.info(f"Using {dir} as cache directory.")
-
-    for i, img in enumerate(
+def _main():
+    logger.info("Calling remote function...")
+    for i, path in enumerate(
         Dreambooth().tune.remote_gen(
             [
                 # "test",
@@ -33,14 +30,20 @@ def main():
                 "ca4b1e40984e7cc6f23777963e9ae76e",
             ],
             {
-                "adapter_conditioning_scale": [1.65, 1.7, 1.75, 2.28, 2.35],
-                "refiner_strength": [0.01, 0.05, 0.09, 0.30],
-                "guidance_scale": [14, 16.5, 18, 10],
-                "high_noise_frac": [0.90, 0.95],
+                "num_inference_steps": [25],
+                "adapter_conditioning_scale": [0.9],  # conditioning_strength
+                "adapter_conditioning_factor": [0.8],
+                # "seed": [42],
+                # "refiner_strength": [0.05],
+                "guidance_scale": [5.0],
+                # "high_noise_frac": [1.0],
             },
         )
     ):
-        img.save(dir / f"{i}.png")
+        logger.info("Saved {}: {}", i, path)
+
+
+main = stub.local_entrypoint()(_main)
 
 
 @stub.function(**fn_kwargs)
