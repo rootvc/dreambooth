@@ -1,86 +1,226 @@
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
 import PIL.Image
+import snoop
 import torch
-from controlnet_aux import (
-    LineartDetector,
-)
+import torch.multiprocessing
+from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
+from controlnet_aux.lineart import LineartDetector
 from diffusers import (
     AutoencoderKL,
     EulerAncestralDiscreteScheduler,
     StableDiffusionXLAdapterPipeline,
+    StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
 
+from one_shot.face import FaceHelper, FaceHelperModels
+from one_shot.params import Params, Settings
+from one_shot.prompt import Compels, Prompts
+from one_shot.utils import (
+    civitai_path,
+    exclude,
+)
 
-class LineartPreprocessor:
-    def __init__(self):
-        self.model = LineartDetector.from_pretrained("lllyasviel/Annotators")
+if TYPE_CHECKING:
+    from loguru._logger import Logger
 
-    def to(self, device: torch.device | str):
-        self.model.to(device)
-        return self
-
-    def __call__(self, image: PIL.Image.Image) -> PIL.Image.Image:
-        return self.model(image, detect_resolution=384, image_resolution=1024)
+    from one_shot.dreambooth.process import ProcessRequest
 
 
-class Model:
-    MAX_NUM_INFERENCE_STEPS = 50
+@dataclass
+class SharedModels:
+    detector: LineartDetector
+    face: FaceHelperModels
 
-    def __init__(self, adapter_name: str):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.preprocessor = LineartPreprocessor().to(self.device)
 
-        model_id = "stabilityai/stable-diffusion-xl-base-1.0"
-        adapter = T2IAdapter.from_pretrained(
-            "TencentARC/t2i-adapter-lineart-sdxl-1.0",
-            torch_dtype=torch.float16,
-            varient="fp16",
-        ).to(self.device)
-        self.pipe = StableDiffusionXLAdapterPipeline.from_pretrained(
-            model_id,
+@dataclass
+class ProcessModels:
+    pipe: StableDiffusionXLAdapterPipeline
+    refiner: StableDiffusionXLImg2ImgPipeline
+    inpainter: StableDiffusionXLInpaintPipeline
+    compels: Compels
+    face: FaceHelperModels
+    settings: Settings = Settings()
+
+    @classmethod
+    def _load_loras(cls, params: Params, pipe, key: str = "base"):
+        for repo, lora in params.model.loras[key].items():
+            if lora == "civitai":
+                path = civitai_path(repo)
+                pipe.load_lora_weights(
+                    str(path.parent),
+                    weight_name=str(path.name),
+                    **cls.settings.loading_kwargs,
+                )
+            else:
+                pipe.load_lora_weights(
+                    repo, weight_name=lora, **cls.settings.loading_kwargs
+                )
+        pipe.fuse_lora(lora_scale=params.lora_scale)
+
+    @classmethod
+    @torch.inference_mode()
+    @snoop
+    def load(cls, params: Params, rank: int):
+        pipe = StableDiffusionXLAdapterPipeline.from_pretrained(
+            params.model.name,
             vae=AutoencoderKL.from_pretrained(
-                "madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16
-            ),
-            adapter=adapter,
+                params.model.vae,
+                **exclude(cls.settings.loading_kwargs, {"variant"}),
+            ).to(rank),
+            adapter=T2IAdapter.from_pretrained(
+                params.model.t2i_adapter,
+                **exclude(cls.settings.loading_kwargs, {"variant"}),
+                varient="fp16",
+            ).to(rank),
             scheduler=EulerAncestralDiscreteScheduler.from_pretrained(
-                model_id, subfolder="scheduler"
+                params.model.name, subfolder="scheduler"
             ),
-            torch_dtype=torch.float16,
-            variant="fp16",
-        ).to(self.device)
-        self.pipe.enable_xformers_memory_efficient_attention()
-        # self.pipe.load_lora_weights(
-        #     "stabilityai/stable-diffusion-xl-base-1.0",
-        #     weight_name="sd_xl_offset_example-lora_1.0.safetensors",
-        # )
-        # self.pipe.fuse_lora(lora_scale=0.4)
+            **cls.settings.loading_kwargs,
+        ).to(rank)
+        pipe.enable_xformers_memory_efficient_attention()
+        cls._load_loras(params, pipe)
 
-    def run(
-        self,
-        image: list[PIL.Image.Image],
-        prompt: str,
-        negative_prompt: str,
-        adapter_name: str,
-        num_inference_steps: int = 30,
-        guidance_scale: float = 5.0,
-        adapter_conditioning_scale: float = 1.0,
-        adapter_conditioning_factor: float = 1.0,
-        seed: int = 0,
-        apply_preprocess: bool = True,
-    ) -> list[PIL.Image.Image]:
-        image = [self.preprocessor(i) for i in image]
+        refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+            params.model.refiner,
+            text_encoder_2=pipe.text_encoder_2,
+            vae=pipe.vae,
+            scheduler=pipe.scheduler,
+            **cls.settings.loading_kwargs,
+        ).to(rank)
+        refiner.enable_xformers_memory_efficient_attention()
 
-        # image = resize_to_closest_aspect_ratio(image)
-        image = [i.resize((1024, 1024), PIL.Image.LANCZOS) for i in image]
+        inpainter = StableDiffusionXLInpaintPipeline.from_pretrained(
+            params.model.inpainter,
+            text_encoder=pipe.text_encoder,
+            text_encoder_2=pipe.text_encoder_2,
+            vae=pipe.vae,
+            scheduler=pipe.scheduler,
+            **cls.settings.loading_kwargs,
+        ).to(rank)
+        inpainter.enable_xformers_memory_efficient_attention()
+        cls._load_loras(params, inpainter, key="inpainter")
 
-        out = self.pipe(
-            prompt=[prompt] * 2,
-            negative_prompt=[negative_prompt] * 2,
-            image=image,
-            num_inference_steps=num_inference_steps,
-            adapter_conditioning_scale=adapter_conditioning_scale,
-            adapter_conditioning_factor=adapter_conditioning_factor,
-            generator=torch.Generator(device=self.device).manual_seed(seed),
-            guidance_scale=guidance_scale,
-        ).images
-        return out
+        xl_compel = Compel(
+            [pipe.tokenizer, pipe.tokenizer_2],
+            [pipe.text_encoder, pipe.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
+            device=rank,
+            textual_inversion_manager=DiffusersTextualInversionManager(pipe),
+        )
+        refiner_compel = Compel(
+            tokenizer=refiner.tokenizer_2,
+            text_encoder=refiner.text_encoder_2,
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=True,
+            device=rank,
+            textual_inversion_manager=DiffusersTextualInversionManager(pipe),
+        )
+        inpainter_compel = Compel(
+            [inpainter.tokenizer, inpainter.tokenizer_2],
+            [inpainter.text_encoder, inpainter.text_encoder_2],
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True],
+            device=rank,
+            textual_inversion_manager=DiffusersTextualInversionManager(inpainter),
+        )
+
+        return cls(
+            pipe=pipe,
+            refiner=refiner,
+            inpainter=inpainter,
+            compels=Compels(
+                xl=xl_compel, refiner=refiner_compel, inpainter=inpainter_compel
+            ),
+            face=FaceHelperModels.load(rank),
+        )
+
+
+@dataclass
+class Model:
+    params: Params
+    rank: int
+    models: ProcessModels
+    logger: "Logger"
+    settings: Settings = Settings()
+
+    @torch.inference_mode()
+    def run(self, request: "ProcessRequest") -> list[PIL.Image.Image]:
+        prompts = Prompts(
+            self.models.compels,
+            self.rank,
+            self.params.dtype,
+            [
+                self.params.prompt_template.format(prompt=p, **request.demographics)
+                for p in request.generation.prompts
+            ],
+            [
+                self.params.negative_prompt  # + (
+                # ", " + color
+                # for color in random.choices(
+                #     self.params.negative_colors, k=len(request.generation.prompts)
+                # )
+                # )
+            ]
+            * 2,
+        )
+        self.logger.info("Generating latents...")
+        latents = [
+            self.models.pipe(
+                image=img,
+                generator=torch.Generator(device=self.rank).manual_seed(42),
+                num_inference_steps=25,
+                guidance_scale=5.0,
+                adapter_conditioning_scale=0.9,
+                adapter_conditioning_factor=0.8,
+                denoising_end=1.0,
+                output_type="latent",
+                **prompts.kwargs_for_xl(idx),
+            ).images[0]
+            for idx, img in enumerate(request.generation.images)
+        ]
+
+        self.logger.info("Refining latents...")
+        images = [
+            self.models.refiner(
+                image=latent,
+                generator=torch.Generator(device=self.rank).manual_seed(42),
+                num_inference_steps=25,
+                guidance_scale=5.0,
+                denoising_start=1.0,
+                strength=0.15,
+                **prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, latent in enumerate(latents)
+        ]
+
+        self.logger.info("Touching up images...")
+        masks, colors = map(
+            list,
+            zip(*FaceHelper(self.params, self.models.face, images).eye_masks()),
+        )
+        self.logger.info("Colors: {}", colors)
+        prompts = replace(
+            prompts,
+            raw=[
+                self.params.inpaint_prompt_template.format(
+                    prompt=p, color=c, **request.demographics
+                )
+                for p, c in zip(request.generation.prompts, colors)
+            ],
+            negative=[self.params.negative_prompt] * len(request.generation.prompts),
+        )
+        return [
+            self.models.inpainter(
+                image=img,
+                mask_image=masks[idx],
+                strength=self.params.inpainting_strength,
+                num_inference_steps=self.params.inpainting_steps,
+                **prompts.kwargs_for_inpainter(idx),
+            ).images[0]
+            for idx, img in enumerate(images)
+        ]

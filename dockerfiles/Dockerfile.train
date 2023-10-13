@@ -1,5 +1,38 @@
 # syntax=docker/dockerfile:1.4
 
+FROM rootventures/pytorch:latest as onnxruntime
+
+ARG ONNXRUNTIME_REPO=https://github.com/Microsoft/onnxruntime
+ARG ONNXRUNTIME_BRANCH=main
+ARG CMAKE_CUDA_ARCHITECTURES=80;89
+
+RUN apt-get update && \
+  apt-get install -y sudo git bash unattended-upgrades
+RUN unattended-upgrade
+
+RUN \
+  apt-get update && \
+  apt-get install -y python3.10-dev python3.10-numpy python3-packaging
+
+WORKDIR /code
+ENV PATH /usr/local/nvidia/bin:/usr/local/cuda/bin:/code/cmake-3.27.3-linux-x86_64/bin:/opt/miniconda/bin:${PATH}
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip3 install -U pip && pip3 install -U psutil packaging setuptools wheel
+
+RUN ln -s /usr/local/lib/python3.10/dist-packages/numpy/core/include/numpy /usr/local/include/numpy
+
+# Prepare onnxruntime repository & build onnxruntime with TensorRT
+RUN --mount=type=cache,target=/opt/ccache \
+  /usr/sbin/update-ccache-symlinks && \
+  git clone --single-branch --branch ${ONNXRUNTIME_BRANCH} --recursive ${ONNXRUNTIME_REPO} onnxruntime && \
+  /bin/sh onnxruntime/dockerfiles/scripts/install_common_deps.sh && \
+  trt_version=${TRT_VERSION:0:3} && \
+  /bin/sh onnxruntime/dockerfiles/scripts/checkout_submodules.sh ${trt_version} && \
+  cd onnxruntime && \
+  conda install packaging numpy && \
+  /bin/sh build.sh --allow_running_as_root --parallel 64 --use_cuda --cuda_home /usr/local/cuda --cudnn_home /usr/lib/x86_64-linux-gnu/ --use_tensorrt --tensorrt_home /usr/lib/x86_64-linux-gnu/ --config Release --build_wheel --skip_tests --skip_submodule_sync --cmake_extra_defines '"CMAKE_CUDA_ARCHITECTURES='${CMAKE_CUDA_ARCHITECTURES}'"' --use_cache
+
 FROM rootventures/pytorch:latest AS pip
 
 RUN \
@@ -8,7 +41,8 @@ RUN \
   rm -rf /var/lib/apt/lists/*
 
 
-RUN pip uninstall -y pillow && \
+RUN --mount=type=cache,target=/opt/ccache --mount=type=cache,target=/root/.cache/pip \
+  pip uninstall -y pillow && \
   CC="cc -mavx2" pip install -U --force-reinstall pillow-simd --no-binary :all: -C webp=enable
 
 ADD --link environment.txt environment.txt
@@ -20,6 +54,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed --no-deps \
   controlnet-aux==0.0.7
+
+COPY --link --from=onnxruntime /code/onnxruntime/build/Linux/Release/dist/*.whl /tmp/
+RUN pip uninstall -y onnxruntime && pip install -U --force-reinstall /tmp/onnxruntime*.whl
 
 FROM rootventures/pytorch:latest
 

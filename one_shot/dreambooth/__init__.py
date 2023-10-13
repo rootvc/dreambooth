@@ -19,6 +19,7 @@ from modal import Volume
 from transformers import BlipForQuestionAnswering, BlipProcessor
 
 from one_shot import logger
+from one_shot.dreambooth.model import SharedModels
 from one_shot.face import FaceHelperModels
 from one_shot.params import Params, Settings
 from one_shot.types import M
@@ -33,12 +34,6 @@ from one_shot.utils import (
 from .process import Process, ProcessRequest, ProcessResponse, ProcessResponseSentinel
 
 mp = torch.multiprocessing.get_context("forkserver")
-
-
-@dataclass
-class SharedModels:
-    detector: LineartDetector
-    face: FaceHelperModels
 
 
 @dataclass
@@ -61,18 +56,20 @@ class OneShotDreambooth:
         self.exit_stack = ExitStack()
         self.dirty = False
 
-    def __enter__(self, skip_procs: bool = True):
+    def __enter__(self, skip_procs: bool = False):
         logger.info(
             "Starting with max memory: {} on cloud {} ({})",
             self.settings.max_memory(),
             os.getenv("MODAL_CLOUD_PROVIDER", "unknown"),
             os.getenv("MODAL_REGION", "???"),
         )
-        if not skip_procs:
+        if skip_procs:
+            self._download_models()
+            torch.cuda.empty_cache()
+            self.models = self._load_models()
+        else:
+            self.models = self._load_models()
             self.queues, self.ctx = self._start_processes()
-        self._download_models()
-        torch.cuda.empty_cache()
-        self.models = self._load_models()
         self._set_cache_monitor()
         return self
 
@@ -250,6 +247,8 @@ class OneShotDreambooth:
             proc=[mp.Queue(2) for _ in range(self.world_size)],
             response=mp.Queue(self.world_size),
         )
+
+        Process.run(0, self.world_size, self.params, queues)
 
         ctx = torch.multiprocessing.start_processes(
             Process.run,

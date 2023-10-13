@@ -26,8 +26,9 @@ class Prompts:
     def _to(self, d: dict):
         return {k: v.to(self.device, dtype=self.dtype) for k, v in d.items()}
 
-    def _kwargs(self, compel: Compel, embeds: torch.Tensor, pools: torch.Tensor):
-        neg_embeds, neg_pools = compel(self.negative)
+    def _kwargs(self, compel: Compel, i: int):
+        embeds, pools = compel(self.raw[i])
+        neg_embeds, neg_pools = compel(self.negative[i])
         [
             embeds,
             neg_embeds,
@@ -41,14 +42,11 @@ class Prompts:
             }
         )
 
-    def kwargs_for_xl(self):
-        embeds, pools = self.compels.xl(self.raw)
-        return self._kwargs(self.compels.xl, embeds, pools)
+    def kwargs_for_xl(self, i: int):
+        return self._kwargs(self.compels.xl, i)
 
-    def kwargs_for_refiner(self):
-        embeds, pools = self.compels.refiner(self.raw)
-        return self._kwargs(self.compels.refiner, embeds, pools)
+    def kwargs_for_refiner(self, i: int):
+        return self._kwargs(self.compels.refiner, i)
 
-    def kwargs_for_inpainter(self):
-        embeds, pools = self.compels.inpainter(self.raw)
-        return self._kwargs(self.compels.inpainter, embeds, pools)
+    def kwargs_for_inpainter(self, i: int):
+        return self._kwargs(self.compels.inpainter, i)

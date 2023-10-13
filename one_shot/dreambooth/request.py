@@ -13,7 +13,6 @@ import torch
 from loguru import logger
 from PIL import Image
 
-from one_shot.dreambooth.model import Model
 from one_shot.dreambooth.process import (
     GenerationRequest,
     ProcessRequest,
@@ -70,7 +69,6 @@ class Request:
 
     @cached_property
     def demographics(self):
-        return {"ethnicity": "beautiful", "gender": "person"}
         demos = self.face.demographics()
         logger.info(demos)
         return demos
@@ -102,7 +100,7 @@ class Request:
         while remaining:
             logger.debug("Receiving response...")
             try:
-                resp = self.dreambooth.queues.response.get(timeout=120)
+                resp = self.dreambooth.queues.response.get(timeout=100)
                 if isinstance(resp, ProcessResponseSentinel):
                     logger.info("Rank {} is done!", resp.rank)
                     remaining.remove(resp.rank)
@@ -137,58 +135,44 @@ class Request:
             grid(self.images()[: self.dreambooth.params.images]),
             grid(self.controls()[: self.dreambooth.params.images]),
             grid(self.face.primary_faces()[: self.dreambooth.params.images]),
-        ]
-        model = Model("lineart")
-        grids.append(
             grid(
-                model.run(
-                    image=self.images()[:2],
-                    prompt="a man dressed as a ninja",
-                    negative_prompt="extra digit, fewer digits, cropped, worst quality, low quality, glitch, deformed, mutated, ugly, disfigured",
-                    adapter_name="lineart",
-                    num_inference_steps=25,
-                    guidance_scale=5.0,
-                    adapter_conditioning_scale=0.9,
-                    adapter_conditioning_factor=0.8,
-                    seed=42,
-                    apply_preprocess=True,
-                )
+                [x[0] for x in self.face.eye_masks()][: self.dreambooth.params.images]
+            ),
+        ]
+
+        for resp in self._generate(params):
+            img = grid(resp.images)
+            text_kwargs = {
+                "text": json.dumps(
+                    {
+                        "_".join(s[:3] for s in k.split("_")): round(v, 2)
+                        for k, v in resp.params.items()
+                    },
+                ),
+                "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
+                "fontScale": 1,
+                "thickness": 2,
+            }
+            (_, text_w), _ = cv2.getTextSize(**text_kwargs)
+            image = cv2.putText(
+                img=np.array(img),
+                org=(img.height // 10, img.width // 2 - text_w // 4),
+                color=(255, 255, 255),
+                lineType=cv2.LINE_AA,
+                **text_kwargs,
             )
-        )
-        if False:
-            for resp in self._generate(params):
-                img = grid(resp.images)
-                text_kwargs = {
-                    "text": json.dumps(
-                        {
-                            "_".join(s[:3] for s in k.split("_")): round(v, 2)
-                            for k, v in resp.params.items()
-                        },
-                    ),
-                    "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
-                    "fontScale": 1,
-                    "thickness": 2,
-                }
-                (_, text_w), _ = cv2.getTextSize(**text_kwargs)
-                image = cv2.putText(
-                    img=np.array(img),
-                    org=(img.height // 10, img.width // 2 - text_w // 4),
-                    color=(255, 255, 255),
-                    lineType=cv2.LINE_AA,
-                    **text_kwargs,
-                )
-                img = Image.fromarray(image)
-                grids.append(img)
+            img = Image.fromarray(image)
+            grids.append(img)
 
         logger.info("Persisting tuning...")
         path = Path(self.dreambooth.settings.cache_dir) / "tune" / f"{self.id}.webp"
         path.parent.mkdir(parents=True, exist_ok=True)
-        final = grid(grids, w=self.dreambooth.world_size).reduce(4)
+        final = grid(grids, w=self.dreambooth.world_size)
         try:
-            final.save(path, quality=70)
+            final.save(path)
         except Exception:
             path = path.with_suffix(".png")
-            final.save(path, optimize=True)
+            final.reduce(2).save(path, optimize=True)
         self.dreambooth.volume.commit()
 
         logger.info("Tuning complete!\n{}", path.stat())

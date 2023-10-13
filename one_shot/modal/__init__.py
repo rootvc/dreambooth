@@ -6,26 +6,8 @@ volume = stub.volume = Volume.persisted("model-cache")
 
 fn_kwargs = {
     "image": DockerImage.from_registry("rootventures/train-dreambooth-modal:latest")
-    .run_commands(
-        "pip uninstall -y opencv", "rm -rf /usr/local/lib/python3.10/dist-packages/cv2"
-    )
-    .pip_install(
-        "opencv-contrib-python-headless==4.8.0.74",
-        "opencv-python-headless==4.8.0.74",
-        "onnxruntime-openvino",
-        "insightface",
-        "snoop",
-    )
-    .apt_install("libwebp-dev")
-    .run_commands(
-        "pip uninstall -y pillow",
-        'CC="cc -mavx2" pip install -U --force-reinstall pillow-simd --no-binary :all: -C webp=enable',
-    )
-    .env(
-        {
-            "TORCH_HOME": "/root/cache/torch",
-        }
-    ),
+    .pip_install("snoop")
+    .env({"TORCH_HOME": "/root/cache/torch"}),
     "gpu": gpu.A100(count=1),
     "memory": 22888,
     "cpu": 4.0,

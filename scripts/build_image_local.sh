@@ -21,6 +21,6 @@ build_push() {
 }
 
 # build_push Dockerfile.pytorch pytorch min
-build_push Dockerfile.train train-dreambooth min
+# build_push Dockerfile.train train-dreambooth min
 build_push Dockerfile.modal train-dreambooth-modal min
 # build_push Dockerfile.runpod train-dreambooth-runpod min

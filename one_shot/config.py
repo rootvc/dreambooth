@@ -22,7 +22,7 @@ def init_logging(logger: Logger = default_logger):
     def format(record):
         mins = record["elapsed"].seconds // 60
         secs = record["elapsed"].seconds % 60
-        rank = record["extra"].get("rank", 0)
+        rank = record["extra"].get("rank", "MAIN")
         return (
             f"+{mins}m{secs}s"
             + " %s[{level.icon}] {message} ({name})\n{exception}" % rank

@@ -45,7 +45,7 @@ class Model(BaseModel):
     inpainter: str = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
     loras: dict[str, dict[str, str]] = {
         "base": {name: "sd_xl_offset_example-lora_1.0.safetensors"},
-        "inpainter": {"131991": "civitai"},  # Juggernaut Cinematic XL LoRA
+        "inpainter": {"128461": "civitai"},  # Perfect Eyes XL
     }
 
     resolution: int = 1024
@@ -59,29 +59,32 @@ class Params(BaseModel):
     model: Model = Model()
     batch_size: int = 4
 
-    negative_prompt: str = ", ".join(
-        [
-            "out of focus",
-            "lens blur",
-            "low quality",
-            "deformed eyes",
-            "eyes closed",
-            "distorted face",
-            "extra digit",
-            "mutated",
-            "disfigured",
-            "airbrushed",
-            "(sunglasses)--",
-        ]
-    )
-    negative_colors = [
-        "purple----",
-        "pink----",
-        "green----",
-        "brown----",
-        "(low contrast)---",
-    ]
-    prompt_template = "closeup (4k photo)+ of a ({ethnicity})-- ({gender})-, ({prompt})++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
+    # negative_prompt: str = ", ".join(
+    #     [
+    #         "out of focus",
+    #         "lens blur",
+    #         "low quality",
+    #         "deformed eyes",
+    #         "eyes closed",
+    #         "distorted face",
+    #         "extra digit",
+    #         "mutated",
+    #         "disfigured",
+    #         "airbrushed",
+    #         "(sunglasses)--",
+    #     ]
+    # )
+    # negative_colors = [
+    #     "purple----",
+    #     "pink----",
+    #     "green----",
+    #     "brown----",
+    #     "(low contrast)---",
+    # ]
+    negative_colors = ["", "", "", "", ""]
+    negative_prompt = "extra digit, fewer digits, cropped, worst quality, low quality, glitch, deformed, mutated, ugly, disfigured"
+    # prompt_template = "closeup (4k photo)+ of a ({ethnicity})-- ({gender})-, ({prompt})++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
+    prompt_template = "a man dressed as a ninja"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})-, ({prompt})-"
     prompts = [
         "(white face makeup)+, green hair, the joker, red nose, brilliant colors",
@@ -104,9 +107,9 @@ class Params(BaseModel):
     detect_resolution: int = 384
     guidance_scale: float = 10
     refiner_strength = 0.15
-    inpainting_strength = 0.80
+    inpainting_strength = 0.10
     conditioning_strength: tuple[float, float] = (1.9, 2.0)
     conditioning_factor: float = 1.0
-    lora_scale = 0.3
+    lora_scale = 0.4
     high_noise_frac: float = 0.95
     mask_padding: float = 0.10

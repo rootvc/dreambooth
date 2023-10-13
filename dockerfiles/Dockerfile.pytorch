@@ -4,7 +4,7 @@ FROM nvcr.io/nvidia/pytorch:23.09-py3
 
 ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
 
-ENV TORCH_CUDA_ARCH_LIST "8.0"
+ENV TORCH_CUDA_ARCH_LIST "8.0;8.9"
 ENV FORCE_CUDA 1
 ENV CCACHE_DIR /opt/ccache
 ENV DEBIAN_FRONTEND noninteractive
@@ -19,5 +19,5 @@ RUN --mount=type=cache,target=/opt/ccache \
   echo 'export PATH="/usr/lib/ccache:$PATH"' | tee -a ~/.bashrc
 
 RUN pip install ninja
-RUN --mount=type=cache,target=/root/.cache/pip \
-  MAX_JOBS=32 pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers
+RUN --mount=type=cache,target=/root/.cache/pip  --mount=type=cache,target=/opt/ccache \
+  MAX_JOBS=16 pip install -v -U git+https://github.com/facebookresearch/xformers.git@main#egg=xformers

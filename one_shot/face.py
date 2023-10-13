@@ -1,6 +1,6 @@
 import itertools
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache as f_cache
 from functools import cached_property
 from operator import itemgetter
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Generator, Iterator, cast
 
 import numpy as np
+import snoop
 import torch.amp
 from insightface.app import FaceAnalysis
 from loguru import logger
@@ -91,7 +92,12 @@ class FaceHelperModels:
     model: BlipForQuestionAnswering
     detector: FaceAnalysis
 
+    def to(self, rank: int):
+        self.detector.prepare(rank)
+        return replace(self, rank=rank, model=self.model.to(rank))
+
     @classmethod
+    @snoop(depth=3)
     def load(cls, rank: int):
         kwargs = exclude(settings.loading_kwargs, {"use_safetensors", "variant"})
         processor = BlipProcessor.from_pretrained(cls.MODEL, **kwargs)
@@ -102,11 +108,14 @@ class FaceHelperModels:
         cache_path = Path(settings.cache_dir) / "insightface"
         detector = FaceAnalysis(
             root=str(cache_path / "models"),
-            providers=[
-                (
-                    "OpenVINOExecutionProvider",
-                    {"device_type": "CPU_FP16", "cache_dir": cache_path / "vino_cache"},
-                ),
+            providers=["TensorrtExecutionProvider"],
+            provider_options=[
+                {
+                    "trt_dla_enable": True,
+                    "trt_fp16_enable": True,
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": cache_path,
+                }
             ],
             allowed_modules=["detection", "landmark_2d_106", "landmark_3d_68"],
         )
@@ -224,7 +233,7 @@ class FaceHelper:
                     bounds = Bounds(
                         dims=self.dims, shape=self.dims, x=eye[0], y=eye[1], h=0, w=0
                     )
-                    y, x = bounds._slice(self.params.mask_padding * 1.25)
+                    y, x = bounds._slice(self.params.mask_padding)
                     mask[y, x] = 255
                 colors.append(
                     self._analyze([self._face_from_bounds(i, face)], "eye color")[0]
