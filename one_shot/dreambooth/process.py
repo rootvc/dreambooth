@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Iterator, Optional, TypeVar
 
-import snoop
 import torch
 import torch.distributed as dist
 from accelerate import PartialState
@@ -55,7 +54,6 @@ class Process:
     settings = Settings()
 
     @classmethod
-    @snoop(depth=2)
     def run(
         cls,
         rank: int,

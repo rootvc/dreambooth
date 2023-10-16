@@ -9,5 +9,5 @@ lazy_loader
 timm
 loguru
 pypdl
-insightface
 opencv-python-headless==4.8.0.74
+onnxruntime-gpu

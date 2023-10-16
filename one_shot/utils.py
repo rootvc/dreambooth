@@ -50,16 +50,6 @@ class Face(FrozenModel):
     eyes: Eyes
 
 
-def extract_face(face) -> Face:
-    return Face(
-        box=Box(
-            top_left=(face.bbox[0].tolist(), face.bbox[1].tolist()),
-            bottom_right=(face.bbox[2].tolist(), face.bbox[3].tolist()),
-        ),
-        eyes=Eyes(left=face.kps[0].tolist(), right=face.kps[1].tolist()),
-    )
-
-
 def image_transforms(size: int) -> Callable[[Image.Image], Image.Image]:
     return TT.Compose(
         [
@@ -145,3 +135,25 @@ def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Imag
     tensors = torch.stack([to_tensor(img) for img in images])
     grid = make_grid(tensors, nrow=w, pad_value=255, padding=10)
     return to_pil_image(grid)
+
+
+@collect
+def extract_faces(
+    points: tuple[list[np.ndarray], list[np.ndarray]], img: Image.Image
+) -> Generator[Face, None, None]:
+    faces = list(zip(*points))
+    if not faces:
+        w, h = img.size
+        yield Face(
+            box=Box(top_left=(0, 0), bottom_right=(w, h)),
+            eyes=Eyes(left=(0, 0), right=(0, 0)),
+        )
+        return
+    for bbox, kps in faces:
+        yield Face(
+            box=Box(
+                top_left=(bbox[0].tolist(), bbox[1].tolist()),
+                bottom_right=(bbox[2].tolist(), bbox[3].tolist()),
+            ),
+            eyes=Eyes(left=(kps[0], kps[0 + 5]), right=(kps[1], kps[1 + 5])),
+        )

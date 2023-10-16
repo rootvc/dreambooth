@@ -30,12 +30,13 @@ def _main():
                 "ca4b1e40984e7cc6f23777963e9ae76e",
             ],
             {
-                "num_inference_steps": [25],
-                "adapter_conditioning_scale": [0.9],  # conditioning_strength
-                "adapter_conditioning_factor": [0.8],
+                "steps": [30],
+                "conditioning_strength": [1.50],
+                "conditioning_factor": [1.0],
                 # "seed": [42],
                 # "refiner_strength": [0.05],
-                "guidance_scale": [5.0],
+                "guidance_scale": [8.5],
+                "seed": [42],
                 # "high_noise_frac": [1.0],
             },
         )

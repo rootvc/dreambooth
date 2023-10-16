@@ -248,8 +248,6 @@ class OneShotDreambooth:
             response=mp.Queue(self.world_size),
         )
 
-        Process.run(0, self.world_size, self.params, queues)
-
         ctx = torch.multiprocessing.start_processes(
             Process.run,
             args=(self.world_size, self.params, queues),

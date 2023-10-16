@@ -63,7 +63,6 @@ class ProcessModels:
 
     @classmethod
     @torch.inference_mode()
-    @snoop
     def load(cls, params: Params, rank: int):
         pipe = StableDiffusionXLAdapterPipeline.from_pretrained(
             params.model.name,
@@ -149,6 +148,7 @@ class Model:
     settings: Settings = Settings()
 
     @torch.inference_mode()
+    @snoop
     def run(self, request: "ProcessRequest") -> list[PIL.Image.Image]:
         prompts = Prompts(
             self.models.compels,
@@ -172,31 +172,38 @@ class Model:
         latents = [
             self.models.pipe(
                 image=img,
-                generator=torch.Generator(device=self.rank).manual_seed(42),
-                num_inference_steps=25,
-                guidance_scale=5.0,
-                adapter_conditioning_scale=0.9,
-                adapter_conditioning_factor=0.8,
-                denoising_end=1.0,
-                output_type="latent",
+                generator=torch.Generator(device=self.rank).manual_seed(
+                    self.params.seed
+                ),
+                num_inference_steps=self.params.steps,
+                guidance_scale=self.params.guidance_scale,
+                adapter_conditioning_scale=self.params.conditioning_strength,
+                adapter_conditioning_factor=self.params.conditioning_factor,
+                denoising_end=self.params.high_noise_frac,
+                output_type="pil" if self.params.high_noise_frac == 1.0 else "latent",
                 **prompts.kwargs_for_xl(idx),
             ).images[0]
             for idx, img in enumerate(request.generation.images)
         ]
 
-        self.logger.info("Refining latents...")
-        images = [
-            self.models.refiner(
-                image=latent,
-                generator=torch.Generator(device=self.rank).manual_seed(42),
-                num_inference_steps=25,
-                guidance_scale=5.0,
-                denoising_start=1.0,
-                strength=0.15,
-                **prompts.kwargs_for_refiner(idx),
-            ).images[0]
-            for idx, latent in enumerate(latents)
-        ]
+        if self.params.high_noise_frac < 1.0:
+            self.logger.info("Refining latents...")
+            images = [
+                self.models.refiner(
+                    image=latent,
+                    generator=torch.Generator(device=self.rank).manual_seed(
+                        self.params.seed
+                    ),
+                    num_inference_steps=self.params.steps,
+                    guidance_scale=self.params.guidance_scale,
+                    denoising_start=self.params.high_noise_frac,
+                    strength=self.params.refiner_strength,
+                    **prompts.kwargs_for_refiner(idx),
+                ).images[0]
+                for idx, latent in enumerate(latents)
+            ]
+        else:
+            images = latents
 
         self.logger.info("Touching up images...")
         masks, colors = map(

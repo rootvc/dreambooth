@@ -2,6 +2,10 @@
 
 FROM rootventures/train-dreambooth:latest
 
+WORKDIR /root
+
+RUN ln -s /usr/local/lib/python3.10/dist-packages/face_evolve/applications/align/*.npy .
+
 WORKDIR /dreambooth
 
 ENV CACHE_DIR /root/cache

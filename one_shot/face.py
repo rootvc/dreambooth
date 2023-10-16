@@ -1,16 +1,16 @@
 import itertools
+import sys
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import cache as f_cache
 from functools import cached_property
 from operator import itemgetter
 from pathlib import Path
 from typing import Generator, Iterator, cast
 
+import face_evolve.applications.align
 import numpy as np
-import snoop
 import torch.amp
-from insightface.app import FaceAnalysis
 from loguru import logger
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -18,7 +18,10 @@ from torchvision.transforms.functional import to_pil_image
 from transformers import BlipForQuestionAnswering, BlipProcessor
 
 from one_shot.params import Params, Settings
-from one_shot.utils import Face, collect, exclude, extract_face, grid
+from one_shot.utils import Face, collect, exclude, extract_faces, grid
+
+sys.path.append(str(Path(face_evolve.applications.align.__file__).parent))
+from face_evolve.applications.align.detector import detect_faces  # noqa: E402
 
 settings = Settings()
 
@@ -90,38 +93,15 @@ class FaceHelperModels:
     rank: int
     processor: BlipProcessor
     model: BlipForQuestionAnswering
-    detector: FaceAnalysis
-
-    def to(self, rank: int):
-        self.detector.prepare(rank)
-        return replace(self, rank=rank, model=self.model.to(rank))
 
     @classmethod
-    @snoop(depth=3)
     def load(cls, rank: int):
         kwargs = exclude(settings.loading_kwargs, {"use_safetensors", "variant"})
         processor = BlipProcessor.from_pretrained(cls.MODEL, **kwargs)
         model = BlipForQuestionAnswering.from_pretrained(cls.MODEL, **kwargs).to(
             rank, dtype=torch.float16
         )
-
-        cache_path = Path(settings.cache_dir) / "insightface"
-        detector = FaceAnalysis(
-            root=str(cache_path / "models"),
-            providers=["TensorrtExecutionProvider"],
-            provider_options=[
-                {
-                    "trt_dla_enable": True,
-                    "trt_fp16_enable": True,
-                    "trt_engine_cache_enable": True,
-                    "trt_engine_cache_path": cache_path,
-                }
-            ],
-            allowed_modules=["detection", "landmark_2d_106", "landmark_3d_68"],
-        )
-        detector.prepare(rank)
-
-        return cls(rank, processor, model, detector)
+        return cls(rank, processor, model)
 
 
 class FaceHelper:
@@ -136,7 +116,6 @@ class FaceHelper:
         self.rank = models.rank
         self.processor = models.processor
         self.model = models.model
-        self.detector = models.detector
 
     @cached_property
     def image(self):
@@ -175,9 +154,7 @@ class FaceHelper:
     @f_cache
     @collect
     def face_bounds(self) -> Generator[tuple[int, Face], None, None]:
-        detections = [
-            map(extract_face, self.detector.get(img)) for img in self.np_images
-        ]
+        detections = [extract_faces(detect_faces(img), img) for img in self.images]
         for i, faces in enumerate(detections):
             for face in faces:
                 yield i, face

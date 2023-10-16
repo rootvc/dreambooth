@@ -133,8 +133,8 @@ class Request:
         logger.info("Tuning with params: {}", params)
         grids = [
             grid(self.images()[: self.dreambooth.params.images]),
-            grid(self.controls()[: self.dreambooth.params.images]),
             grid(self.face.primary_faces()[: self.dreambooth.params.images]),
+            grid(self.controls()[: self.dreambooth.params.images]),
             grid(
                 [x[0] for x in self.face.eye_masks()][: self.dreambooth.params.images]
             ),
@@ -146,6 +146,8 @@ class Request:
                 "text": json.dumps(
                     {
                         "_".join(s[:3] for s in k.split("_")): round(v, 2)
+                        if isinstance(v, float)
+                        else str(v)[:5]
                         for k, v in resp.params.items()
                     },
                 ),
@@ -172,7 +174,7 @@ class Request:
             final.save(path)
         except Exception:
             path = path.with_suffix(".png")
-            final.reduce(2).save(path, optimize=True)
+            final.reduce(4).save(path, optimize=True)
         self.dreambooth.volume.commit()
 
         logger.info("Tuning complete!\n{}", path.stat())
