@@ -1,8 +1,7 @@
 import got, { RequestError } from "got";
-import { API_ID, STATUS } from "../constants";
+import Redis from "ioredis";
+import { STATUS } from "../constants";
 import { defineFunction } from "../tools";
-
-const URL = `https://api.runpod.ai/v2/${API_ID}/status`;
 
 type StatusResponse = {
   delayTime: number;
@@ -17,54 +16,48 @@ export default defineFunction(
   async ({
     tools: { run, send, sleep, redis },
     event: {
-      data: { id, phone, requestId },
+      data: { id, phone, resultUrl },
     },
   }) => {
-    while (true) {
-      const response = <StatusResponse>(
-        await run("get training job status", async () => {
-          try {
-            return await got
-              .get(`${URL}/${requestId}`, {
-                headers: {
-                  Authorization: `Bearer ${process.env.RUNPOD_API_KEY}`,
-                },
-              })
-              .json();
-          } catch (error: any) {
-            console.error(<RequestError>error.response);
-            throw error;
-          }
-        })
-      );
-      if (response.status === "IN_PROGRESS") {
-        await run(
-          "update status",
-          async () => await redis.hset(`ts/${id}`, { status: STATUS.TRAINING })
-        );
-      } else if (response.status === "COMPLETED") {
-        await run(
-          "update status",
-          async () => await redis.hset(`ts/${id}`, { status: STATUS.PRINTING })
-        );
-        await send("dreambooth/train.complete", { phone, id });
-        break;
-      } else if (response.status === "FAILED") {
-        console.error(response.error);
-        await run(
-          "update status",
-          async () => await redis.hset(`ts/${id}`, { status: STATUS.FINISHED })
-        );
-        await send("dreambooth/sms.notify", {
+    await sleep("3 seconds");
+    const response = <StatusResponse>await run("get result", async () => {
+      try {
+        return await got.get(resultUrl).json();
+      } catch (error: any) {
+        console.error(<RequestError>error.response);
+        throw error;
+      }
+    });
+    console.warn(response);
+    await run(
+      "update status",
+      async () => await redis.hset(`ts/${id}`, { status: STATUS.PRINTING })
+    );
+    await send("dreambooth/train.complete", { phone, id });
+  },
+  {
+    // @ts-ignore
+    onFailure: async ({
+      error,
+      event: {
+        data: { id, phone },
+      },
+      step: { run, sendEvent },
+    }) => {
+      console.error(error);
+
+      await run("update status", async () => {
+        const redis = new Redis(process.env.REDIS_URL || "");
+        await redis.hset(`ts/${id}`, { status: STATUS.FINISHED });
+      });
+      await sendEvent({
+        name: "dreambooth/sms.notify",
+        data: {
           phone,
           key: "ERRORED",
-          error: response.error,
-        });
-        break;
-      }
-      await sleep("3 seconds");
-    }
-
-    await send("dreambooth/train.complete", { phone, id });
+          error: error,
+        },
+      });
+    },
   }
 );

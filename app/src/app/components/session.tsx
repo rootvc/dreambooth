@@ -10,7 +10,12 @@ export default async function Session({
 }: {
   id: string;
   keyTemplate: string;
-  el: React.ElementType;
+  el: React.FunctionComponent<{
+    ts: number;
+    phone: string;
+    photo: string;
+    status: string;
+  }>;
 }) {
   let { ts, phone, status } = await redis.hgetall(id);
   let key = id.split("/")[1];

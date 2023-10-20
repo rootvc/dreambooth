@@ -33,10 +33,12 @@ class Dreambooth(OneShotDreambooth):
     def generate(self, id: str):
         return self._generate(id)
 
-    @web_endpoint()
+    @web_endpoint(
+        wait_for_response=False, custom_domains=["dream.modal.root.vc"], method="POST"
+    )
     def dream(self, id: str):
         return self._generate(id)
 
-    @web_endpoint()
+    @web_endpoint(custom_domains=["warm.modal.root.vc"], method="POST")
     def warm(self):
         pass

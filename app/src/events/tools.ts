@@ -111,12 +111,14 @@ const _defineFunction = <E extends Event>(
   name: string,
   trigger: { event: E } | { cron: string },
   fn: (arg: {
+    attempt?: number;
     event: Events[E];
     tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
   }) => any,
   opts: Omit<FunctionOptions<Events, E>, "name"> = {}
 ) => {
   return inngest.createFunction<{}, any, { event: E } | { cron: string }>(
+    // @ts-ignore
     { name, ...opts },
     trigger,
     async ({ event, step }: { event: Events[E]; step: Tools<E> }) => {
@@ -130,6 +132,7 @@ export const defineFunction = <E extends Event>(
   name: string,
   event: E,
   fn: (arg: {
+    attempt?: number;
     event: Events[E];
     tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
   }) => any,
@@ -140,6 +143,7 @@ export const defineCronFunction = <E extends Event>(
   name: string,
   cron: string,
   fn: (arg: {
+    attempt?: number;
     event: Events[E];
     tools: Omit<Tools<E>, "run"> & ReturnType<typeof getTools<E>>;
   }) => any,

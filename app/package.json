@@ -19,7 +19,7 @@
     "eslint-config-next": "13.4.3",
     "formidable": "^2.1.1",
     "got": "^12.5.3",
-    "inngest": "^2.1.0",
+    "inngest": "^2.1",
     "ioredis": "^5.3.1",
     "lodash": "^4.17.21",
     "luxon": "^3.3.0",

@@ -1,8 +1,7 @@
 import got from "got";
-import { API_ID, BUCKET, GIT_REMOTE_URL, STATUS } from "../constants";
+import { STATUS } from "../constants";
 import { defineFunction } from "../tools";
-
-const URL = `https://api.runpod.ai/v2/${API_ID}/run`;
+import { modalUrl } from "../utils";
 
 export default defineFunction(
   "Start a training run",
@@ -13,39 +12,22 @@ export default defineFunction(
       data: { id, phone },
     },
   }) => {
-    const payload = {
-      input: {
-        id,
-        env: {
-          WANDB_API_KEY: process.env.WANDB_API_KEY,
-          WANDB_GIT_REMOTE_URL: GIT_REMOTE_URL,
-          WANDB_GIT_COMMIT: "main",
-          WANDB_NAME: `dreambooth-${id}`,
-          DREAMBOOTH_ID: id,
-          DREAMBOOTH_BUCKET: BUCKET,
-        },
-      },
-    };
-    const request = (await run(
-      "request new run",
-      async () =>
-        await got
-          .post(URL, {
-            json: payload,
-            headers: {
-              Authorization: `Bearer ${process.env.RUNPOD_API_KEY}`,
-            },
-          })
-          .json()
-    )) as { id: string };
     await run(
       "update status",
       async () => await redis.hset(`ts/${id}`, { status: STATUS.QUEUED })
     );
+    const request = (await run(
+      "request new run",
+      async () => await got.post(modalUrl("dream"), { json: { id } }).json()
+    )) as { result_url: string };
+    await run(
+      "update status",
+      async () => await redis.hset(`ts/${id}`, { status: STATUS.STARTED })
+    );
     await send("dreambooth/train.monitor", {
       id,
       phone,
-      requestId: request.id,
+      resultUrl: request.result_url,
     });
   }
 );

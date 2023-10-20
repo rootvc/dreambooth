@@ -100,3 +100,6 @@ class Params(BaseModel):
     lora_scale = 0.4
     high_noise_frac: float = 1.0
     mask_padding: float = 0.04
+
+    def use_refiner(self):
+        return self.high_noise_frac < 1.0

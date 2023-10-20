@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import PIL.Image
 import torch
@@ -39,7 +39,7 @@ class SharedModels:
 @dataclass
 class ProcessModels:
     pipe: StableDiffusionXLAdapterPipeline
-    refiner: StableDiffusionXLImg2ImgPipeline
+    refiner: Optional[StableDiffusionXLImg2ImgPipeline]
     inpainter: StableDiffusionXLInpaintPipeline
     compels: Compels
     face: FaceHelperModels
@@ -83,14 +83,17 @@ class ProcessModels:
         pipe.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, pipe)
 
-        refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-            params.model.refiner,
-            text_encoder_2=pipe.text_encoder_2,
-            vae=pipe.vae,
-            scheduler=pipe.scheduler,
-            **cls.settings.loading_kwargs,
-        ).to(rank)
-        refiner.enable_xformers_memory_efficient_attention()
+        if params.use_refiner():
+            refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+                params.model.refiner,
+                text_encoder_2=pipe.text_encoder_2,
+                vae=pipe.vae,
+                scheduler=pipe.scheduler,
+                **cls.settings.loading_kwargs,
+            ).to(rank)
+            refiner.enable_xformers_memory_efficient_attention()
+        else:
+            refiner = None
 
         inpainter = StableDiffusionXLInpaintPipeline.from_pretrained(
             params.model.inpainter,
@@ -111,14 +114,17 @@ class ProcessModels:
             device=rank,
             textual_inversion_manager=DiffusersTextualInversionManager(pipe),
         )
-        refiner_compel = Compel(
-            tokenizer=refiner.tokenizer_2,
-            text_encoder=refiner.text_encoder_2,
-            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-            requires_pooled=True,
-            device=rank,
-            textual_inversion_manager=DiffusersTextualInversionManager(pipe),
-        )
+        if params.use_refiner():
+            refiner_compel = Compel(
+                tokenizer=refiner.tokenizer_2,
+                text_encoder=refiner.text_encoder_2,
+                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+                requires_pooled=True,
+                device=rank,
+                textual_inversion_manager=DiffusersTextualInversionManager(pipe),
+            )
+        else:
+            refiner_compel = None
         inpainter_compel = Compel(
             [inpainter.tokenizer, inpainter.tokenizer_2],
             [inpainter.text_encoder, inpainter.text_encoder_2],
@@ -179,13 +185,13 @@ class Model:
                 ),
                 adapter_conditioning_factor=self.params.conditioning_factor,
                 denoising_end=self.params.high_noise_frac,
-                output_type="pil" if self.params.high_noise_frac == 1.0 else "latent",
+                output_type="latent" if self.params.use_refiner() else "pil",
                 **prompts.kwargs_for_xl(idx),
             ).images[0]
             for idx, img in enumerate(request.generation.images)
         ]
 
-        if self.params.high_noise_frac < 1.0:
+        if self.params.use_refiner():
             self.logger.info("Refining latents...")
             images = [
                 self.models.refiner(

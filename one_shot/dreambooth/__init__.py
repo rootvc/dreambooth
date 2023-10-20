@@ -119,16 +119,17 @@ class OneShotDreambooth:
                 "local_files_only": True,
             },
         )
-        self._download_model(
-            StableDiffusionXLImg2ImgPipeline,
-            self.params.model.refiner,
-            vae=self._download_model(
-                AutoencoderKL,
-                self.params.model.vae,
-                method="from_pretrained",
-                variant=None,
-            ),
-        )
+        if self.params.use_refiner():
+            self._download_model(
+                StableDiffusionXLImg2ImgPipeline,
+                self.params.model.refiner,
+                vae=self._download_model(
+                    AutoencoderKL,
+                    self.params.model.vae,
+                    method="from_pretrained",
+                    variant=None,
+                ),
+            )
         self._download_model(
             StableDiffusionXLAdapterPipeline,
             self.params.model.name,
