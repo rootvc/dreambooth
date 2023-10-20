@@ -70,21 +70,14 @@ class Process:
             world_size=world_size,
             store=dist.FileStore("/tmp/filestore", world_size),
         )
-        logger.info("Process {} started", rank)
         init_config()
-        logger.info("Process {} confiugyred", rank)
-
         proc = ProcessModels.load(params, rank)
-
-        logger.info("Process {} model loaded", rank)
-
         model = Model(
             params,
             rank,
             proc,
             logger,
         )
-        logger.info("Process {} model loaded", rank)
         cls(params, model, queues.proc[rank], queues.response).wait()
 
     def __init__(
@@ -130,7 +123,7 @@ class Process:
 
         with self._split(request.generation.dict(exclude={"params"})) as split:
             generation = GenerationRequest(**split)
-
+            self.logger.info("Slice: {}", generation)
         return generation, params
 
     def _generate(self, request: ProcessRequest, **params) -> list[Image.Image]:

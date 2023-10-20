@@ -77,7 +77,7 @@ class Request:
         self, params: Optional[dict[str, list[int | float]]] = None, throw: bool = False
     ):
         multiplier = self.dreambooth.world_size if params else 1  # check if tuning
-        images = random.choices(
+        images = random.sample(
             self.controls(), k=self.dreambooth.params.images * multiplier
         )
         prompts = random.sample(
@@ -126,7 +126,7 @@ class Request:
     @torch.inference_mode()
     def generate(self):
         imgs = itertools.chain.from_iterable(r.images for r in self._generate())
-        yield grid(self.controls() + list(imgs))
+        return grid(list(imgs))
 
     @torch.inference_mode()
     def tune(self, params: dict[str, list[int | float]]):

@@ -30,12 +30,12 @@ def _main():
                 "ca4b1e40984e7cc6f23777963e9ae76e",
             ],
             {
-                "steps": [30],
-                "conditioning_strength": [1.50],
-                "conditioning_factor": [1.0],
+                # "steps": [30],
+                # "conditioning_strength": [1.50],
+                # "conditioning_factor": [1.0],
                 # "seed": [42],
                 # "refiner_strength": [0.05],
-                "guidance_scale": [8.5],
+                # "guidance_scale": [8.5],
                 "seed": [42],
                 # "high_noise_frac": [1.0],
             },
@@ -45,6 +45,11 @@ def _main():
 
 
 main = stub.local_entrypoint()(_main)
+
+
+@stub.local_entrypoint()
+async def test(id: str = "ca4b1e40984e7cc6f23777963e9ae76e"):
+    await Dreambooth().generate.remote.aio(id)
 
 
 @stub.function(**fn_kwargs)

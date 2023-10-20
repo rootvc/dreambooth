@@ -1,8 +1,8 @@
+import random
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import PIL.Image
-import snoop
 import torch
 import torch.multiprocessing
 from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
@@ -148,7 +148,6 @@ class Model:
     settings: Settings = Settings()
 
     @torch.inference_mode()
-    @snoop
     def run(self, request: "ProcessRequest") -> list[PIL.Image.Image]:
         prompts = Prompts(
             self.models.compels,
@@ -159,25 +158,25 @@ class Model:
                 for p in request.generation.prompts
             ],
             [
-                self.params.negative_prompt  # + (
-                # ", " + color
-                # for color in random.choices(
-                #     self.params.negative_colors, k=len(request.generation.prompts)
-                # )
-                # )
-            ]
-            * 2,
+                self.params.negative_prompt + ", " + color
+                for color in random.choices(
+                    self.params.negative_colors, k=len(request.generation.prompts)
+                )
+            ],
         )
         self.logger.info("Generating latents...")
+        generator = torch.Generator(device=self.rank)
+        if self.params.seed:
+            generator.manual_seed(self.params.seed)
         latents = [
             self.models.pipe(
                 image=img,
-                generator=torch.Generator(device=self.rank).manual_seed(
-                    self.params.seed
-                ),
+                generator=generator,
                 num_inference_steps=self.params.steps,
                 guidance_scale=self.params.guidance_scale,
-                adapter_conditioning_scale=self.params.conditioning_strength,
+                adapter_conditioning_scale=random.triangular(
+                    *self.params.conditioning_strength
+                ),
                 adapter_conditioning_factor=self.params.conditioning_factor,
                 denoising_end=self.params.high_noise_frac,
                 output_type="pil" if self.params.high_noise_frac == 1.0 else "latent",
@@ -191,9 +190,7 @@ class Model:
             images = [
                 self.models.refiner(
                     image=latent,
-                    generator=torch.Generator(device=self.rank).manual_seed(
-                        self.params.seed
-                    ),
+                    generator=generator,
                     num_inference_steps=self.params.steps,
                     guidance_scale=self.params.guidance_scale,
                     denoising_start=self.params.high_noise_frac,

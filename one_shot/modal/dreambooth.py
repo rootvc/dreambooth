@@ -1,4 +1,6 @@
 import random
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from modal import method
 
@@ -20,4 +22,10 @@ class Dreambooth(OneShotDreambooth):
 
     @method()
     def generate(self, id: str):
-        return Request(self, id).generate()
+        image = Request(self, id).generate()
+        with TemporaryDirectory() as dir:
+            file = Path(dir) / "grid.png"
+            image.save(file)
+            (self.settings.bucket / "output" / id / "grid.png").upload_from(
+                file, force_overwrite_to_cloud=True
+            )

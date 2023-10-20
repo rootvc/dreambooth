@@ -1,4 +1,3 @@
-import random
 from typing import Optional
 
 import torch
@@ -61,59 +60,42 @@ class Params(BaseModel):
     model: Model = Model()
     batch_size: int = 4
 
-    # negative_prompt: str = ", ".join(
-    #     [
-    #         "out of focus",
-    #         "lens blur",
-    #         "low quality",
-    #         "deformed eyes",
-    #         "eyes closed",
-    #         "distorted face",
-    #         "extra digit",
-    #         "mutated",
-    #         "disfigured",
-    #         "airbrushed",
-    #         "(sunglasses)--",
-    #     ]
-    # )
-    # negative_colors = [
-    #     "purple----",
-    #     "pink----",
-    #     "green----",
-    #     "brown----",
-    #     "(low contrast)---",
-    # ]
-    negative_colors = ["", "", "", "", ""]
+    negative_colors = [
+        "purple----",
+        "pink----",
+        "green----",
+        "brown----",
+        "(low contrast)---",
+    ]
     negative_prompt = (
         "extra digit, cropped, worst quality, low quality, fuzzy++, eyes closed"
     )
     # prompt_template = "closeup (4k photo)+ of a ({ethnicity})-- ({gender})-, ({prompt})++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
     prompt_template = "{prompt}"
-    inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.9"
+    inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
         "a {gender} dressed as a clown, thin rainbow stripes, suspenders, red nose, (face makeup)--",
         "mysterious, cyberpunk, the universe, cosmos and nebula on clothing",
         "90s style, leather jacket, smug, vintage, antique car, smoking cigar",
         "classy {gender}, wearing a rainbow suit, pop art style, painting by andy warhol",
-        "a {gender} wizard from harry potter",
         "zombie, (decaying skin and clothing)-, (rotting skin)-, inside an abandoned building",
-        "(8-bit video game)+, pixelated+, minecraft, lego, blocky, colors of nature, farmer"
+        "(8-bit video game)++, pixelated++, minecraft, lego, blocky, elementary colors"
         "Marvel++ superhero+, superhero costume+, flying in the air, sky+, nyc skyline in background, high contrast, simple colors",
         "a monarch, game of thrones, on the iron throne, wearing a crown+++, magestic, regal, powerful, bold",
         "rock star, face makeup, wearing a slick outfit, performing for fans, grungy, dark colors, moody",
         "character from tron, neon, techno, futuristic, dark background, black clothing, (high contrast)++",
     ]
 
-    seed: int = random.randint(0, 2**32 - 1)
+    seed: Optional[int] = None
     steps: int = 30
     inpainting_steps = 15
-    images: int = 2
+    images: int = 4
 
     detect_resolution: int = 384
-    guidance_scale: float = 10
+    guidance_scale: float = 8.5
     refiner_strength = 0.05
     inpainting_strength = 0.35
-    conditioning_strength: tuple[float, float] = (1.9, 2.0)
+    conditioning_strength: tuple[float, float] = (1.50, 1.52)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 1.0
