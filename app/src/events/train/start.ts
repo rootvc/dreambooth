@@ -18,7 +18,8 @@ export default defineFunction(
     );
     const request = (await run(
       "request new run",
-      async () => await got.post(modalUrl("dream"), { json: { id } }).json()
+      async () =>
+        await got.post(modalUrl("dream"), { searchParams: { id } }).json()
     )) as { result_url: string };
     await run(
       "update status",
