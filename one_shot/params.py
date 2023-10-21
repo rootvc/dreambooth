@@ -92,9 +92,9 @@ class Params(BaseModel):
     images: int = 4
 
     detect_resolution: int = 384
-    guidance_scale: float = 8.5
+    guidance_scale: float = 9.0
     refiner_strength = 0.05
-    inpainting_strength = 0.35
+    inpainting_strength = 0.30
     conditioning_strength: tuple[float, float] = (1.50, 1.52)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
