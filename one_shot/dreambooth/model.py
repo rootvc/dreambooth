@@ -171,9 +171,10 @@ class Model:
             ],
         )
         self.logger.info("Generating latents...")
-        generator = torch.Generator(device=self.rank)
         if self.params.seed:
-            generator.manual_seed(self.params.seed)
+            generator = torch.Generator(device=self.rank).manual_seed(self.params.seed)
+        else:
+            generator = None
         latents = [
             self.models.pipe(
                 image=img,
