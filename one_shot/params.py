@@ -71,7 +71,7 @@ class Params(BaseModel):
         "extra digit, cropped, worst quality, low quality, fuzzy++, eyes closed"
     )
     # prompt_template = "closeup (4k photo)+ of a ({ethnicity})-- ({gender})-, ({prompt})++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
-    prompt_template = "{prompt}"
+    prompt_template = "{prompt}, 4k photo, cinematic camera, hyperrealistic"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
         "a {gender} dressed as a clown, goofy, thin rainbow stripes, suspenders, red nose, (face makeup)--",
@@ -87,18 +87,18 @@ class Params(BaseModel):
 
     seed: Optional[int] = None
     steps: int = 25
-    inpainting_steps = 15
+    inpainting_steps = 20
     images: int = 4
 
     detect_resolution: int = 384
-    guidance_scale: float = 9.0
+    guidance_scale: float = 10.0
     refiner_strength = 0.05
-    inpainting_strength = 0.30
+    inpainting_strength = 0.40
     conditioning_strength: tuple[float, float] = (1.50, 1.52)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 1.0
-    mask_padding: float = 0.04
+    mask_padding: float = 0.05
 
     def use_refiner(self):
         return self.high_noise_frac < 1.0

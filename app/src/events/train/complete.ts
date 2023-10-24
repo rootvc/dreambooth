@@ -52,7 +52,8 @@ export default defineFunction(
       try {
         let error = await run("send to printer server", async () => {
           try {
-            await got.post(PRINT_SERVER, { json: { id } }).json();
+            const resp = await got.post(PRINT_SERVER, { json: { id } }).json();
+            console.log(resp);
           } catch (error) {
             return error;
           }
@@ -60,7 +61,7 @@ export default defineFunction(
         if (error) throw error;
         break;
       } catch (error: any) {
-        console.error(<RequestError>error.response);
+        console.log(<RequestError>error.response);
         await sleep("30 seconds");
         continue;
       }
@@ -73,7 +74,7 @@ export default defineFunction(
       event: { id, phone },
       step: { sleep, sendEvent },
     }) => {
-      console.error(error);
+      console.log(error);
       await sleep("10 seconds");
       await sendEvent({ name: "dreambooth/train.start", data: { id, phone } });
     },

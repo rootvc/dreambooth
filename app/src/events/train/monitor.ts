@@ -43,7 +43,7 @@ export default defineFunction(
             .json();
           return { type: "response", value: resp };
         } catch (error: any) {
-          console.error(<RequestError>error.response);
+          console.log(<RequestError>error.response);
           return { type: "error", value: error };
         }
       });
@@ -59,7 +59,10 @@ export default defineFunction(
 
       const err = restoreError(response.value);
 
-      if (err instanceof TimeoutError) {
+      if (
+        err instanceof TimeoutError ||
+        (err instanceof HTTPError && !err.response)
+      ) {
         await sleep("3 seconds");
         continue;
       } else if (
