@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from modal import method, web_endpoint
+from PIL import Image
 
 from one_shot.dreambooth import OneShotDreambooth
 from one_shot.dreambooth.request import Request
@@ -21,7 +22,12 @@ class Dreambooth(OneShotDreambooth):
             yield from Request(self, id).tune(params)
 
     def _generate(self, id: str):
-        image = Request(self, id).generate()
+        image = (
+            Request(self, id)
+            .generate()
+            .reduce(2)
+            .convert(mode="P", palette=Image.ADAPTIVE)
+        )
         with TemporaryDirectory() as dir:
             file = Path(dir) / "grid.png"
             image.save(file)

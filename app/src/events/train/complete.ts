@@ -62,7 +62,7 @@ export default defineFunction(
         break;
       } catch (error: any) {
         console.log(<RequestError>error.response);
-        await sleep("30 seconds");
+        await sleep("1 second");
         continue;
       }
     }
@@ -75,7 +75,7 @@ export default defineFunction(
       step: { sleep, sendEvent },
     }) => {
       console.log(error);
-      await sleep("10 seconds");
+      await sleep("5 seconds");
       await sendEvent({ name: "dreambooth/train.start", data: { id, phone } });
     },
   }

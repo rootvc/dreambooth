@@ -1,9 +1,9 @@
 import { OpenAIChatMessage, OpenAIChatModel, generateText } from "modelfusion";
-import { Twilio } from "twilio";
-import { SMS_COPY, TWILIO } from "../constants";
+import Telnyx from "telnyx/lib/telnyx";
+import { SMS_COPY } from "../constants";
 import { defineFunction } from "../tools";
 
-const twilio = new Twilio(TWILIO.ACCOUNT_SID, TWILIO.AUTH_TOKEN);
+const telnyx = Telnyx(process.env.TELNYX_API_KEY);
 
 export default defineFunction(
   "Notify a user",
@@ -15,10 +15,11 @@ export default defineFunction(
     },
   }) => {
     if (!phone) return;
+    if(true) return;
     const copy = await run("get copy", () =>
       SMS_COPY[key as keyof typeof SMS_COPY](args)
     );
-    const { text: body } = await run(
+    const { text } = await run(
       "make copy unique",
       async () =>
         await generateText(
@@ -34,13 +35,17 @@ export default defineFunction(
           ]
         )
     );
-    await run("send SMS", () =>
-      twilio.messages.create({
-        from: TWILIO.PHONE_NUMBER,
-        to: phone,
-        body,
-        mediaUrl: mediaUrl ? [mediaUrl] : undefined,
-      })
+    await run(
+      "send SMS",
+      async () =>
+        await telnyx.messages.create({
+          from: process.env.TELNYX_PHONE_NUMBER,
+          messaging_profile_id: process.env.TELNYX_MESSAGING_PROFILE_ID,
+          to: phone,
+          text,
+          media_urls: mediaUrl ? [mediaUrl] : undefined,
+          type: mediaUrl ? "MMS" : "SMS",
+        })
     );
   }
 );

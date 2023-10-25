@@ -11,11 +11,15 @@ type StatusResponse = {
   error?: string;
 };
 
-type SerializedError = { name: keyof typeof Got };
+type SerializedError = {
+  error: { name: keyof typeof Got };
+  response?: Got.ResponseType;
+};
 
 const restoreError = (obj: SerializedError): RequestError => {
-  const err = Object.create(Got[obj.name].prototype);
-  Object.assign(err, obj);
+  const { error, response } = obj;
+  const err = Object.create(Got[error.name].prototype);
+  Object.assign(err, { ...obj, response });
   return err;
 };
 
@@ -43,8 +47,8 @@ export default defineFunction(
             .json();
           return { type: "response", value: resp };
         } catch (error: any) {
-          console.log(<RequestError>error.response);
-          return { type: "error", value: error };
+          console.log(<RequestError>error);
+          return { type: "error", value: { error, response: error.response } };
         }
       });
 

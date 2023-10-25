@@ -67,11 +67,9 @@ class Params(BaseModel):
         "brown----",
         "(low contrast)---",
     ]
-    negative_prompt = (
-        "extra digit, cropped, worst quality, low quality, fuzzy++, eyes closed"
-    )
+    negative_prompt = "blurry,ugly, extra digit, cropped, worst quality, low quality, fuzzy++, eyes closed"
     # prompt_template = "closeup (4k photo)+ of a ({ethnicity})-- ({gender})-, ({prompt})++, (cinematic camera)+, highly detailed, (ultra realistic)+, vibrant colors, high contrast, textured skin, realistic dull skin noise, visible skin detail, skin fuzz, dry skin"
-    prompt_template = "{prompt}, 4k photo, cinematic camera, hyperrealistic"
+    prompt_template = "{prompt}, 4k photo, cinematic camera, hyperrealistic, sharp"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
         "a {gender} dressed as a clown, goofy, thin rainbow stripes, suspenders, red nose, (face makeup)--",
@@ -91,7 +89,7 @@ class Params(BaseModel):
     images: int = 4
 
     detect_resolution: int = 384
-    guidance_scale: float = 10.0
+    guidance_scale: float = 8.0
     refiner_strength = 0.05
     inpainting_strength = 0.40
     conditioning_strength: tuple[float, float] = (1.50, 1.52)
