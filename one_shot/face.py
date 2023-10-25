@@ -6,7 +6,7 @@ from functools import cache as f_cache
 from functools import cached_property
 from operator import itemgetter
 from pathlib import Path
-from typing import Generator, Iterator, cast
+from typing import Generator, Iterator, Optional, cast
 
 import face_evolve.applications.align
 import numpy as np
@@ -18,7 +18,7 @@ from torchvision.transforms.functional import to_pil_image
 from transformers import BlipForQuestionAnswering, BlipProcessor
 
 from one_shot.params import Params, Settings
-from one_shot.utils import Face, collect, exclude, extract_faces, grid
+from one_shot.utils import Face, collect, exclude, extract_faces
 
 sys.path.append(str(Path(face_evolve.applications.align.__file__).parent))
 from face_evolve.applications.align.detector import detect_faces  # noqa: E402
@@ -34,6 +34,17 @@ class Bounds(BaseModel):
     origin_y: int = Field(int, alias="y")
     width: int = Field(int, alias="w")
     height: int = Field(int, alias="h")
+
+    @classmethod
+    def from_face(cls, shape: tuple[int, int], face: Face):
+        return cls(
+            dims=shape,
+            shape=shape,
+            x=face.box.top_left[0],
+            y=face.box.top_left[1],
+            w=face.box.bottom_right[0] - face.box.top_left[0],
+            h=face.box.bottom_right[1] - face.box.top_left[1],
+        )
 
     @property
     def mid_y(self):
@@ -56,6 +67,10 @@ class Bounds(BaseModel):
             else:
                 return 3
 
+    def size(self, mask_padding: float = 0.0):
+        slice_y, slice_x = self.slice(mask_padding)
+        return (slice_x.stop - slice_x.start, slice_y.stop - slice_y.start)
+
     def _slice(self, mask_padding: float):
         buffer_y = int(self.dims[0] * mask_padding)
         buffer_x = int(self.dims[1] * mask_padding)
@@ -67,7 +82,7 @@ class Bounds(BaseModel):
 
         return (slice(start_y, end_y), slice(start_x, end_x))
 
-    def slice(self, mask_padding: float):
+    def slice(self, mask_padding: float = 0.0):
         original_slices = self._slice(mask_padding)
         quadrant = self.quadrant
 
@@ -108,22 +123,31 @@ class FaceHelper:
     cache: Path = Path(settings.cache_dir) / "face"
 
     def __init__(
-        self, params: Params, models: FaceHelperModels, images: list[Image.Image]
+        self,
+        params: Params,
+        models: FaceHelperModels,
+        images: list[Image.Image],
+        src_images: Optional[list[Image.Image]] = None,
     ):
         self.params = params
-        self.images = images
+        self.src_images = src_images or images
+        self.dst_images = images
 
         self.rank = models.rank
         self.processor = models.processor
         self.model = models.model
 
-    @cached_property
-    def image(self):
-        return np.asarray(grid(self.images))
+    def with_images(self, images: list[Image.Image]):
+        return self.__class__(
+            self.params,
+            FaceHelperModels(self.rank, self.processor, self.model),
+            images,
+            self.src_images,
+        )
 
     @cached_property
-    def np_images(self):
-        return list(map(np.asarray, self.images))
+    def dst_np_images(self):
+        return list(map(np.asarray, self.dst_images))
 
     @collect
     def _analyze(
@@ -149,30 +173,22 @@ class FaceHelper:
 
     @property
     def dims(self):
-        return np.asarray(self.images[0]).shape
+        return np.asarray(self.src_images[0]).shape
 
     @f_cache
     @collect
     def face_bounds(self) -> Generator[tuple[int, Face], None, None]:
-        detections = [extract_faces(detect_faces(img), img) for img in self.images]
+        detections = [extract_faces(detect_faces(img), img) for img in self.src_images]
         for i, faces in enumerate(detections):
             for face in faces:
                 yield i, face
 
     @f_cache
     def _face_from_bounds(self, i: int, face: Face) -> Image.Image:
-        bounds = Bounds(
-            dims=self.dims,
-            shape=self.dims,
-            x=face.box.top_left[0],
-            y=face.box.top_left[1],
-            w=face.box.bottom_right[0] - face.box.top_left[0],
-            h=face.box.bottom_right[1] - face.box.top_left[1],
-        )
+        bounds = Bounds.from_face(self.dims, face)
         y, x = bounds.slice(self.params.mask_padding)
-        masked = np.zeros(self.dims, dtype=self.np_images[i].dtype)
-        masked[y, x] = self.np_images[i][y, x]
-        return to_pil_image(masked)
+        img: Image.Image = to_pil_image(self.dst_np_images[i][y, x])
+        return img.resize(self.dims[:2])
 
     @collect
     def faces(self):
@@ -180,9 +196,13 @@ class FaceHelper:
             yield self._face_from_bounds(i, face)
 
     @collect
-    def primary_faces(self):
+    def primary_face_bounds(self):
         for i, faces in itertools.groupby(self.face_bounds(), itemgetter(0)):
-            face = next(faces)[1]
+            yield i, next(faces)[1]
+
+    @collect
+    def primary_faces(self):
+        for i, face in self.primary_face_bounds():
             yield self._face_from_bounds(i, face)
 
     @f_cache
@@ -203,7 +223,7 @@ class FaceHelper:
         for i, faces in itertools.groupby(self.face_bounds(), itemgetter(0)):
             logger.info("Detecting eyes...")
             colors = []
-            mask = np.zeros(self.dims, dtype=self.np_images[i].dtype)
+            mask = np.zeros(self.dims, dtype=self.dst_np_images[i].dtype)
             for face in cast(Iterator[Face], map(itemgetter(1), faces)):
                 logger.debug("Face: {}", face)
                 for eye in face.eyes:

@@ -15,6 +15,7 @@ from torch.multiprocessing import Queue
 from one_shot.config import init_config
 from one_shot.dreambooth.model import Model, ProcessModels
 from one_shot.params import Params, Settings
+from one_shot.utils import Face
 
 if TYPE_CHECKING:
     from one_shot.dreambooth import Queues
@@ -28,6 +29,7 @@ class GenerationRequest(BaseModel):
         arbitrary_types_allowed = True
 
     images: list[Image.Image]
+    faces: list[Face]
     prompts: list[str]
     params: dict[str, list[Any]] = Field(default_factory=dict)
 

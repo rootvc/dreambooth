@@ -2,6 +2,7 @@ import itertools
 import json
 import random
 from functools import cache, cached_property
+from operator import itemgetter
 from pathlib import Path
 from queue import Empty
 from tempfile import TemporaryDirectory
@@ -20,6 +21,7 @@ from one_shot.dreambooth.process import (
 )
 from one_shot.face import FaceHelper
 from one_shot.utils import (
+    Face,
     collect,
     grid,
     images,
@@ -51,12 +53,12 @@ class Request:
 
     @cache
     @collect
-    def controls(self):
+    def controls(self) -> Generator[Image.Image, None, None]:
         logger.info("Loading controls...")
-        for i, image in enumerate(self.images()):
+        for i, face in enumerate(self.face.primary_faces()):
             logger.debug(f"Loading controls for {i}...")
             yield self.dreambooth.models.detector(
-                image,
+                face,
                 detect_resolution=self.dreambooth.params.detect_resolution,
                 image_resolution=self.dreambooth.params.model.resolution,
             )
@@ -77,14 +79,23 @@ class Request:
         self, params: Optional[dict[str, list[int | float]]] = None, throw: bool = False
     ):
         multiplier = self.dreambooth.world_size if params else 1  # check if tuning
-        images = random.sample(
-            self.controls(), k=self.dreambooth.params.images * multiplier
+        sample: list[tuple[Image.Image, Face]] = random.sample(
+            list(
+                zip(
+                    self.controls(), map(itemgetter(1), self.face.primary_face_bounds())
+                )
+            ),
+            k=self.dreambooth.params.images * multiplier,
         )
+        images, face_bounds = map(list, zip(*sample))
         prompts = random.sample(
             self.dreambooth.params.prompts, k=self.dreambooth.params.images * multiplier
         )
         generation = GenerationRequest(
-            images=images, prompts=prompts, params=params or {}
+            images=images,
+            faces=face_bounds,
+            prompts=prompts,
+            params=params or {},
         )
         logger.info("Generation request: {}", generation)
 

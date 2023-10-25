@@ -2,7 +2,7 @@ import random
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional
 
-import PIL.Image
+import numpy as np
 import torch
 import torch.multiprocessing
 from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
@@ -15,12 +15,15 @@ from diffusers import (
     StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
+from PIL import Image
+from torchvision.transforms.functional import to_pil_image
 
-from one_shot.face import FaceHelper, FaceHelperModels
+from one_shot.face import Bounds, FaceHelper, FaceHelperModels
 from one_shot.params import Params, Settings
 from one_shot.prompt import Compels, Prompts
 from one_shot.utils import (
     civitai_path,
+    dilate_mask,
     exclude,
 )
 
@@ -154,7 +157,7 @@ class Model:
     settings: Settings = Settings()
 
     @torch.inference_mode()
-    def run(self, request: "ProcessRequest") -> list[PIL.Image.Image]:
+    def run(self, request: "ProcessRequest") -> list[Image.Image]:
         prompts = Prompts(
             self.models.compels,
             self.rank,
@@ -215,6 +218,7 @@ class Model:
             zip(*FaceHelper(self.params, self.models.face, images).eye_masks()),
         )
         self.logger.info("Colors: {}", colors)
+        og_prompts = prompts
         prompts = replace(
             prompts,
             raw=[
@@ -225,7 +229,7 @@ class Model:
             ],
             negative=[self.params.negative_prompt] * len(request.generation.prompts),
         )
-        return [
+        faces: list[Image.Image] = [
             self.models.inpainter(
                 image=img,
                 mask_image=masks[idx],
@@ -234,4 +238,32 @@ class Model:
                 **prompts.kwargs_for_inpainter(idx),
             ).images[0]
             for idx, img in enumerate(images)
+        ]
+
+        images = []
+        masks = []
+        for face, img in zip(request.generation.faces, faces):
+            dims = (self.params.model.resolution, self.params.model.resolution)
+            padding = self.params.mask_padding * 2
+            bounds = Bounds.from_face(dims, face)
+            y, x = bounds.slice(padding)
+
+            mask = np.zeros(dims, dtype=np.uint8)
+            mask[y, x] = 255
+            masks.append(to_pil_image(dilate_mask(~mask), mode="L"))
+
+            image = np.array(img.resize(dims), dtype=np.uint8)
+            image[y, x] = np.asarray(img.resize(bounds.size(padding)))
+            images.append(to_pil_image(image))
+
+        return [
+            self.models.inpainter(
+                image=img,
+                mask_image=mask,
+                strength=0.99,
+                guidance_scale=8.0,
+                num_inference_steps=30,
+                **og_prompts.kwargs_for_inpainter(idx),
+            ).images[0]
+            for img, mask, idx in zip(images, masks, range(len(images)))
         ]

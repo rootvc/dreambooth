@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, Generator, ParamSpec, TypeVar
 from urllib.parse import urlencode
 
+import cv2
 import numpy as np
 import torch
 from PIL import Image
@@ -132,9 +133,18 @@ def images(p: Path):
 
 
 def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Image:
+    if any(np.asarray(image).shape[-1] == 4 for image in images):
+        for image in images:
+            if np.asarray(image).shape[-1] == 3:
+                image.putalpha(255)
     tensors = torch.stack([to_tensor(img) for img in images])
     grid = make_grid(tensors, nrow=w, pad_value=255, padding=10)
     return to_pil_image(grid)
+
+
+def dilate_mask(mask: np.ndarray, size: tuple[int, int] = (5, 5), iterations: int = 20):
+    kernel = np.ones(size, np.uint8)
+    return cv2.dilate(mask, kernel, iterations=iterations)
 
 
 @collect
