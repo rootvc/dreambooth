@@ -10,13 +10,12 @@ from controlnet_aux.lineart import LineartDetector
 from diffusers import (
     AutoencoderKL,
     StableDiffusionXLAdapterPipeline,
-    StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
 from diffusers.loaders import LoraLoaderMixin
 from modal import Volume
-from transformers import BlipForQuestionAnswering, BlipProcessor
+from transformers import BlipForQuestionAnswering, BlipProcessor, SamModel, SamProcessor
 
 from one_shot import logger
 from one_shot.dreambooth.model import SharedModels
@@ -106,30 +105,34 @@ class OneShotDreambooth:
 
         self._download_model(
             BlipProcessor,
-            FaceHelperModels.MODEL,
+            self.params.model.vqa,
             method="from_pretrained",
             default_kwargs={"local_files_only": True},
         )
         self._download_model(
             BlipForQuestionAnswering,
-            FaceHelperModels.MODEL,
+            self.params.model.vqa,
             method="from_pretrained",
             default_kwargs={
                 "torch_dtype": torch.float16,
                 "local_files_only": True,
             },
         )
-        if self.params.use_refiner():
-            self._download_model(
-                StableDiffusionXLImg2ImgPipeline,
-                self.params.model.refiner,
-                vae=self._download_model(
-                    AutoencoderKL,
-                    self.params.model.vae,
-                    method="from_pretrained",
-                    variant=None,
-                ),
-            )
+        self._download_model(
+            SamProcessor,
+            self.params.model.sam,
+            method="from_pretrained",
+            default_kwargs={"local_files_only": True},
+        )
+        self._download_model(
+            SamModel,
+            self.params.model.sam,
+            method="from_pretrained",
+            default_kwargs={
+                "torch_dtype": torch.float16,
+                "local_files_only": True,
+            },
+        )
         self._download_model(
             StableDiffusionXLAdapterPipeline,
             self.params.model.name,
@@ -149,6 +152,16 @@ class OneShotDreambooth:
         self._download_model(
             StableDiffusionXLInpaintPipeline,
             self.params.model.inpainter,
+            vae=self._download_model(
+                AutoencoderKL,
+                self.params.model.vae,
+                method="from_pretrained",
+                variant=None,
+            ),
+        )
+        self._download_model(
+            StableDiffusionXLInpaintPipeline,
+            self.params.model.refiner,
             vae=self._download_model(
                 AutoencoderKL,
                 self.params.model.vae,
@@ -181,7 +194,8 @@ class OneShotDreambooth:
             method="from_pretrained",
         ).to(f"cuda:{torch.cuda.device_count() - 1}")
         return SharedModels(
-            detector=detector, face=FaceHelperModels.load(torch.cuda.device_count() - 1)
+            detector=detector,
+            face=FaceHelperModels.load(self.params, torch.cuda.device_count() - 1),
         )
 
     def _set_cache_monitor(self):

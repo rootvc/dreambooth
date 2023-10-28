@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -11,11 +11,10 @@ from diffusers import (
     AutoencoderKL,
     EulerAncestralDiscreteScheduler,
     StableDiffusionXLAdapterPipeline,
-    StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
-from PIL import Image
+from PIL import Image, ImageFilter
 from torchvision.transforms.functional import to_pil_image
 
 from one_shot.face import Bounds, FaceHelper, FaceHelperModels
@@ -42,7 +41,7 @@ class SharedModels:
 @dataclass
 class ProcessModels:
     pipe: StableDiffusionXLAdapterPipeline
-    refiner: Optional[StableDiffusionXLImg2ImgPipeline]
+    refiner: StableDiffusionXLInpaintPipeline
     inpainter: StableDiffusionXLInpaintPipeline
     compels: Compels
     face: FaceHelperModels
@@ -86,18 +85,6 @@ class ProcessModels:
         pipe.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, pipe)
 
-        if params.use_refiner():
-            refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                params.model.refiner,
-                text_encoder_2=pipe.text_encoder_2,
-                vae=pipe.vae,
-                scheduler=pipe.scheduler,
-                **cls.settings.loading_kwargs,
-            ).to(rank)
-            refiner.enable_xformers_memory_efficient_attention()
-        else:
-            refiner = None
-
         inpainter = StableDiffusionXLInpaintPipeline.from_pretrained(
             params.model.inpainter,
             text_encoder=pipe.text_encoder,
@@ -109,6 +96,15 @@ class ProcessModels:
         inpainter.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, inpainter, key="inpainter")
 
+        refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
+            params.model.refiner,
+            text_encoder_2=pipe.text_encoder_2,
+            vae=pipe.vae,
+            scheduler=pipe.scheduler,
+            **cls.settings.loading_kwargs,
+        ).to(rank)
+        refiner.enable_xformers_memory_efficient_attention()
+
         xl_compel = Compel(
             [pipe.tokenizer, pipe.tokenizer_2],
             [pipe.text_encoder, pipe.text_encoder_2],
@@ -117,17 +113,6 @@ class ProcessModels:
             device=rank,
             textual_inversion_manager=DiffusersTextualInversionManager(pipe),
         )
-        if params.use_refiner():
-            refiner_compel = Compel(
-                tokenizer=refiner.tokenizer_2,
-                text_encoder=refiner.text_encoder_2,
-                returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-                requires_pooled=True,
-                device=rank,
-                textual_inversion_manager=DiffusersTextualInversionManager(pipe),
-            )
-        else:
-            refiner_compel = None
         inpainter_compel = Compel(
             [inpainter.tokenizer, inpainter.tokenizer_2],
             [inpainter.text_encoder, inpainter.text_encoder_2],
@@ -136,7 +121,14 @@ class ProcessModels:
             device=rank,
             textual_inversion_manager=DiffusersTextualInversionManager(inpainter),
         )
-
+        refiner_compel = Compel(
+            tokenizer=refiner.tokenizer_2,
+            text_encoder=refiner.text_encoder_2,
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=True,
+            device=rank,
+            textual_inversion_manager=DiffusersTextualInversionManager(inpainter),
+        )
         return cls(
             pipe=pipe,
             refiner=refiner,
@@ -144,7 +136,7 @@ class ProcessModels:
             compels=Compels(
                 xl=xl_compel, refiner=refiner_compel, inpainter=inpainter_compel
             ),
-            face=FaceHelperModels.load(rank),
+            face=FaceHelperModels.load(params, rank),
         )
 
 
@@ -158,7 +150,7 @@ class Model:
 
     @torch.inference_mode()
     def run(self, request: "ProcessRequest") -> list[Image.Image]:
-        prompts = Prompts(
+        prompts = og_prompts = Prompts(
             self.models.compels,
             self.rank,
             self.params.dtype,
@@ -166,19 +158,14 @@ class Model:
                 self.params.prompt_template.format(prompt=p, **request.demographics)
                 for p in request.generation.prompts
             ],
-            [
-                self.params.negative_prompt + ", " + color
-                for color in random.choices(
-                    self.params.negative_colors, k=len(request.generation.prompts)
-                )
-            ],
+            [self.params.negative_prompt] * len(request.generation.prompts),
         )
         self.logger.info("Generating latents...")
         if self.params.seed:
             generator = torch.Generator(device=self.rank).manual_seed(self.params.seed)
         else:
             generator = None
-        latents = [
+        images = [
             self.models.pipe(
                 image=img,
                 generator=generator,
@@ -188,51 +175,29 @@ class Model:
                     *self.params.conditioning_strength
                 ),
                 adapter_conditioning_factor=self.params.conditioning_factor,
-                denoising_end=self.params.high_noise_frac,
-                output_type="latent" if self.params.use_refiner() else "pil",
                 **prompts.kwargs_for_xl(idx),
             ).images[0]
             for idx, img in enumerate(request.generation.images)
         ]
 
-        if self.params.use_refiner():
-            self.logger.info("Refining latents...")
-            images = [
-                self.models.refiner(
-                    image=latent,
-                    generator=generator,
-                    num_inference_steps=self.params.steps,
-                    guidance_scale=self.params.guidance_scale,
-                    denoising_start=self.params.high_noise_frac,
-                    strength=self.params.refiner_strength,
-                    **prompts.kwargs_for_refiner(idx),
-                ).images[0]
-                for idx, latent in enumerate(latents)
-            ]
-        else:
-            images = latents
-
         self.logger.info("Touching up images...")
-        masks, colors = map(
-            list,
-            zip(*FaceHelper(self.params, self.models.face, images).eye_masks()),
-        )
+        face_helper = FaceHelper(self.params, self.models.face, images)
+        masks, colors = map(list, zip(*face_helper.eye_masks()))
         self.logger.info("Colors: {}", colors)
-        og_prompts = prompts
         prompts = replace(
-            prompts,
+            og_prompts,
             raw=[
                 self.params.inpaint_prompt_template.format(
                     prompt=p, color=c, **request.demographics
                 )
                 for p, c in zip(request.generation.prompts, colors)
             ],
-            negative=[self.params.negative_prompt] * len(request.generation.prompts),
         )
         faces: list[Image.Image] = [
             self.models.inpainter(
                 image=img,
                 mask_image=masks[idx],
+                generator=generator,
                 strength=self.params.inpainting_strength,
                 num_inference_steps=self.params.inpainting_steps,
                 **prompts.kwargs_for_inpainter(idx),
@@ -240,30 +205,117 @@ class Model:
             for idx, img in enumerate(images)
         ]
 
-        images = []
-        masks = []
-        for face, img in zip(request.generation.faces, faces):
+        self.logger.info("Reframing images...")
+        frames: list[Image.Image] = []
+        for idx, face in enumerate(request.generation.faces):
             dims = (self.params.model.resolution, self.params.model.resolution)
-            padding = self.params.mask_padding * 2
+            padding = self.params.mask_padding * 2  # random.triangular(2.4, 2.8)
+
             bounds = Bounds.from_face(dims, face)
-            y, x = bounds.slice(padding)
+            slice = bounds.slice(padding)
+            embed = np.asarray(faces[idx].resize(bounds.size(padding)))
 
-            mask = np.zeros(dims, dtype=np.uint8)
-            mask[y, x] = 255
-            masks.append(to_pil_image(dilate_mask(~mask), mode="L"))
+            frame = np.zeros((*dims, 3), dtype=np.uint8)
+            frame[slice] = embed
+            frames.append(to_pil_image(frame))
 
-            image = np.array(img.resize(dims), dtype=np.uint8)
-            image[y, x] = np.asarray(img.resize(bounds.size(padding)))
+        face_helper = FaceHelper(self.params, self.models.face, frames)
+
+        self.logger.info("Outpainting images...")
+        images, masks, og_masks = [], [], []
+        for idx, frame_img in enumerate(frames):
+            frame = np.asarray(frame_img)
+            face = face_helper.primary_face_bounds()[idx][1]
+
+            if face.mask:
+                self.logger.warning("Using face mask")
+                mask = ~face.mask.arr
+                masks.append(to_pil_image(mask, mode="RGB").convert("L"))
+                og_masks.append(
+                    to_pil_image(
+                        dilate_mask(~face.raw_mask.arr, strong=True), mode="RGB"
+                    ).convert("L")
+                )
+            elif not face.is_trivial:
+                self.logger.warning("Using bounds mask")
+                mask = np.full(frame.shape[:2], 255, dtype=np.uint8)
+                mask[
+                    Bounds.from_face(frame.shape[:2], face).slice(
+                        self.params.mask_padding
+                    )
+                ] = 0
+                masks.append(to_pil_image(mask, mode="L"))
+
+                og_mask = np.full(frame.shape[:2], 255, dtype=np.uint8)
+                og_mask[Bounds.from_face(frame.shape[:2], face).slice()] = 0
+                og_masks.append(to_pil_image(og_mask, mode="L"))
+            else:
+                self.logger.warning("Using default mask")
+                mask = np.full(frame.shape, 255, dtype=np.uint8)
+                mask[frame != 0] = 0
+                masks.append(to_pil_image(mask, mode="RGB").convert("L"))
+                og_masks.append(to_pil_image(mask, mode="RGB").convert("L"))
+
+            image = np.array(
+                faces[idx]
+                .resize(frame.shape[:2])
+                .filter(ImageFilter.GaussianBlur(radius=10)),
+                dtype=np.uint8,
+            )
+            idx = (mask == 0) & (frame != 0)
+            image[idx] = frame[idx]
             images.append(to_pil_image(image))
 
-        return [
+        latents = [
             self.models.inpainter(
                 image=img,
                 mask_image=mask,
+                generator=generator,
                 strength=0.99,
-                guidance_scale=8.0,
-                num_inference_steps=30,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.steps,
+                output_type="latent",
                 **og_prompts.kwargs_for_inpainter(idx),
-            ).images[0]
+            ).images
             for img, mask, idx in zip(images, masks, range(len(images)))
+        ]
+
+        self.logger.info("Refining images...")
+        prompts = replace(
+            og_prompts,
+            negative=[
+                self.params.refine_negative_prompt + ", " + self.params.negative_prompt
+            ]
+            * len(request.generation.prompts),
+        )
+        refined = [
+            self.models.refiner(
+                image=latent,
+                mask_image=mask,
+                generator=generator,
+                strength=0.75,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.steps,
+                **prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for (idx, latent), mask in zip(enumerate(latents), og_masks)
+        ]
+
+        latent_images = [
+            self.models.inpainter.image_processor.postprocess(
+                self.models.inpainter.vae.decode(
+                    latent / self.models.inpainter.vae.config.scaling_factor,
+                    return_dict=False,
+                )[0]
+            )[0]
+            for latent in latents
+        ]
+
+        return [
+            frames[0],
+            images[0],
+            masks[0].convert("RGB"),
+            og_masks[0].convert("RGB"),
+            latent_images[0],
+            refined[0],
         ]

@@ -22,6 +22,7 @@ from one_shot.dreambooth.process import (
 from one_shot.face import FaceHelper
 from one_shot.utils import (
     Face,
+    chunks,
     collect,
     grid,
     images,
@@ -152,30 +153,31 @@ class Request:
         ]
 
         for resp in self._generate(params):
-            img = grid(resp.images)
-            text_kwargs = {
-                "text": json.dumps(
-                    {
-                        "_".join(s[:3] for s in k.split("_")): round(v, 2)
-                        if isinstance(v, float)
-                        else str(v)[:5]
-                        for k, v in resp.params.items()
-                    },
-                ),
-                "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
-                "fontScale": 1,
-                "thickness": 2,
-            }
-            (_, text_w), _ = cv2.getTextSize(**text_kwargs)
-            image = cv2.putText(
-                img=np.array(img),
-                org=(img.height // 10, img.width // 2 - text_w // 4),
-                color=(255, 255, 255),
-                lineType=cv2.LINE_AA,
-                **text_kwargs,
-            )
-            img = Image.fromarray(image)
-            grids.append(img)
+            for images in chunks(resp.images, 2):
+                img = grid(images)
+                text_kwargs = {
+                    "text": json.dumps(
+                        {
+                            "_".join(s[:3] for s in k.split("_")): round(v, 2)
+                            if isinstance(v, float)
+                            else str(v)[:5]
+                            for k, v in resp.params.items()
+                        },
+                    ),
+                    "fontFace": cv2.FONT_HERSHEY_SIMPLEX,
+                    "fontScale": 1,
+                    "thickness": 2,
+                }
+                (_, text_w), _ = cv2.getTextSize(**text_kwargs)
+                image = cv2.putText(
+                    img=np.array(img),
+                    org=(img.height // 10, img.width // 2 - text_w // 4),
+                    color=(255, 255, 255),
+                    lineType=cv2.LINE_AA,
+                    **text_kwargs,
+                )
+                img = Image.fromarray(image)
+                grids.append(img)
 
         logger.info("Persisting tuning...")
         path = Path(self.dreambooth.settings.cache_dir) / "tune" / f"{self.id}.webp"

@@ -3,10 +3,10 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from functools import cache as f_cache
-from functools import cached_property
+from functools import cached_property, reduce
 from operator import itemgetter
 from pathlib import Path
-from typing import Generator, Iterator, Optional, cast
+from typing import Generator, Generic, Iterator, Optional, TypeVar, cast
 
 import face_evolve.applications.align
 import numpy as np
@@ -15,10 +15,13 @@ from loguru import logger
 from PIL import Image
 from pydantic import BaseModel, Field
 from torchvision.transforms.functional import to_pil_image
-from transformers import BlipForQuestionAnswering, BlipProcessor
+from transformers import BlipForQuestionAnswering, BlipProcessor, SamModel, SamProcessor
 
 from one_shot.params import Params, Settings
-from one_shot.utils import Face, collect, exclude, extract_faces
+from one_shot.utils import Face, NpBox, collect, dilate_mask, exclude, extract_faces
+
+M = TypeVar("M")
+P = TypeVar("P")
 
 sys.path.append(str(Path(face_evolve.applications.align.__file__).parent))
 from face_evolve.applications.align.detector import detect_faces  # noqa: E402
@@ -102,21 +105,44 @@ class Bounds(BaseModel):
 
 
 @dataclass
-class FaceHelperModels:
-    MODEL = "ybelkada/blip-vqa-base"
-
-    rank: int
-    processor: BlipProcessor
-    model: BlipForQuestionAnswering
+class ModelAndProcessor(Generic[M, P]):
+    model: M
+    processor: P
 
     @classmethod
-    def load(cls, rank: int):
-        kwargs = exclude(settings.loading_kwargs, {"use_safetensors", "variant"})
-        processor = BlipProcessor.from_pretrained(cls.MODEL, **kwargs)
-        model = BlipForQuestionAnswering.from_pretrained(cls.MODEL, **kwargs).to(
-            rank, dtype=torch.float16
+    def from_pretrained(
+        cls, klasses: tuple[M, P], name: str, rank: int, half: bool = True, **kwargs
+    ) -> "ModelAndProcessor[M, P]":
+        Model, Processor = klasses
+        model = Model.from_pretrained(name, **kwargs).to(
+            rank, dtype=torch.float16 if half else None
         )
-        return cls(rank, processor, model)
+        processor = Processor.from_pretrained(name, **kwargs)
+        return cls(model, processor)
+
+
+@dataclass
+class FaceHelperModels:
+    rank: int
+    blip: ModelAndProcessor[BlipForQuestionAnswering, BlipProcessor]
+    sam: ModelAndProcessor[SamModel, SamProcessor]
+
+    @classmethod
+    def load(cls, params: Params, rank: int):
+        kwargs = exclude(
+            settings.loading_kwargs, {"use_safetensors", "variant", "torch_dtype"}
+        )
+        blip = ModelAndProcessor.from_pretrained(
+            (BlipForQuestionAnswering, BlipProcessor),
+            params.model.vqa,
+            rank,
+            torch_dtype=settings.loading_kwargs["torch_dtype"],
+            **kwargs,
+        )
+        sam = ModelAndProcessor.from_pretrained(
+            (SamModel, SamProcessor), params.model.sam, rank, half=False, **kwargs
+        )
+        return cls(rank=rank, blip=blip, sam=sam)
 
 
 class FaceHelper:
@@ -134,13 +160,12 @@ class FaceHelper:
         self.dst_images = images
 
         self.rank = models.rank
-        self.processor = models.processor
-        self.model = models.model
+        self.models = models
 
     def with_images(self, images: list[Image.Image]):
         return self.__class__(
             self.params,
-            FaceHelperModels(self.rank, self.processor, self.model),
+            FaceHelperModels(self.rank, self.models.blip, self.models.sam),
             images,
             self.src_images,
         )
@@ -153,7 +178,7 @@ class FaceHelper:
     def _analyze(
         self, images: list[Image.Image], attr: str
     ) -> Generator[str, None, None]:
-        inputs = self.processor(
+        inputs = self.models.blip.processor(
             images,
             [
                 f"What is the {attr} of the person? Answer with only one word/phrase and nothing else."
@@ -161,8 +186,10 @@ class FaceHelper:
             * len(images),
             return_tensors="pt",
         ).to(self.rank, self.params.dtype)
-        outputs = self.model.generate(**inputs, max_length=50)
-        yield from self.processor.batch_decode(outputs, skip_special_tokens=True)
+        outputs = self.models.blip.model.generate(**inputs, max_length=50)
+        yield from self.models.blip.processor.batch_decode(
+            outputs, skip_special_tokens=True
+        )
 
     @f_cache
     def analyze(self):
@@ -180,15 +207,68 @@ class FaceHelper:
     def face_bounds(self) -> Generator[tuple[int, Face], None, None]:
         detections = [extract_faces(detect_faces(img), img) for img in self.src_images]
         for i, faces in enumerate(detections):
+            img = self.src_images[i]
+            for j, face in enumerate(faces):
+                if face.is_trivial:
+                    continue
+                inputs = self.models.sam.processor(
+                    img,
+                    input_points=[[face.eyes.flat]],
+                    input_boxes=[[face.box.flat]],
+                    return_tensors="pt",
+                ).to(self.rank)
+                outputs = self.models.sam.model(**inputs)
+                masks = self.models.sam.processor.image_processor.post_process_masks(
+                    outputs.pred_masks.cpu(),
+                    inputs["original_sizes"].cpu(),
+                    inputs["reshaped_input_sizes"].cpu(),
+                )
+                masks = masks[0].cpu().numpy()
+                if len(masks.shape) == 4:
+                    logger.warning("Multiple masks detected")
+                    masks = masks.squeeze()
+                logger.warning(
+                    "scores: {}",
+                    list(
+                        zip(
+                            outputs.iou_scores.cpu().numpy()[0][0],
+                            [m.shape for m in masks],
+                        )
+                    ),
+                )
+                # mask = masks[0]
+                mask = reduce(np.logical_or, masks)
+                h, w = mask.shape[-2:]
+                mask = mask.reshape(h, w, 1)
+
+                if np.all(mask) or not np.any(mask):
+                    logger.warning("No mask detected")
+                    continue
+
+                zero = np.zeros(self.dims, dtype=np.uint8)
+                one = np.full(self.dims, 255, dtype=np.uint8)
+                mask_rbg = np.repeat(mask, 3, axis=2)
+                mask_image = np.where(mask_rbg, one, zero)
+
+                faces[j] = face.copy(
+                    update={
+                        "mask": NpBox(arr=dilate_mask(mask_image)),
+                        "raw_mask": NpBox(arr=mask_image),
+                    }
+                )
+        for i, faces in enumerate(detections):
             for face in faces:
                 yield i, face
 
     @f_cache
     def _face_from_bounds(self, i: int, face: Face) -> Image.Image:
+        img = np.array(self.dst_np_images[i])
+        if face.mask:
+            img = np.where(face.mask.arr, img, 0)
         bounds = Bounds.from_face(self.dims, face)
         y, x = bounds.slice(self.params.mask_padding)
-        img: Image.Image = to_pil_image(self.dst_np_images[i][y, x])
-        return img.resize(self.dims[:2])
+        image = self.dst_np_images[i][y, x]
+        return to_pil_image(image).resize(self.dims[:2])
 
     @collect
     def faces(self):

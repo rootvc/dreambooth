@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import torch
 from compel import Compel
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 @dataclass
 class Compels:
     xl: Compel
-    refiner: Optional[Compel]
+    refiner: Compel
     inpainter: Compel
 
 

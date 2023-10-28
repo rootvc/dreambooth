@@ -1,4 +1,5 @@
 import gc
+import hashlib
 import itertools
 import os
 import subprocess
@@ -36,19 +37,51 @@ class Box(FrozenModel):
     top_left: tuple[int, int]
     bottom_right: tuple[int, int]
 
+    @property
+    def flat(self):
+        return [*self.top_left, *self.bottom_right]
+
 
 class Eyes(FrozenModel):
     left: tuple[int, int]
     right: tuple[int, int]
+
+    @property
+    def flat(self):
+        return [list(self.left), list(self.right)]
 
     def __iter__(self):
         yield self.left
         yield self.right
 
 
+class NpBox(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+
+    arr: np.ndarray
+
+    def __hash__(self) -> int:
+        return int(hashlib.sha1(np.ascontiguousarray(self.arr)).hexdigest(), 16)
+
+    def __eq__(self, value: object) -> bool:
+        if not isinstance(value, NpBox):
+            return False
+        return np.array_equal(self.arr, value.arr)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(shape={self.arr.shape})"
+
+
 class Face(FrozenModel):
     box: Box
     eyes: Eyes
+    mask: NpBox | None = None
+    raw_mask: NpBox | None = None
+
+    @property
+    def is_trivial(self) -> bool:
+        return self.eyes.left == self.eyes.right == (0, 0)
 
 
 def image_transforms(size: int) -> Callable[[Image.Image], Image.Image]:
@@ -124,6 +157,11 @@ def download_civitai_model(model: str):
     )
 
 
+def chunks(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
 def exclude(d: dict, keys: set[str]):
     return {k: v for k, v in d.items() if k not in keys}
 
@@ -142,7 +180,11 @@ def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Imag
     return to_pil_image(grid)
 
 
-def dilate_mask(mask: np.ndarray, size: tuple[int, int] = (5, 5), iterations: int = 20):
+def dilate_mask(mask: np.ndarray, strong: bool = True) -> np.ndarray:
+    if strong:
+        size, iterations = (5, 5), 20
+    else:
+        size, iterations = (4, 4), 20
     kernel = np.ones(size, np.uint8)
     return cv2.dilate(mask, kernel, iterations=iterations)
 
