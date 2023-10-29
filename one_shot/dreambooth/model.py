@@ -88,10 +88,12 @@ class ProcessModels:
 
         face_refiner = StableDiffusionXLAdapterPipeline.from_pretrained(
             params.model.refiner,
-            text_encoder_2=pipe.text_encoder_2,
             vae=pipe.vae,
-            adapter=pipe.adapter,
-            scheduler=pipe.scheduler,
+            adapter=T2IAdapter.from_pretrained(
+                params.model.t2i_adapter,
+                **exclude(cls.settings.loading_kwargs, {"variant"}),
+                varient="fp16",
+            ).to(rank),
             **cls.settings.loading_kwargs,
         ).to(rank)
         face_refiner.enable_xformers_memory_efficient_attention()
@@ -133,12 +135,12 @@ class ProcessModels:
             textual_inversion_manager=DiffusersTextualInversionManager(inpainter),
         )
         refiner_compel = Compel(
-            tokenizer=refiner.tokenizer_2,
-            text_encoder=refiner.text_encoder_2,
+            tokenizer=bg_refiner.tokenizer_2,
+            text_encoder=bg_refiner.text_encoder_2,
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=True,
             device=rank,
-            textual_inversion_manager=DiffusersTextualInversionManager(inpainter),
+            textual_inversion_manager=DiffusersTextualInversionManager(pipe),
         )
         return cls(
             pipe=pipe,
@@ -221,7 +223,7 @@ class Model:
         frames: list[Image.Image] = []
         for idx, face in enumerate(request.generation.faces):
             dims = (self.params.model.resolution, self.params.model.resolution)
-            padding = self.params.mask_padding * 2  # random.triangular(2.4, 2.8)
+            padding = self.params.mask_padding * random.triangular(2.4, 2.8)
 
             bounds = Bounds.from_face(dims, face)
             slice = bounds.slice(padding)
@@ -269,7 +271,7 @@ class Model:
             image = np.array(
                 faces[idx]
                 .resize(frame.shape[:2])
-                .filter(ImageFilter.GaussianBlur(radius=10)),
+                .filter(ImageFilter.BoxBlur(radius=2)),
                 dtype=np.uint8,
             )
             idx = (mask == 0) & (frame != 0)
@@ -299,7 +301,7 @@ class Model:
             * len(request.generation.prompts),
         )
         refined = [
-            self.models.refiner(
+            self.models.bg_refiner(
                 image=latent,
                 mask_image=mask,
                 generator=generator,
