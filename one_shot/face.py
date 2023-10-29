@@ -251,10 +251,7 @@ class FaceHelper:
                 mask_image = np.where(mask_rbg, one, zero)
 
                 faces[j] = face.copy(
-                    update={
-                        "mask": NpBox(arr=dilate_mask(mask_image)),
-                        "raw_mask": NpBox(arr=mask_image),
-                    }
+                    update={"mask": NpBox(arr=dilate_mask(mask_image))}
                 )
         for i, faces in enumerate(detections):
             for face in faces:

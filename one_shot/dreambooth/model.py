@@ -22,7 +22,7 @@ from one_shot.params import Params, Settings
 from one_shot.prompt import Compels, Prompts
 from one_shot.utils import (
     civitai_path,
-    dilate_mask,
+    erode_mask,
     exclude,
 )
 
@@ -41,7 +41,8 @@ class SharedModels:
 @dataclass
 class ProcessModels:
     pipe: StableDiffusionXLAdapterPipeline
-    refiner: StableDiffusionXLInpaintPipeline
+    face_refiner: StableDiffusionXLAdapterPipeline
+    bg_refiner: StableDiffusionXLInpaintPipeline
     inpainter: StableDiffusionXLInpaintPipeline
     compels: Compels
     face: FaceHelperModels
@@ -85,6 +86,16 @@ class ProcessModels:
         pipe.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, pipe)
 
+        face_refiner = StableDiffusionXLAdapterPipeline.from_pretrained(
+            params.model.refiner,
+            text_encoder_2=pipe.text_encoder_2,
+            vae=pipe.vae,
+            adapter=pipe.adapter,
+            scheduler=pipe.scheduler,
+            **cls.settings.loading_kwargs,
+        ).to(rank)
+        face_refiner.enable_xformers_memory_efficient_attention()
+
         inpainter = StableDiffusionXLInpaintPipeline.from_pretrained(
             params.model.inpainter,
             text_encoder=pipe.text_encoder,
@@ -96,14 +107,14 @@ class ProcessModels:
         inpainter.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, inpainter, key="inpainter")
 
-        refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
+        bg_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
             params.model.refiner,
             text_encoder_2=pipe.text_encoder_2,
             vae=pipe.vae,
             scheduler=pipe.scheduler,
             **cls.settings.loading_kwargs,
         ).to(rank)
-        refiner.enable_xformers_memory_efficient_attention()
+        bg_refiner.enable_xformers_memory_efficient_attention()
 
         xl_compel = Compel(
             [pipe.tokenizer, pipe.tokenizer_2],
@@ -131,7 +142,8 @@ class ProcessModels:
         )
         return cls(
             pipe=pipe,
-            refiner=refiner,
+            face_refiner=face_refiner,
+            bg_refiner=bg_refiner,
             inpainter=inpainter,
             compels=Compels(
                 xl=xl_compel, refiner=refiner_compel, inpainter=inpainter_compel
@@ -231,11 +243,9 @@ class Model:
                 self.logger.warning("Using face mask")
                 mask = ~face.mask.arr
                 masks.append(to_pil_image(mask, mode="RGB").convert("L"))
-                og_masks.append(
-                    to_pil_image(
-                        dilate_mask(~face.raw_mask.arr, strong=True), mode="RGB"
-                    ).convert("L")
-                )
+
+                og_mask = ~erode_mask(face.mask.arr)
+                og_masks.append(to_pil_image(og_mask, mode="RGB").convert("L"))
             elif not face.is_trivial:
                 self.logger.warning("Using bounds mask")
                 mask = np.full(frame.shape[:2], 255, dtype=np.uint8)

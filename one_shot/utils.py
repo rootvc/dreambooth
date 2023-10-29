@@ -77,7 +77,6 @@ class Face(FrozenModel):
     box: Box
     eyes: Eyes
     mask: NpBox | None = None
-    raw_mask: NpBox | None = None
 
     @property
     def is_trivial(self) -> bool:
@@ -180,13 +179,16 @@ def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Imag
     return to_pil_image(grid)
 
 
-def dilate_mask(mask: np.ndarray, strong: bool = True) -> np.ndarray:
-    if strong:
-        size, iterations = (5, 5), 20
-    else:
-        size, iterations = (4, 4), 20
+def dilate_mask(mask: np.ndarray) -> np.ndarray:
+    size, iterations = (5, 5), 20
     kernel = np.ones(size, np.uint8)
-    return cv2.dilate(mask, kernel, iterations=iterations)
+    return cv2.dilate(mask.copy(), kernel, iterations=iterations)
+
+
+def erode_mask(mask: np.ndarray) -> np.ndarray:
+    size, iterations = (2, 2), 3
+    kernel = np.ones(size, np.uint8)
+    return cv2.erode(mask.copy(), kernel, iterations=iterations)
 
 
 @collect
