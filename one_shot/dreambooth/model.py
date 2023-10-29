@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
+import snoop
 import torch
 import torch.multiprocessing
 from compel import Compel, DiffusersTextualInversionManager, ReturnedEmbeddingsType
@@ -14,8 +15,12 @@ from diffusers import (
     StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
-from PIL import Image, ImageFilter
-from torchvision.transforms.functional import to_pil_image
+from diffusers.utils.torch_utils import randn_tensor
+from PIL import Image
+from torchvision.transforms.functional import (
+    convert_image_dtype,
+    to_pil_image,
+)
 
 from one_shot.face import Bounds, FaceHelper, FaceHelperModels
 from one_shot.params import Params, Settings
@@ -163,6 +168,7 @@ class Model:
     settings: Settings = Settings()
 
     @torch.inference_mode()
+    @snoop
     def run(self, request: "ProcessRequest") -> list[Image.Image]:
         prompts = og_prompts = Prompts(
             self.models.compels,
@@ -223,8 +229,8 @@ class Model:
 
         self.logger.info("Reframing images...")
         frames: list[Image.Image] = []
+        dims = (self.params.model.resolution, self.params.model.resolution)
         for idx, face in enumerate(request.generation.faces):
-            dims = (self.params.model.resolution, self.params.model.resolution)
             padding = self.params.mask_padding * random.triangular(2.4, 2.8)
 
             bounds = Bounds.from_face(dims, face)
@@ -270,12 +276,31 @@ class Model:
                 masks.append(to_pil_image(mask, mode="RGB").convert("L"))
                 og_masks.append(to_pil_image(mask, mode="RGB").convert("L"))
 
-            image = np.array(
-                faces[idx]
-                .resize(frame.shape[:2])
-                .filter(ImageFilter.BoxBlur(radius=2)),
-                dtype=np.uint8,
+            vae = self.models.pipe.vae
+            shape = (
+                1,
+                self.models.pipe.unet.config.in_channels,
+                (dims[0] // self.models.pipe.vae_scale_factor),
+                (dims[1] // self.models.pipe.vae_scale_factor),
             )
+            latents = (
+                randn_tensor(
+                    shape,
+                    generator=generator,
+                    device=torch.device(self.rank),
+                    dtype=vae.dtype,
+                )
+                * self.models.pipe.scheduler.init_noise_sigma
+            )
+            image = vae.decode(latents / vae.config.scaling_factor, return_dict=False)[
+                0
+            ]
+            image = self.models.pipe.image_processor.postprocess(
+                image, output_type="pt"
+            )
+            image = to_pil_image(convert_image_dtype(image, dtype=torch.uint8)[0])
+            image = np.array(image)
+
             idx = (mask == 0) & (frame != 0)
             image[idx] = frame[idx]
             images.append(to_pil_image(image))

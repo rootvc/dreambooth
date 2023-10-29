@@ -186,7 +186,7 @@ def dilate_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def erode_mask(mask: np.ndarray) -> np.ndarray:
-    size, iterations = (3, 3), 20
+    size, iterations = (3, 3), 25
     kernel = np.ones(size, np.uint8)
     return cv2.erode(mask.copy(), kernel, iterations=iterations)
 
