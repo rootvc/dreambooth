@@ -169,7 +169,9 @@ class Model:
             self.rank,
             self.params.dtype,
             [
-                self.params.prompt_template.format(prompt=p, **request.demographics)
+                (self.params.prompt_prefix + ", " + self.params.prompt_template).format(
+                    prompt=p, **request.demographics
+                )
                 for p in request.generation.prompts
             ],
             [self.params.negative_prompt] * len(request.generation.prompts),
@@ -295,6 +297,14 @@ class Model:
         self.logger.info("Refining images...")
         prompts = replace(
             og_prompts,
+            raw=[
+                (
+                    self.params.refine_prompt_prefix
+                    + ", "
+                    + self.params.prompt_template
+                ).format(prompt=p, **request.demographics)
+                for p in request.generation.prompts
+            ],
             negative=[
                 self.params.refine_negative_prompt + ", " + self.params.negative_prompt
             ]

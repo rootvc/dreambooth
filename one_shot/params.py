@@ -63,8 +63,10 @@ class Params(BaseModel):
     batch_size: int = 4
 
     negative_prompt = "boxy, rectangle+, extra fingers, ugly+, blurry+, fuzzy+, monotone, dreary, extra digit, fewer digits, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, text"
-    refine_negative_prompt = "(double face)++, (extra eyes)+, (multiple faces)+, extra digits, extra fingers, deformed"
-    prompt_template = "{prompt}, {ethnicity} {gender}, 4k photo, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, (airbrushed)0.2, (beautiful)0.2"
+    refine_negative_prompt = "face, eyes, (double face)++, (extra eyes)+, (multiple faces)+, extra digits, extra fingers, deformed"
+    prompt_template = "4k photo, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, (airbrushed)0.2, (beautiful)0.2"
+    prompt_prefix = "{prompt}, {ethnicity} {gender}"
+    refine_prompt_prefix = "{prompt}"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
         "a {ethnicity}0.3 {gender} dressed as a clown, goofy, thin rainbow stripes, suspenders, red button nose",
