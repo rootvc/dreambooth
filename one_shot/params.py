@@ -69,7 +69,7 @@ class Params(BaseModel):
     refine_prompt_prefix = "{prompt}"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
-        "a clown on a sunny day, suspenders with thin rainbow stripes",
+        "a clown on a sunny day, thin rainbow stripe suspenders",
         "mysterious, floating in the universe, cosmos and nebula reflected in clothing, cyberpunk vibes",
         # "90s style, leather jacket, smug, vintage, antique car, smoking cigar",
         # "classy {gender}, wearing a pinstripe suit, pop art style, painting by andy warhol",
