@@ -64,7 +64,7 @@ class Params(BaseModel):
 
     negative_prompt = "box+, (picture frame)++, boxy, rectangle+, (extra fingers)++, ugly+, blurry+, fuzzy+, monotone, dreary, extra digit, fewer digits, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, text"
     refine_negative_prompt = "face+++, eyes+++, brow, (double face), (extra eyes), (multiple faces)+, (extra digits)+, extra limbs, deformed"
-    prompt_template = "4k photo, realistic, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, nice smile, (airbrushed)0.2, (beautiful)0.2, (white teeth)0.8"
+    prompt_template = "HD, realistic, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, (white teeth)++, nice smile, (airbrushed)0.2, (beautiful)0.2"
     prompt_prefix = "{prompt}, {ethnicity} {gender}"
     refine_prompt_prefix = "{prompt}"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
@@ -75,10 +75,10 @@ class Params(BaseModel):
         # "classy, pinstripe suit, pop art style, andy warhol",
         # "zombie, decaying skin, torn clothing, inside an abandoned building",
         # "(character from mario)+, super mario, pixelated, (elementary colors)-"
-        "Marvel superhero, sky in the background, comic book style",
-        "a monarch wearing a crown, game of thrones, on the iron throne, magestic, regal, powerful, bold",
-        # "character from tron, neon, techno, futuristic, dark background, black clothing, high contrast",
-        # "creative yearbook photo, mean girls, high school, teenage angst",
+        # "Marvel superhero, sky in the background, comic book style",
+        # "a monarch wearing a crown, game of thrones, on the iron throne, magestic, regal, powerful, bold",
+        "character from tron, neon, techno, futuristic, dark background, black clothing, high contrast",
+        "yearbook style, high school, teenage angst, creative",
     ] * 2
 
     seed: Optional[int] = None

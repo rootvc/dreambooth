@@ -229,7 +229,7 @@ class Model:
         frames: list[Image.Image] = []
         dims = (self.params.model.resolution, self.params.model.resolution)
         for idx, face in enumerate(request.generation.faces):
-            padding = self.params.mask_padding * random.triangular(2.1, 2.3)
+            padding = self.params.mask_padding * random.triangular(2.2, 2.3)
 
             bounds = Bounds.from_face(dims, face)
             slice = bounds.slice(padding)
@@ -407,7 +407,7 @@ class Model:
                     (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
                 ),
                 generator=generator,
-                strength=0.25,
+                strength=0.23,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 output_type="latent",
@@ -437,7 +437,7 @@ class Model:
                     (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
                 ),
                 generator=generator,
-                strength=0.25,
+                strength=0.24,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **prompts.kwargs_for_refiner(idx),
