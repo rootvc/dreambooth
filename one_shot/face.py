@@ -1,5 +1,4 @@
 import itertools
-import sys
 from collections import Counter
 from dataclasses import dataclass
 from functools import cache as f_cache
@@ -8,7 +7,6 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Generator, Generic, Iterator, Optional, TypeVar, cast
 
-import face_evolve.applications.align
 import numpy as np
 import torch.amp
 from loguru import logger
@@ -18,13 +16,11 @@ from torchvision.transforms.functional import to_pil_image
 from transformers import BlipForQuestionAnswering, BlipProcessor, SamModel, SamProcessor
 
 from one_shot.params import Params, Settings
-from one_shot.utils import Face, NpBox, collect, dilate_mask, exclude, extract_faces
+from one_shot.utils import Face, NpBox, collect, detect_faces, dilate_mask, exclude
 
 M = TypeVar("M")
 P = TypeVar("P")
 
-sys.path.append(str(Path(face_evolve.applications.align.__file__).parent))
-from face_evolve.applications.align.detector import detect_faces  # noqa: E402
 
 settings = Settings()
 
@@ -205,13 +201,20 @@ class FaceHelper:
     @f_cache
     @collect
     def face_bounds(self) -> Generator[tuple[int, Face], None, None]:
-        detections = [extract_faces(detect_faces(img), img) for img in self.src_images]
+        detections = [detect_faces(img) for img in self.src_images]
         for i, faces in enumerate(detections):
             img = self.src_images[i]
             for j, face in enumerate(faces):
                 inputs = self.models.sam.processor(
                     img,
-                    input_points=None if face.is_trivial else [[face.eyes.flat]],
+                    input_points=None
+                    if face.is_trivial
+                    else [
+                        [
+                            face.eyes.flat
+                            + (face.landmarks.flat if face.landmarks else [])
+                        ]
+                    ],
                     input_boxes=None if face.is_trivial else [[face.box.flat]],
                     return_tensors="pt",
                 ).to(self.rank)
@@ -230,10 +233,16 @@ class FaceHelper:
                     list(
                         zip(
                             outputs.iou_scores.cpu().numpy()[0][0],
-                            [m.shape for m in masks],
+                            [
+                                (np.count_nonzero(m) / np.prod(m.shape)) * 100
+                                for m in masks
+                            ],
                         )
                     ),
                 )
+                masks = [
+                    m for m in masks if np.count_nonzero(m) > (0.05 * np.prod(m.shape))
+                ]
                 if len(masks) == 0:
                     continue
                 mask_images = []

@@ -3,12 +3,14 @@ import hashlib
 import itertools
 import os
 import subprocess
+import sys
 from functools import wraps
 from pathlib import Path
 from typing import Callable, Generator, ParamSpec, TypeVar
 from urllib.parse import urlencode
 
 import cv2
+import face_evolve.applications.align
 import numpy as np
 import torch
 from PIL import Image
@@ -24,35 +26,15 @@ from torchvision.utils import make_grid
 from one_shot import logger
 from one_shot.params import Params
 
+sys.path.append(str(Path(face_evolve.applications.align.__file__).parent))
+from face_evolve.applications.align.detector import (
+    detect_faces as _detect_faces,  # noqa: E402
+)
+
 T = TypeVar("T")
 P = ParamSpec("P")
 
-
-class FrozenModel(BaseModel):
-    class Config:
-        frozen = True
-
-
-class Box(FrozenModel):
-    top_left: tuple[int, int]
-    bottom_right: tuple[int, int]
-
-    @property
-    def flat(self):
-        return [*self.top_left, *self.bottom_right]
-
-
-class Eyes(FrozenModel):
-    left: tuple[int, int]
-    right: tuple[int, int]
-
-    @property
-    def flat(self):
-        return [list(self.left), list(self.right)]
-
-    def __iter__(self):
-        yield self.left
-        yield self.right
+TPoint = tuple[int, int]
 
 
 class NpBox(BaseModel):
@@ -73,9 +55,54 @@ class NpBox(BaseModel):
         return f"{self.__class__.__name__}(shape={self.arr.shape})"
 
 
+class FrozenModel(BaseModel):
+    class Config:
+        frozen = True
+
+
+class Box(FrozenModel):
+    top_left: TPoint
+    bottom_right: TPoint
+
+    @property
+    def flat(self):
+        return [*self.top_left, *self.bottom_right]
+
+
+class LR(FrozenModel):
+    left: TPoint
+    right: TPoint
+
+    @property
+    def flat(self):
+        return [list(self.left), list(self.right)]
+
+    def __iter__(self):
+        yield self.left
+        yield self.right
+
+
+class Eyes(LR):
+    pass
+
+
+class Mouth(LR):
+    pass
+
+
+class Landmarks(FrozenModel):
+    nose: TPoint
+    mouth: Mouth
+
+    @property
+    def flat(self):
+        return [list(self.nose)] + self.mouth.flat
+
+
 class Face(FrozenModel):
     box: Box
     eyes: Eyes
+    landmarks: Landmarks | None
     mask: NpBox | None = None
     aggressive_mask: NpBox | None = None
 
@@ -194,16 +221,8 @@ def erode_mask(mask: np.ndarray) -> np.ndarray:
 
 @collect
 def extract_faces(
-    points: tuple[list[np.ndarray], list[np.ndarray]], img: Image.Image
+    faces: list[tuple[np.ndarray, np.ndarray]]
 ) -> Generator[Face, None, None]:
-    faces = list(zip(*points))
-    if not faces:
-        w, h = img.size
-        yield Face(
-            box=Box(top_left=(0, 0), bottom_right=(w, h)),
-            eyes=Eyes(left=(0, 0), right=(0, 0)),
-        )
-        return
     for bbox, kps in faces:
         yield Face(
             box=Box(
@@ -211,4 +230,55 @@ def extract_faces(
                 bottom_right=(bbox[2].tolist(), bbox[3].tolist()),
             ),
             eyes=Eyes(left=(kps[0], kps[0 + 5]), right=(kps[1], kps[1 + 5])),
+            landmarks=Landmarks(
+                nose=(kps[2], kps[2 + 5]),
+                mouth=Mouth(left=(kps[3], kps[3 + 5]), right=(kps[4], kps[4 + 5])),
+            ),
         )
+
+
+@collect
+def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
+    points: tuple[list[np.ndarray], list[np.ndarray]] = _detect_faces(img)
+    if faces := list(zip(*points)):
+        yield from extract_faces(faces)
+        return
+
+    gray = np.array(img.convert("L"))
+    smooth = cv2.GaussianBlur(gray, (125, 125), 0)
+    division = cv2.divide(gray, smooth, scale=255)
+    face_cascade = cv2.CascadeClassifier(
+        "/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_default.xml"
+    )
+    eye_cascade = cv2.CascadeClassifier(
+        "/usr/local/share/opencv4/haarcascades/haarcascade_eye.xml"
+    )
+    if faces := face_cascade.detectMultiScale(division, 1.3, 5):
+        for x, y, w, h in faces:
+            eyes = iter(
+                eye_cascade.detectMultiScale(
+                    gray[y : y + h, x : x + w],
+                    1.3,
+                    5,
+                    minNeighbors=10,
+                    minSize=(30, 30),
+                )
+            )
+            (xL, yL, wL, hL) = next(eyes, (0, 0, 0, 0))
+            (xR, yR, wR, hR) = next(eyes, (0, 0, 0, 0))
+            yield Face(
+                box=Box(top_left=(x, y), bottom_right=(x + w, y + h)),
+                eyes=Eyes(
+                    left=(xL + wL // 2, yL + hL // 2),
+                    right=(xR + wR // 2, yR + hR // 2),
+                ),
+                landmarks=None,
+            )
+        return
+
+    w, h = img.size
+    yield Face(
+        box=Box(top_left=(0, 0), bottom_right=(w, h)),
+        eyes=Eyes(left=(0, 0), right=(0, 0)),
+        landmarks=None,
+    )
