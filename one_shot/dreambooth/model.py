@@ -229,9 +229,24 @@ class Model:
         frames: list[Image.Image] = []
         dims = (self.params.model.resolution, self.params.model.resolution)
         for idx, face in enumerate(request.generation.faces):
-            padding = self.params.mask_padding * random.triangular(2.2, 2.3)
-
             bounds = Bounds.from_face(dims, face)
+            target_percent = random.triangular(0.53, 0.57)
+
+            curr_width, curr_height = bounds.size()
+            target_width, target_height = [int(x * target_percent) for x in dims]
+            d_w, d_h = target_width - curr_width, target_height - curr_height
+            delta = max(d_w, d_h)
+            padding = (delta / max(dims)) / 2.0
+
+            self.logger.warning(
+                "PADDING: {}, {}, {}, {}, {}",
+                (curr_width, curr_height),
+                (target_width, target_height),
+                (d_w, d_h),
+                delta,
+                padding,
+            )
+
             slice = bounds.slice(padding)
             embed = np.asarray(faces[idx].resize(bounds.size(padding)))
 
@@ -437,7 +452,7 @@ class Model:
                     (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
                 ),
                 generator=generator,
-                strength=0.24,
+                strength=0.23,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **prompts.kwargs_for_refiner(idx),
