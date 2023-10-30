@@ -62,27 +62,28 @@ class Params(BaseModel):
     model: Model = Model()
     batch_size: int = 4
 
-    negative_prompt = "box+, (picture frame)++, boxy, rectangle+, extra fingers, ugly+, blurry+, fuzzy+, monotone, dreary, extra digit, fewer digits, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, text"
-    refine_negative_prompt = "face+++, eyes+++, brow, (double face), (extra eyes), (multiple faces)+, extra digits, extra fingers, extra limbs, deformed"
-    prompt_template = "4k photo, realistic, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, nice smile, (airbrushed)0.2, (beautiful)0.2"
+    negative_prompt = "box+, (picture frame)++, boxy, rectangle+, (extra fingers)++, ugly+, blurry+, fuzzy+, monotone, dreary, extra digit, fewer digits, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, text"
+    refine_negative_prompt = "face+++, eyes+++, brow, (double face), (extra eyes), (multiple faces)+, (extra digits)+, extra limbs, deformed"
+    prompt_template = "4k photo, realistic, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, nice smile, (airbrushed)0.2, (beautiful)0.2, (white teeth)0.2"
     prompt_prefix = "{prompt}, {ethnicity} {gender}"
     refine_prompt_prefix = "{prompt}"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
-        "a clown on a sunny day, thin rainbow stripe suspenders",
-        "mysterious, floating in the universe, cosmos and nebula reflected in clothing, cyberpunk vibes",
-        # "90s style, leather jacket, smug, vintage, antique car, smoking cigar",
-        # "classy {gender}, wearing a pinstripe suit, pop art style, painting by andy warhol",
-        # "zombie, (decaying skin and clothing)-, (rotting skin)-, inside an abandoned building",
-        # "(8-bit video game)++++, pixelated++, minecraft+, lego, blocky, elementary colors"
-        # "Marvel++ superhero+, superhero costume+, mask, simple color, flying in the air, high contrast",
-        # "a monarch+ wearing a crown+++, game of thrones, on the iron throne, magestic, regal, powerful, bold",
-        # "character from tron, neon, techno, futuristic, dark background, black clothing, (high contrast)++",
+        # "a clown on a sunny day, thin rainbow stripe suspenders",
+        # "mysterious, floating in the universe, cosmos and nebula reflected in clothing, cyberpunk vibes",
+        # "90s style, leather jacket, smug, vintage, smoking cigar",
+        # "classy, pinstripe suit, pop art style, andy warhol",
+        "zombie, decaying skin and clothing, rotting skin, inside an abandoned building",
+        "8-bit video game, pixelated, minecraft, lego, blocky, elementary colors"
+        # "Marvel superhero, superhero costume, mask, simple colors, flying in the air, high contrast",
+        # "a monarch wearing a crown, game of thrones, on the iron throne, magestic, regal, powerful, bold",
+        # "character from tron, neon, techno, futuristic, dark background, black clothing, high contrast",
+        # "creative yearbook photo, mean girls, high school, teenage angst",
     ] * 2
 
     seed: Optional[int] = None
-    steps: int = 20
-    inpainting_steps = 15
+    steps: int = 15
+    inpainting_steps = 10
     images: int = 2
 
     detect_resolution: int = 384
@@ -92,5 +93,5 @@ class Params(BaseModel):
     conditioning_strength: tuple[float, float] = (1.50, 1.52)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
-    high_noise_frac: float = 0.90
+    high_noise_frac: float = 0.85
     mask_padding: float = 0.055

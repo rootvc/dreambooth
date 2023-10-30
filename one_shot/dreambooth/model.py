@@ -229,7 +229,7 @@ class Model:
         frames: list[Image.Image] = []
         dims = (self.params.model.resolution, self.params.model.resolution)
         for idx, face in enumerate(request.generation.faces):
-            padding = self.params.mask_padding * random.triangular(2.4, 2.8)
+            padding = self.params.mask_padding * random.triangular(2.1, 2.5)
 
             bounds = Bounds.from_face(dims, face)
             slice = bounds.slice(padding)
@@ -306,7 +306,7 @@ class Model:
             image = np.array(
                 faces[idx]
                 .resize(frame.shape[:2])
-                .filter(ImageFilter.BoxBlur(radius=150)),
+                .filter(ImageFilter.BoxBlur(radius=100)),
                 dtype=np.uint8,
             )
 
@@ -396,8 +396,8 @@ class Model:
         final = []
         for idx, img in enumerate(refined):
             img = np.array(img)
-            slice = (np.asarray(masks[idx]) == 0) & (np.asarray(frames[idx]) != 0)
-            img[slice] = np.asarray(frames[idx])[slice]
+            slice = np.asarray(masks[idx].convert("RGB")) == 0
+            img[slice] = np.asarray(images[idx])[slice]
             final.append(to_pil_image(img))
 
         final_refined = [
@@ -416,24 +416,11 @@ class Model:
         ]
 
         final_refined2 = [
-            self.models.inpainter(
-                image=final,
-                mask_image=masks[idx],
-                generator=generator,
-                strength=0.65,
-                guidance_scale=self.params.guidance_scale,
-                num_inference_steps=self.params.inpainting_steps,
-                **prompts.kwargs_for_inpainter(idx),
-            ).images[0]
-            for idx, final in enumerate(final)
-        ]
-
-        final_refined3 = [
             self.models.bg_refiner(
                 image=final,
-                mask_image=masks[idx],
+                mask_image=og_masks[idx],
                 generator=generator,
-                strength=0.15,
+                strength=0.75,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **prompts.kwargs_for_refiner(idx),
@@ -441,8 +428,10 @@ class Model:
             for idx, final in enumerate(final)
         ]
 
+        # return final_refined2
+
         return [
-            # frames[0],
+            frames[0],
             images[0],
             # masks[0].convert("RGB"),
             # og_masks[0].convert("RGB"),
@@ -454,5 +443,4 @@ class Model:
             final[0],
             final_refined[0],
             final_refined2[0],
-            final_refined3[0],
         ]
