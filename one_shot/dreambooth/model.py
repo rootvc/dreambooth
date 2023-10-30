@@ -229,7 +229,7 @@ class Model:
         frames: list[Image.Image] = []
         dims = (self.params.model.resolution, self.params.model.resolution)
         for idx, face in enumerate(request.generation.faces):
-            padding = self.params.mask_padding * random.triangular(2.1, 2.5)
+            padding = self.params.mask_padding * random.triangular(2.1, 2.3)
 
             bounds = Bounds.from_face(dims, face)
             slice = bounds.slice(padding)
@@ -407,40 +407,78 @@ class Model:
                     (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
                 ),
                 generator=generator,
-                strength=0.50,
+                strength=0.25,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
+                output_type="latent",
                 **prompts.kwargs_for_refiner(idx),
-            ).images[0]
+            ).images
             for idx, final in enumerate(final)
         ]
 
         final_refined2 = [
             self.models.bg_refiner(
                 image=final,
-                mask_image=og_masks[idx],
+                mask_image=masks[idx],
                 generator=generator,
                 strength=0.75,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
+                output_type="latent",
                 **prompts.kwargs_for_refiner(idx),
-            ).images[0]
-            for idx, final in enumerate(final)
+            ).images
+            for idx, final in enumerate(final_refined)
         ]
 
-        # return final_refined2
+        final_refined3 = [
+            self.models.bg_refiner(
+                image=final,
+                mask_image=to_pil_image(
+                    (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
+                ),
+                generator=generator,
+                strength=0.25,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.inpainting_steps,
+                **prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, final in enumerate(final_refined2)
+        ]
+
+        # return final_refined3
+
+        final_refined_images = [
+            self.models.inpainter.image_processor.postprocess(
+                self.models.inpainter.vae.decode(
+                    latent / self.models.inpainter.vae.config.scaling_factor,
+                    return_dict=False,
+                )[0]
+            )[0]
+            for latent in final_refined
+        ]
+
+        final_refined2_images = [
+            self.models.inpainter.image_processor.postprocess(
+                self.models.inpainter.vae.decode(
+                    latent / self.models.inpainter.vae.config.scaling_factor,
+                    return_dict=False,
+                )[0]
+            )[0]
+            for latent in final_refined2
+        ]
 
         return [
-            frames[0],
+            # frames[0],
             images[0],
             # masks[0].convert("RGB"),
             # og_masks[0].convert("RGB"),
-            to_pil_image((~np.asarray(masks[0]) - ~np.asarray(og_masks[0]))).convert(
+            to_pil_image((~np.asarray(masks[idx]) - ~np.asarray(og_masks[0]))).convert(
                 "RGB"
             ),
             latent_images[0],
             refined[0],
             final[0],
-            final_refined[0],
-            final_refined2[0],
+            final_refined_images[0],
+            final_refined2_images[0],
+            final_refined3[0],
         ]
