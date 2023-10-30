@@ -77,6 +77,7 @@ class Face(FrozenModel):
     box: Box
     eyes: Eyes
     mask: NpBox | None = None
+    aggressive_mask: NpBox | None = None
 
     @property
     def is_trivial(self) -> bool:
@@ -186,7 +187,7 @@ def dilate_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def erode_mask(mask: np.ndarray) -> np.ndarray:
-    size, iterations = (3, 3), 25
+    size, iterations = (3, 3), 30
     kernel = np.ones(size, np.uint8)
     return cv2.erode(mask.copy(), kernel, iterations=iterations)
 

@@ -62,15 +62,15 @@ class Params(BaseModel):
     model: Model = Model()
     batch_size: int = 4
 
-    negative_prompt = "boxy, rectangle+, extra fingers, ugly+, blurry+, fuzzy+, monotone, dreary, extra digit, fewer digits, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, text"
-    refine_negative_prompt = "face, eyes, (double face)++, (extra eyes)+, (multiple faces)+, extra digits, extra fingers, deformed"
-    prompt_template = "4k photo, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, (airbrushed)0.2, (beautiful)0.2"
+    negative_prompt = "box+, frame, boxy, rectangle+, extra fingers, ugly+, blurry+, fuzzy+, monotone, dreary, extra digit, fewer digits, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, text"
+    refine_negative_prompt = "face++, eyes++, (double face), (extra eyes), (multiple faces)+, extra digits, extra fingers, extra limbs, deformed"
+    prompt_template = "4k photo, realistic, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, (airbrushed)0.2, (beautiful)0.2"
     prompt_prefix = "{prompt}, {ethnicity} {gender}"
     refine_prompt_prefix = "{prompt}"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
-        "a {ethnicity}0.3 {gender} dressed as a clown, goofy, thin rainbow stripes, suspenders, red button nose",
-        "mysterious {ethnicity}0.3 {gender}, cyberpunk, the universe, cosmos and nebula on clothing, powerful",
+        "a clown on a sunny day, suspenders with thin rainbow stripes",
+        "mysterious {ethnicity}0.3, cyberpunk, in the universe, cosmos and nebula reflected in clothing",
         # "90s style, leather jacket, smug, vintage, antique car, smoking cigar",
         # "classy {gender}, wearing a pinstripe suit, pop art style, painting by andy warhol",
         # "zombie, (decaying skin and clothing)-, (rotting skin)-, inside an abandoned building",
@@ -92,5 +92,5 @@ class Params(BaseModel):
     conditioning_strength: tuple[float, float] = (1.50, 1.52)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
-    high_noise_frac: float = 0.80
-    mask_padding: float = 0.05
+    high_noise_frac: float = 0.90
+    mask_padding: float = 0.055

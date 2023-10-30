@@ -209,12 +209,10 @@ class FaceHelper:
         for i, faces in enumerate(detections):
             img = self.src_images[i]
             for j, face in enumerate(faces):
-                if face.is_trivial:
-                    continue
                 inputs = self.models.sam.processor(
                     img,
-                    input_points=[[face.eyes.flat]],
-                    input_boxes=[[face.box.flat]],
+                    input_points=[[] if face.is_trivial else [face.eyes.flat]],
+                    input_boxes=[[] if face.is_trivial else [face.box.flat]],
                     return_tensors="pt",
                 ).to(self.rank)
                 outputs = self.models.sam.model(**inputs)
@@ -236,22 +234,28 @@ class FaceHelper:
                         )
                     ),
                 )
-                # mask = masks[0]
-                mask = reduce(np.logical_or, masks)
-                h, w = mask.shape[-2:]
-                mask = mask.reshape(h, w, 1)
-
-                if np.all(mask) or not np.any(mask):
-                    logger.warning("No mask detected")
+                if not masks:
                     continue
+                mask_images = []
+                for mask in (masks[0], reduce(np.logical_or, masks)):
+                    h, w = mask.shape[-2:]
+                    mask = mask.reshape(h, w, 1)
 
-                zero = np.zeros(self.dims, dtype=np.uint8)
-                one = np.full(self.dims, 255, dtype=np.uint8)
-                mask_rbg = np.repeat(mask, 3, axis=2)
-                mask_image = np.where(mask_rbg, one, zero)
+                    if np.all(mask) or not np.any(mask):
+                        logger.warning("No mask detected")
+                        continue
+
+                    zero = np.zeros(self.dims, dtype=np.uint8)
+                    one = np.full(self.dims, 255, dtype=np.uint8)
+                    mask_rbg = np.repeat(mask, 3, axis=2)
+                    mask_image = np.where(mask_rbg, one, zero)
+                    mask_images.append(mask_image)
 
                 faces[j] = face.copy(
-                    update={"mask": NpBox(arr=dilate_mask(mask_image))}
+                    update={
+                        "aggressive_mask": NpBox(arr=dilate_mask(mask_images[0])),
+                        "mask": NpBox(arr=dilate_mask(mask_images[1])),
+                    }
                 )
         for i, faces in enumerate(detections):
             for face in faces:
