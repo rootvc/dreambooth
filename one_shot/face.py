@@ -211,8 +211,8 @@ class FaceHelper:
             for j, face in enumerate(faces):
                 inputs = self.models.sam.processor(
                     img,
-                    input_points=[[] if face.is_trivial else [face.eyes.flat]],
-                    input_boxes=[[] if face.is_trivial else [face.box.flat]],
+                    input_points=None if face.is_trivial else [[face.eyes.flat]],
+                    input_boxes=None if face.is_trivial else [[face.box.flat]],
                     return_tensors="pt",
                 ).to(self.rank)
                 outputs = self.models.sam.model(**inputs)
@@ -234,7 +234,7 @@ class FaceHelper:
                         )
                     ),
                 )
-                if not masks:
+                if len(masks) == 0:
                     continue
                 mask_images = []
                 for mask in (masks[0], reduce(np.logical_or, masks)):

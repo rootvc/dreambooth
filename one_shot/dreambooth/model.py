@@ -328,12 +328,11 @@ class Model:
                 image=img,
                 mask_image=mask,
                 generator=generator,
-                strength=0.99,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.steps,
                 output_type="latent",
                 denoising_end=self.params.high_noise_frac,
-                **og_prompts.kwargs_for_inpainter(idx),
+                **prompts.kwargs_for_inpainter(idx),
             ).images
             for img, mask, idx in zip(images, masks, range(len(images)))
         ]
@@ -375,7 +374,6 @@ class Model:
                 latents=latent,
                 mask_image=mask,
                 generator=generator,
-                strength=0.85,
                 denoising_start=self.params.high_noise_frac,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.steps,
@@ -395,15 +393,28 @@ class Model:
             final.append(to_pil_image(img))
 
         final_refined = [
-            self.models.bg_refiner(
+            self.models.inpainter(
                 image=final,
                 mask_image=to_pil_image(
                     (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
                 ),
                 generator=generator,
-                strength=0.85,
+                strength=0.50,
                 guidance_scale=self.params.guidance_scale,
-                num_inference_steps=self.params.steps,
+                num_inference_steps=self.params.inpainting_steps,
+                **prompts.kwargs_for_inpainter(idx),
+            ).images[0]
+            for idx, final in enumerate(final)
+        ]
+
+        final_refined2 = [
+            self.models.bg_refiner(
+                image=final,
+                mask_image=og_masks[idx],
+                generator=generator,
+                strength=0.25,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.inpainting_steps,
                 **prompts.kwargs_for_refiner(idx),
             ).images[0]
             for idx, final in enumerate(final)
@@ -413,7 +424,7 @@ class Model:
             # frames[0],
             images[0],
             masks[0].convert("RGB"),
-            og_masks[0].convert("RGB"),
+            # og_masks[0].convert("RGB"),
             to_pil_image((~np.asarray(masks[0]) - ~np.asarray(og_masks[0]))).convert(
                 "RGB"
             ),
@@ -421,4 +432,5 @@ class Model:
             refined[0],
             final[0],
             final_refined[0],
+            final_refined2[0],
         ]
