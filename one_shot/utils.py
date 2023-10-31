@@ -96,6 +96,7 @@ class Mouth(LR):
 class Landmarks(FrozenModel):
     nose: TPoint
     mouth: Mouth
+    contour: frozenset[TPoint] | None = None
     rest: frozenset[TPoint] | None = None
 
     @property
@@ -112,7 +113,6 @@ class Face(FrozenModel):
     eyes: Eyes
     landmarks: Landmarks | None
     mask: NpBox | None = None
-    aggressive_mask: NpBox | None = None
 
     @property
     def is_trivial(self) -> bool:
@@ -205,6 +205,10 @@ def exclude(d: dict, keys: set[str]):
     return {k: v for k, v in d.items() if k not in keys}
 
 
+def only(d: dict, keys: set[str]):
+    return {k: v for k, v in d.items() if k in keys}
+
+
 def images(p: Path):
     return list(itertools.chain(p.glob("*.jpg"), p.glob("*.png")))
 
@@ -233,16 +237,23 @@ def erode_mask(mask: np.ndarray) -> np.ndarray:
 
 @collect
 def extract_faces(
-    faces: list[tuple[np.ndarray, np.ndarray]]
+    faces: list[tuple[np.ndarray, np.ndarray]], img: Image.Image
 ) -> Generator[Face, None, None]:
     for bbox, kps in faces:
+        box = Box(
+            top_left=(bbox[0].tolist(), bbox[1].tolist()),
+            bottom_right=(bbox[2].tolist(), bbox[3].tolist()),
+        )
         yield Face(
-            box=Box(
-                top_left=(bbox[0].tolist(), bbox[1].tolist()),
-                bottom_right=(bbox[2].tolist(), bbox[3].tolist()),
-            ),
+            box=box,
             eyes=Eyes(left=(kps[0], kps[0 + 5]), right=(kps[1], kps[1 + 5])),
-            landmarks=Landmarks(
+            landmarks=_dlib_landmarks(
+                np.asarray(img)[
+                    box.top_left[1] : box.bottom_right[1],
+                    box.top_left[0] : box.bottom_right[0],
+                ]
+            )
+            or Landmarks(
                 nose=(kps[2], kps[2 + 5]),
                 mouth=Mouth(left=(kps[3], kps[3 + 5]), right=(kps[4], kps[4 + 5])),
             ),
@@ -253,23 +264,49 @@ def _point_center(points: list[TPoint]) -> TPoint:
     return tuple(np.mean(points, axis=0).astype(int))
 
 
+def __dlib_landmarks(image: np.ndarray) -> tuple[dict, Landmarks] | None:
+    try:
+        landmarks = face_recognition.face_landmarks(image)[0]
+    except Exception:
+        return None
+    return landmarks, Landmarks(
+        nose=_point_center(landmarks["nose_tip"]),
+        mouth=Mouth(left=landmarks["top_lip"][0], right=landmarks["bottom_lip"][0]),
+        contour=frozenset(
+            filter(
+                lambda p: all(x > 0 for x in p),
+                itertools.chain.from_iterable(
+                    only(landmarks, {"chin", "left_eyebrow", "right_eyebrow"}).values()
+                ),
+            )
+        ),
+        rest=frozenset(
+            filter(
+                lambda p: all(x > 0 for x in p),
+                itertools.chain.from_iterable(landmarks.values()),
+            )
+        ),
+    )
+
+
+def _dlib_landmarks(image: np.ndarray) -> Landmarks | None:
+    if landmarks := __dlib_landmarks(image):
+        return landmarks[1]
+
+
 @collect
 def _dlib_detect_faces(img: Image.Image) -> Generator[Face, None, None]:
     for t, r, b, l in face_recognition.face_locations(np.asarray(img), model="cnn"):
-        landmarks = face_recognition.face_landmarks(np.asarray(img), [(t, r, b, l)])[0]
+        if (landmarks := __dlib_landmarks(np.asarray(img)[t:b, l:r])) is None:
+            continue
+        raw, parsed = landmarks
         yield Face(
             box=Box(top_left=(l, t), bottom_right=(r, b)),
             eyes=Eyes(
-                left=_point_center(landmarks["left_eye"]),
-                right=_point_center(landmarks["right_eye"]),
+                left=_point_center(raw["left_eye"]),
+                right=_point_center(raw["right_eye"]),
             ),
-            landmarks=Landmarks(
-                nose=_point_center(landmarks["nose_tip"]),
-                mouth=Mouth(
-                    left=landmarks["top_lip"][0], right=landmarks["bottom_lip"][0]
-                ),
-                rest=frozenset(itertools.chain.from_iterable(landmarks.values())),
-            ),
+            landmarks=parsed,
         )
 
 
@@ -312,7 +349,7 @@ def _opencv_detect_faces(img: Image.Image) -> Generator[Face, None, None]:
 @collect
 def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
     if faces := list(zip(*_detect_faces(img))):
-        yield from extract_faces(faces)
+        yield from extract_faces(faces, img)
     elif faces := _dlib_detect_faces(img):
         yield from faces
     elif faces := _opencv_detect_faces(img):

@@ -2,11 +2,12 @@ import itertools
 from collections import Counter
 from dataclasses import dataclass
 from functools import cache as f_cache
-from functools import cached_property, reduce
+from functools import cached_property
 from operator import itemgetter
 from pathlib import Path
 from typing import Generator, Generic, Iterator, Optional, TypeVar, cast
 
+import cv2
 import numpy as np
 import torch.amp
 from loguru import logger
@@ -46,6 +47,10 @@ class Bounds(BaseModel):
         )
 
     @property
+    def center(self):
+        return (self.origin_x + self.width // 2, self.origin_y + self.height // 2)
+
+    @property
     def mid_y(self):
         return self.shape[0] // 2
 
@@ -66,18 +71,18 @@ class Bounds(BaseModel):
             else:
                 return 3
 
-    def size(self, mask_padding: float = 0.0):
+    def size(self, mask_padding: float = 0.0) -> tuple[float, float]:
         slice_y, slice_x = self.slice(mask_padding)
         return (slice_x.stop - slice_x.start, slice_y.stop - slice_y.start)
 
-    def _slice(self, mask_padding: float):
+    def _slice(self, mask_padding: float) -> tuple[slice, slice]:
         buffer_y = int(self.dims[0] * mask_padding)
         buffer_x = int(self.dims[1] * mask_padding)
 
         start_y = max(0, self.origin_y - buffer_y)
-        end_y = min(self.shape[0], self.origin_y + self.height + buffer_y)
+        end_y = min(self.shape[0] - 1, self.origin_y + self.height + buffer_y)
         start_x = max(0, self.origin_x - buffer_x)
-        end_x = min(self.shape[1], self.origin_x + self.width + buffer_x)
+        end_x = min(self.shape[1] - 1, self.origin_x + self.width + buffer_x)
 
         return (slice(start_y, end_y), slice(start_x, end_x))
 
@@ -198,6 +203,94 @@ class FaceHelper:
     def dims(self):
         return np.asarray(self.src_images[0]).shape
 
+    import snoop
+
+    @snoop
+    def _run_sam(
+        self, img: Image.Image, face: Face
+    ) -> tuple[np.ndarray, list[np.float32]]:
+        inputs = self.models.sam.processor(
+            img,
+            input_points=[[[img.width // 2, img.height // 2]]]
+            if face.is_trivial
+            else [[face.eyes.flat + (face.landmarks.flat if face.landmarks else [])]],
+            input_boxes=None if face.is_trivial else [[face.box.flat]],
+            return_tensors="pt",
+        ).to(self.rank)
+        outputs = self.models.sam.model(**inputs)
+        masks = self.models.sam.processor.image_processor.post_process_masks(
+            outputs.pred_masks.cpu(),
+            inputs["original_sizes"].cpu(),
+            inputs["reshaped_input_sizes"].cpu(),
+        )
+        masks = masks[0].cpu().numpy().squeeze()
+        mask_percentages = [
+            np.count_nonzero(m) / np.prod(m.shape[:2], dtype=np.float32) for m in masks
+        ]
+        logger.info(
+            "scores: {}",
+            list(zip(outputs.iou_scores.cpu().numpy()[0][0], mask_percentages)),
+        )
+        return masks, mask_percentages
+
+    def _get_sam_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
+        masks = [m for m, p in zip(*self._run_sam(img, face)) if p > 0.15]
+        if len(masks) == 0:
+            logger.warning("No masks after filtering")
+            return None
+        logger.warning("Using mask")
+        mask = masks[0]
+        h, w = mask.shape[-2:]
+        mask = mask.reshape(h, w, 1)
+
+        if np.all(mask) or not np.any(mask):
+            logger.warning("No mask detected")
+            return None
+
+        zero = np.zeros(self.dims, dtype=np.uint8)
+        one = np.full(self.dims, 255, dtype=np.uint8)
+        mask_rbg = np.repeat(mask, 3, axis=2)
+        return np.where(mask_rbg, one, zero)
+
+    def _get_landmark_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
+        if not (face.landmarks and face.landmarks.contour):
+            logger.warning("No landmarks")
+            return None
+        mask = np.zeros(self.dims, dtype=np.uint8)
+        points = np.asarray(list(map(list, face.landmarks.contour)), dtype=np.int32)
+
+        contour = cv2.approxPolyDP(points, 0.001 * cv2.arcLength(points, True), True)
+        cv2.drawContours(mask, [contour], 0, (255, 255, 255), -1)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        return mask
+        # logger.warning(
+        #     "CENTER: {}", mask[mask.shape[0] // 2, mask.shape[1] // 2]
+        # )
+        # if np.all(mask[mask.shape[0] // 2, mask.shape[1] // 2] == 0):
+        #     mask = ~mask
+        # logger.warning(
+        #     "CENTER 2: {}", mask[mask.shape[0] // 2, mask.shape[1] // 2]
+        # )
+
+        # if np.all(mask) or not np.any(mask):
+        #     logger.warning("No mask detected")
+        #     continue
+        # elif np.count_nonzero(mask) < (0.15 * np.prod(mask.shape)):
+        #     logger.warning("Mask too small")
+        #
+
+    def _get_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
+        if (mask := self._get_sam_mask(img, face)) is not None:
+            return mask
+        else:
+            logger.warning("No mask from SAM")
+        if (mask := self._get_landmark_mask(img, face)) is not None:
+            return mask
+        else:
+            logger.warning("No mask from landmarks")
+
     @f_cache
     @collect
     def face_bounds(self) -> Generator[tuple[int, Face], None, None]:
@@ -205,54 +298,9 @@ class FaceHelper:
         for i, faces in enumerate(detections):
             img = self.src_images[i]
             for j, face in enumerate(faces):
-                inputs = self.models.sam.processor(
-                    img,
-                    input_points=[[[img.width // 2, img.height // 2]]]
-                    if face.is_trivial
-                    else [
-                        [
-                            face.eyes.flat
-                            + (face.landmarks.flat if face.landmarks else [])
-                        ]
-                    ],
-                    input_boxes=None if face.is_trivial else [[face.box.flat]],
-                    return_tensors="pt",
-                ).to(self.rank)
-                outputs = self.models.sam.model(**inputs)
-                masks = self.models.sam.processor.image_processor.post_process_masks(
-                    outputs.pred_masks.cpu(),
-                    inputs["original_sizes"].cpu(),
-                    inputs["reshaped_input_sizes"].cpu(),
-                )
-                masks = masks[0].cpu().numpy().squeeze()
-                masks = [
-                    m for m in masks if np.count_nonzero(m) > (0.10 * np.prod(m.shape))
-                ]
-                if len(masks) == 0:
-                    continue
-                mask_images = []
-                for mask in (masks[0], reduce(np.logical_or, masks)):
-                    h, w = mask.shape[-2:]
-                    mask = mask.reshape(h, w, 1)
-
-                    if np.all(mask) or not np.any(mask):
-                        logger.warning("No mask detected")
-                        continue
-
-                    zero = np.zeros(self.dims, dtype=np.uint8)
-                    one = np.full(self.dims, 255, dtype=np.uint8)
-                    mask_rbg = np.repeat(mask, 3, axis=2)
-                    mask_image = np.where(mask_rbg, one, zero)
-                    mask_images.append(mask_image)
-
-                faces[j] = face.copy(
-                    update={
-                        "aggressive_mask": NpBox(arr=dilate_mask(mask_images[0])),
-                        "mask": NpBox(arr=dilate_mask(mask_images[0])),
-                    }
-                )
-        for i, faces in enumerate(detections):
-            for face in faces:
+                logger.info("Face: {}", face)
+                if (mask := self._get_mask(img, face)) is not None:
+                    faces[j] = face.copy(update={"mask": NpBox(arr=dilate_mask(mask))})
                 yield i, face
 
     @f_cache
@@ -300,7 +348,6 @@ class FaceHelper:
             colors = []
             mask = np.zeros(self.dims, dtype=self.dst_np_images[i].dtype)
             for face in cast(Iterator[Face], map(itemgetter(1), faces)):
-                logger.debug("Face: {}", face)
                 for eye in face.eyes:
                     bounds = Bounds(
                         dims=self.dims, shape=self.dims, x=eye[0], y=eye[1], h=0, w=0

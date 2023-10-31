@@ -63,6 +63,52 @@ class Model(BaseModel):
     resolution: int = 1024
 
 
+class PromptSegment(BaseModel):
+    raw: str
+    modifier: float
+
+    @classmethod
+    def new(cls, raw: str, modifier: float):
+        return cls(raw=raw, modifier=modifier)
+
+    @classmethod
+    def plus(cls, raw: str, count: int = 1):
+        return cls(raw=raw, modifier=1.1**count)
+
+    @classmethod
+    def minus(cls, raw: str, count: int = 1):
+        return cls(raw=raw, modifier=0.9**count)
+
+    def __str__(self):
+        if self.modifier:
+            return f"({self.raw}){self.modifier:.2f}"
+        else:
+            return self.raw
+
+
+class PromptStrings(BaseModel):
+    positives: list[str | PromptSegment]
+    negatives: list[str | PromptSegment]
+
+    def positive(self, **kwargs) -> str:
+        return ", ".join(map(str, self.positives)).format(**kwargs)
+
+    def negative(self, **kwargs) -> str:
+        return ", ".join(map(str, self.negatives)).format(**kwargs)
+
+
+class PromptTemplates(BaseModel):
+    background: PromptStrings
+    eyes: PromptStrings
+    merge: PromptStrings
+    details: PromptStrings
+
+
+F = PromptSegment.new
+P = PromptSegment.plus
+M = PromptSegment.minus
+
+
 class Params(BaseModel):
     class Config:
         arbitrary_types_allowed = True
@@ -71,12 +117,79 @@ class Params(BaseModel):
     model: Model = Model()
     batch_size: int = 4
 
-    negative_prompt = "box+, (picture frame)++, boxy, rectangle+, (extra fingers)++, ugly++, blurry+, fuzzy+, monotone, dreary, extra digit, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, yellow teeth"
-    refine_negative_prompt = "person++, face+++, eyes+++, text++, body+, brow+, (double face), (extra eyes), (multiple faces)+, (extra digits)+, extra limbs, deformed, bad arm, weird arm"
-    prompt_template = "4k, realistic, cinematic, cinematic effect, hyperrealistic+, contrasts, sharp, (highly detailed)+, white teeth, nice smile, (airbrushed)0.2, (beautiful)0.2"
-    prompt_prefix = "{prompt}, {ethnicity} {gender}"
-    refine_prompt_prefix = "setting of a scene, background image, detail background, dream, without humans, no actors, {prompt}"
-    inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
+    prompt_templates: PromptTemplates = PromptTemplates(
+        background=PromptStrings(
+            positives=[
+                "{prompt}",
+                "4k",
+                "realistic",
+                "cinematic",
+                "cinematic effect",
+                P("hyperrealistic"),
+                P("contrasts", 2),
+                "sharp",
+                P("highly detailed"),
+            ],
+            negatives=["cropped", "worst quality", "low quality"],
+        ),
+        eyes=PromptStrings(
+            positives=[
+                "{color} eyes",
+                P("perfecteyes", 2),
+                P("detailed pupils"),
+                "subtle eyes",
+                "natural eyes",
+                "realistic eyes",
+                F("{ethnicity} {gender}", 0.1),
+                F("{prompt}", 0.8),
+            ],
+            negatives=["eyes closed", "extra eyes"],
+        ),
+        merge=PromptStrings(
+            positives=["{prompt}", "{ethnicity} {gender}", "4k", "cohesive"],
+            negatives=["blurry", "disjointed"],
+        ),
+        details=PromptStrings(
+            positives=[
+                "{prompt}",
+                "{ethnicity} {gender}",
+                "4k",
+                "realistic",
+                "cinematic",
+                "cinematic effect",
+                P("hyperrealistic"),
+                P("contrasts", 2),
+                "sharp",
+                P("highly detailed"),
+                "white teeth",
+                "nice smile",
+                F("airbrushed", 0.2),
+                F("beautiful", 0.2),
+                "dream",
+            ],
+            negatives=[
+                P("extra fingers", 2),
+                P("ugly", 2),
+                P("blurry"),
+                P("fuzzy"),
+                "monotone",
+                "dreary",
+                "extra digit",
+                "eyes closed",
+                "extra eyes",
+                "bad smile",
+                M("cropped"),
+                M("worst quality"),
+                M("low quality"),
+                "glitch",
+                "deformed",
+                "mutated",
+                "disfigured",
+                "yellow teeth",
+            ],
+        ),
+    )
+
     prompts = [
         "a clown on a sunny day, thin rainbow stripe suspenders",
         "mysterious, floating in the universe, cosmos and nebula reflected in clothing, cyberpunk vibes",
@@ -93,13 +206,13 @@ class Params(BaseModel):
     seed: Optional[int] = None
     steps: int = 25
     inpainting_steps = 15
-    images: int = 4
+    images: int = 2
 
     detect_resolution: int = 384
     guidance_scale: float = 9.0
     refiner_strength = 0.05
     inpainting_strength = 0.40
-    conditioning_strength: tuple[float, float] = (1.50, 1.52)
+    conditioning_strength: tuple[float, float] = (1.8, 1.9)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 0.85
