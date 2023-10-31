@@ -297,7 +297,7 @@ class ModelInstance:
     def frames(self) -> Generator[Image.Image, None, None]:
         for idx, face in enumerate(self.request.generation.faces):
             bounds = Bounds.from_face(self.dims, face)
-            target_percent = random.triangular(0.59, 0.60)
+            target_percent = random.triangular(0.55, 0.58)
 
             curr_width, curr_height = bounds.size()
             target_width, target_height = [int(x * target_percent) for x in self.dims]
@@ -370,7 +370,7 @@ class ModelInstance:
         return self.models.base(
             generator=self.generator,
             guidance_scale=self.params.guidance_scale,
-            num_inference_steps=self.params.inpainting_steps,
+            num_inference_steps=int(self.params.inpainting_steps * 0.666),
             **self.outpaint_prompts.kwargs_for_xl(idx),
         ).images[0]
 
