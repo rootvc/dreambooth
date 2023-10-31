@@ -84,7 +84,7 @@ class Params(BaseModel):
     seed: Optional[int] = None
     steps: int = 25
     inpainting_steps = 15
-    images: int = 4
+    images: int = 2
 
     detect_resolution: int = 384
     guidance_scale: float = 9.0

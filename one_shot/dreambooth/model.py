@@ -172,6 +172,24 @@ class Model:
     def run(self, request: "ProcessRequest") -> list[Image.Image]:
         return ModelInstance(self, request).generate()
 
+    @torch.inference_mode()
+    def tune(self, request: "ProcessRequest") -> list[Image.Image]:
+        instance = ModelInstance(self, request)
+        outpainted = instance.outpaint()
+        smooth_edges = instance._smooth_edges(outpainted)
+        redo_background = instance._redo_background(smooth_edges)
+        final_refine = instance._final_refine(redo_background)
+        return [
+            instance.faces[0],
+            instance.frames[0],
+            instance.masks[0],
+            instance.og_masks[0],
+            outpainted[0],
+            smooth_edges[0],
+            redo_background[0],
+            final_refine[0],
+        ]
+
 
 @dataclass
 class ModelInstance:
@@ -323,6 +341,15 @@ class ModelInstance:
     def og_masks(self) -> list[Image.Image]:
         return list(map(itemgetter(1), self._masks))
 
+    @cached_property
+    def edge_masks(self) -> list[Image.Image]:
+        return [
+            to_pil_image(
+                (~np.asarray(self.masks[idx]) - ~np.asarray(self.og_masks[idx]))
+            )
+            for idx in range(len(self._masks))
+        ]
+
     @collect
     def _outpaint_bases(self) -> Generator[Image.Image, None, None]:
         for idx, frame_img in enumerate(self.frames):
@@ -396,15 +423,8 @@ class ModelInstance:
             img[slice] = np.asarray(bases[idx])[slice]
             yield to_pil_image(img)
 
-    def generate(self) -> list[Image.Image]:
-        outpainted = self.outpaint()
-        edge_masks = [
-            to_pil_image(
-                (~np.asarray(self.masks[idx]) - ~np.asarray(self.og_masks[idx]))
-            )
-            for idx in range(len(outpainted))
-        ]
-        smooth_edges = [
+    def _smooth_edges(self, images: list[Image.Image]) -> list[Image.Image]:
+        return [
             self.models.inpainter(
                 image=img,
                 mask_image=edge_masks[idx],
@@ -414,29 +434,39 @@ class ModelInstance:
                 num_inference_steps=self.params.inpainting_steps,
                 **self.prompts.kwargs_for_inpainter(idx),
             ).images[0]
-            for idx, img in enumerate(outpainted)
+            for idx, img in enumerate(images)
         ]
-        redo_background = [
-            self.models.inpainter(
-                image=img,
-                mask_image=self.masks[idx],
-                generator=self.generator,
-                strength=0.75,
-                guidance_scale=self.params.guidance_scale,
-                num_inference_steps=self.params.inpainting_steps,
-                **self.outpaint_prompts.kwargs_for_inpainter(idx),
-            ).images[0]
-            for idx, img in enumerate(smooth_edges)
-        ]
+
+    def _redo_background(self, images: list[Image.Image]) -> list[Image.Image]:
         return [
             self.models.bg_refiner(
                 image=img,
-                mask_image=edge_masks[idx],
+                mask_image=self.edge_masks[idx],
                 generator=self.generator,
                 strength=0.25,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.prompts.kwargs_for_refiner(idx),
             ).images[0]
-            for idx, img in enumerate(redo_background)
+            for idx, img in enumerate(images)
         ]
+
+    def _final_refine(self, images: list[Image.Image]) -> list[Image.Image]:
+        return [
+            self.models.bg_refiner(
+                image=img,
+                mask_image=self.edge_masks[idx],
+                generator=self.generator,
+                strength=0.25,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.inpainting_steps,
+                **self.prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, img in enumerate(images)
+        ]
+
+    def generate(self) -> list[Image.Image]:
+        outpainted = self.outpaint()
+        smooth_edges = self._smooth_edges(outpainted)
+        redo_background = self._redo_background(smooth_edges)
+        return self._final_refine(redo_background)

@@ -37,6 +37,7 @@ class GenerationRequest(BaseModel):
 class ProcessRequest(BaseModel):
     demographics: dict[str, str]
     generation: GenerationRequest
+    tuning: bool = False
 
 
 class ProcessResponseSentinel(BaseModel):
@@ -130,7 +131,10 @@ class Process:
 
     def _generate(self, request: ProcessRequest, **params) -> list[Image.Image]:
         model = replace(self.model, params=self.model.params.copy(update=params))
-        return model.run(request)
+        if request.tuning:
+            return model.tune(request)
+        else:
+            return model.run(request)
 
     @torch.inference_mode()
     def generate(self, request: ProcessRequest):

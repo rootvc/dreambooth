@@ -103,7 +103,11 @@ class Request:
         for i, queue in enumerate(self.dreambooth.queues.proc):
             logger.debug(f"Sending request to {i}...")
             queue.put_nowait(
-                ProcessRequest(demographics=self.demographics, generation=generation)
+                ProcessRequest(
+                    demographics=self.demographics,
+                    generation=generation,
+                    tuning=bool(params),
+                )
             )
 
         logger.info("Receiving generation responses...")
@@ -111,7 +115,7 @@ class Request:
         while remaining:
             logger.debug("Receiving response...")
             try:
-                resp = self.dreambooth.queues.response.get(timeout=100)
+                resp = self.dreambooth.queues.response.get(timeout=90)
                 if isinstance(resp, ProcessResponseSentinel):
                     logger.info("Rank {} is done!", resp.rank)
                     remaining.remove(resp.rank)
