@@ -2,6 +2,7 @@ import gc
 import hashlib
 import itertools
 import os
+import shutil
 import subprocess
 import sys
 from functools import wraps
@@ -11,7 +12,9 @@ from urllib.parse import urlencode
 
 import cv2
 import face_evolve.applications.align
+import face_recognition.api as face_recognition
 import numpy as np
+import requests
 import torch
 from PIL import Image
 from PIL.ImageOps import exif_transpose
@@ -93,10 +96,15 @@ class Mouth(LR):
 class Landmarks(FrozenModel):
     nose: TPoint
     mouth: Mouth
+    rest: frozenset[TPoint] | None = None
 
     @property
     def flat(self):
-        return [list(self.nose)] + self.mouth.flat
+        return (
+            self.mouth.flat
+            + [list(self.nose)]
+            + (list(map(list, self.rest)) if self.rest else [])
+        )
 
 
 class Face(FrozenModel):
@@ -179,9 +187,13 @@ def download_civitai_model(model: str):
     path = civitai_path(model)
     path.parent.mkdir(parents=True, exist_ok=True)
     query = {"type": "Model", "format": "SafeTensor"}
-    Downloader().start(
-        f"https://civitai.com/api/download/models/{model}?{urlencode(query)}", str(path)
-    )
+    url = f"https://civitai.com/api/download/models/{model}?{urlencode(query)}"
+    Downloader().start(url, str(path))
+    if path.exists():
+        return
+    with requests.get(url, stream=True) as r:
+        with open(path, "wb") as f:
+            shutil.copyfileobj(r.raw, f)
 
 
 def chunks(lst, n):
@@ -208,7 +220,7 @@ def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Imag
 
 
 def dilate_mask(mask: np.ndarray) -> np.ndarray:
-    size, iterations = (5, 5), 20
+    size, iterations = (5, 5), 15
     kernel = np.ones(size, np.uint8)
     return cv2.dilate(mask.copy(), kernel, iterations=iterations)
 
@@ -237,13 +249,32 @@ def extract_faces(
         )
 
 
-@collect
-def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
-    points: tuple[list[np.ndarray], list[np.ndarray]] = _detect_faces(img)
-    if faces := list(zip(*points)):
-        yield from extract_faces(faces)
-        return
+def _point_center(points: list[TPoint]) -> TPoint:
+    return tuple(np.mean(points, axis=0).astype(int))
 
+
+@collect
+def _dlib_detect_faces(img: Image.Image) -> Generator[Face, None, None]:
+    for t, r, b, l in face_recognition.face_locations(np.asarray(img), model="cnn"):
+        landmarks = face_recognition.face_landmarks(np.asarray(img), [(t, r, b, l)])[0]
+        yield Face(
+            box=Box(top_left=(l, t), bottom_right=(r, b)),
+            eyes=Eyes(
+                left=_point_center(landmarks["left_eye"]),
+                right=_point_center(landmarks["right_eye"]),
+            ),
+            landmarks=Landmarks(
+                nose=_point_center(landmarks["nose_tip"]),
+                mouth=Mouth(
+                    left=landmarks["top_lip"][0], right=landmarks["bottom_lip"][0]
+                ),
+                rest=frozenset(itertools.chain.from_iterable(landmarks.values())),
+            ),
+        )
+
+
+@collect
+def _opencv_detect_faces(img: Image.Image) -> Generator[Face, None, None]:
     gray = np.array(img.convert("L"))
     smooth = cv2.GaussianBlur(gray, (125, 125), 0)
     image = cv2.divide(gray, smooth, scale=255)
@@ -276,11 +307,20 @@ def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
                 ),
                 landmarks=None,
             )
-        return
 
-    w, h = img.size
-    yield Face(
-        box=Box(top_left=(0, 0), bottom_right=(w, h)),
-        eyes=Eyes(left=(0, 0), right=(0, 0)),
-        landmarks=None,
-    )
+
+@collect
+def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
+    if faces := list(zip(*_detect_faces(img))):
+        yield from extract_faces(faces)
+    elif faces := _dlib_detect_faces(img):
+        yield from faces
+    elif faces := _opencv_detect_faces(img):
+        yield from faces
+    else:
+        w, h = img.size
+        yield Face(
+            box=Box(top_left=(0, 0), bottom_right=(w, h)),
+            eyes=Eyes(left=(0, 0), right=(0, 0)),
+            landmarks=None,
+        )

@@ -47,8 +47,17 @@ class Model(BaseModel):
     vqa: str = "ybelkada/blip-vqa-base"
     sam: str = "facebook/sam-vit-huge"
     loras: dict[str, dict[str, str]] = {
-        "base": {name: "sd_xl_offset_example-lora_1.0.safetensors"},
-        "inpainter": {"128461": "civitai"},  # Perfect Eyes XL
+        "base": {
+            name: "sd_xl_offset_example-lora_1.0.safetensors",
+            "131991": "civitai",  # Juggernaut Cinematic XL
+        },
+        "inpainter": {
+            name: "sd_xl_offset_example-lora_1.0.safetensors",
+            "128461": "civitai",  # Perfect Eyes XL
+            "131991": "civitai",  # Juggernaut Cinematic XL
+            "152685": "civitai",  # Wallpaper X
+            "156002": "civitai",  # PAseer-SDXL-Weird DreamLand
+        },
     }
 
     resolution: int = 1024
@@ -63,10 +72,10 @@ class Params(BaseModel):
     batch_size: int = 4
 
     negative_prompt = "box+, (picture frame)++, boxy, rectangle+, (extra fingers)++, ugly++, blurry+, fuzzy+, monotone, dreary, extra digit, eyes closed, extra eyes, bad smile, cropped, worst quality, low quality, glitch, deformed, mutated, disfigured, yellow teeth"
-    refine_negative_prompt = "face++, eyes++, text++, body, brow, (double face), (extra eyes), (multiple faces)+, (extra digits)+, extra limbs, deformed, bad arm, weird arm"
-    prompt_template = "4k, realistic, cinematic effect, hyperrealistic+, sharp, (highly detailed)+, white teeth, nice smile, (airbrushed)0.2, (beautiful)0.2"
+    refine_negative_prompt = "person++, face+++, eyes+++, text++, body+, brow+, (double face), (extra eyes), (multiple faces)+, (extra digits)+, extra limbs, deformed, bad arm, weird arm"
+    prompt_template = "4k, realistic, cinematic, cinematic effect, hyperrealistic+, contrasts, sharp, (highly detailed)+, white teeth, nice smile, (airbrushed)0.2, (beautiful)0.2"
     prompt_prefix = "{prompt}, {ethnicity} {gender}"
-    refine_prompt_prefix = "(background of)++: {prompt}, high detail, no people"
+    refine_prompt_prefix = "setting of a scene, background image, detail background, dream, without humans, no actors, {prompt}"
     inpaint_prompt_template = "{color} eyes, perfecteyes++, (detailed pupils)+, subtle eyes, natural eyes, realistic eyes, ({ethnicity} {gender})0.1, ({prompt})0.8"
     prompts = [
         "a clown on a sunny day, thin rainbow stripe suspenders",

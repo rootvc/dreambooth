@@ -207,7 +207,7 @@ class FaceHelper:
             for j, face in enumerate(faces):
                 inputs = self.models.sam.processor(
                     img,
-                    input_points=None
+                    input_points=[[[img.width // 2, img.height // 2]]]
                     if face.is_trivial
                     else [
                         [

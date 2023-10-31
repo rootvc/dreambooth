@@ -66,6 +66,12 @@ class Process:
     ):
         os.environ["RANK"] = os.environ["LOCAL_RANK"] = str(rank)
         os.environ["WORLD_SIZE"] = str(world_size)
+        try:
+            import dlib.cuda
+
+            dlib.cuda.set_device(rank)
+        except ImportError:
+            pass
 
         dist.init_process_group(
             "nccl",

@@ -3,7 +3,7 @@ FROM rootventures/pytorch:latest AS pip
 
 RUN \
   apt-get update && \
-  apt-get install -y libwebp-dev && \
+  apt-get install -y libwebp-dev libwebp7 && \
   rm -rf /var/lib/apt/lists/*
 
 
@@ -14,6 +14,10 @@ RUN --mount=type=cache,target=/opt/ccache --mount=type=cache,target=/root/.cache
 ADD --link environment.txt environment.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -r environment.txt
+RUN --mount=type=cache,target=/opt/ccache \
+  git clone https://github.com/davisking/dlib.git && \
+  cd dlib && \
+  python setup.py install --no DLIB_USE_CUDA
 ADD --link requirements.txt requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -r requirements.txt

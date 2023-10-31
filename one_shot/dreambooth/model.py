@@ -259,7 +259,7 @@ class ModelInstance:
             for idx, img in enumerate(self.request.generation.images)
         ]
 
-    def _touch_up_face_images(self, images: list[Image.Image]) -> list[Image.Image]:
+    def _touch_up_eyes(self, images: list[Image.Image]) -> list[Image.Image]:
         face_helper = FaceHelper(self.params, self.models.face, images)
         masks, colors = map(list, zip(*face_helper.eye_masks()))
         self.model.logger.info("Colors: {}", colors)
@@ -286,7 +286,7 @@ class ModelInstance:
 
     @cached_property
     def faces(self) -> list[Image.Image]:
-        return self._touch_up_face_images(self._generate_face_images())
+        return self._touch_up_eyes(self._generate_face_images())
 
     @property
     def dims(self) -> tuple[int, int]:
@@ -297,7 +297,7 @@ class ModelInstance:
     def frames(self) -> Generator[Image.Image, None, None]:
         for idx, face in enumerate(self.request.generation.faces):
             bounds = Bounds.from_face(self.dims, face)
-            target_percent = random.triangular(0.55, 0.58)
+            target_percent = random.triangular(0.57, 0.59)
 
             curr_width, curr_height = bounds.size()
             target_width, target_height = [int(x * target_percent) for x in self.dims]
@@ -370,7 +370,7 @@ class ModelInstance:
         return self.models.base(
             generator=self.generator,
             guidance_scale=self.params.guidance_scale,
-            num_inference_steps=int(self.params.inpainting_steps * 0.666),
+            num_inference_steps=self.params.inpainting_steps,
             **self.outpaint_prompts.kwargs_for_xl(idx),
         ).images[0]
 
@@ -458,14 +458,14 @@ class ModelInstance:
 
     def _redo_background(self, images: list[Image.Image]) -> list[Image.Image]:
         return [
-            self.models.bg_refiner(
+            self.models.inpainter(
                 image=image,
                 mask_image=self.masks[idx],
                 generator=self.generator,
-                strength=0.75,
+                strength=0.90,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
-                **self.outpaint_prompts.kwargs_for_refiner(idx),
+                **self.outpaint_prompts.kwargs_for_inpainter(idx),
             ).images[0]
             for idx, image in enumerate(images)
         ]
@@ -476,7 +476,7 @@ class ModelInstance:
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=0.10,
+                strength=0.25,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.prompts.kwargs_for_refiner(idx),
@@ -488,4 +488,5 @@ class ModelInstance:
         outpainted = self.outpaint()
         smooth_edges = self._smooth_edges(outpainted)
         redo_background = self._redo_background(smooth_edges)
-        return self._final_refine(redo_background)
+        refined = self._final_refine(redo_background)
+        return self._touch_up_eyes(refined)
