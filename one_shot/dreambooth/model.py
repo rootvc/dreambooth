@@ -436,7 +436,7 @@ class Model:
                 image=final,
                 mask_image=masks[idx],
                 generator=generator,
-                strength=0.75,
+                strength=0.70,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 output_type="latent",
@@ -452,7 +452,7 @@ class Model:
                     (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
                 ),
                 generator=generator,
-                strength=0.23,
+                strength=0.20,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **prompts.kwargs_for_refiner(idx),

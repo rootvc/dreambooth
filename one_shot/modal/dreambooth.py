@@ -29,7 +29,7 @@ class Dreambooth(OneShotDreambooth):
                 file, force_overwrite_to_cloud=True
             )
 
-            image.reduce(4).save(file.with_suffix(".jpg"), optimize=True)
+            image.save(file.with_suffix(".jpg"), optimize=True)
             (self.settings.bucket / "output" / id / "grid.jpg").upload_from(
                 file.with_suffix(".jpg"), force_overwrite_to_cloud=True
             )
