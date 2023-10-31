@@ -17,13 +17,13 @@ export default defineFunction(
       data: { id, phone },
     },
   }) => {
-    const mediaUrl = await run("get pre-signed URL", async () => {
+    const mmsUrl = await run("get pre-signed MMS URL", async () => {
       try {
         return await getSignedUrl(
           <any>new S3Client({ region: AWS_REGION }),
           <any>new GetObjectCommand({
             Bucket: BUCKET,
-            Key: `output/${id}/grid.png`,
+            Key: `output/${id}/grid.jpg`,
           }),
           { expiresIn: 3600 }
         );
@@ -45,7 +45,7 @@ export default defineFunction(
       phone,
       id,
       key: "FINISHED",
-      mediaUrl,
+      mmsUrl,
     });
 
     while (1) {

@@ -15,7 +15,6 @@ export default defineFunction(
     },
   }) => {
     if (!phone) return;
-    if(true) return;
     const copy = await run("get copy", () =>
       SMS_COPY[key as keyof typeof SMS_COPY](args)
     );

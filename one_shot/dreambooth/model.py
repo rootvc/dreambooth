@@ -230,7 +230,7 @@ class Model:
         dims = (self.params.model.resolution, self.params.model.resolution)
         for idx, face in enumerate(request.generation.faces):
             bounds = Bounds.from_face(dims, face)
-            target_percent = random.triangular(0.53, 0.57)
+            target_percent = random.triangular(0.56, 0.60)
 
             curr_width, curr_height = bounds.size()
             target_width, target_height = [int(x * target_percent) for x in dims]
@@ -460,7 +460,7 @@ class Model:
             for idx, final in enumerate(final_refined2)
         ]
 
-        # return final_refined3
+        return final_refined3
 
         final_refined_images = [
             self.models.inpainter.image_processor.postprocess(
