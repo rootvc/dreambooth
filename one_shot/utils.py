@@ -253,7 +253,7 @@ def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
     eye_cascade = cv2.CascadeClassifier(
         "/usr/local/share/opencv4/haarcascades/haarcascade_eye.xml"
     )
-    if faces := face_cascade.detectMultiScale(division, 1.3, 5):
+    if len(faces := face_cascade.detectMultiScale(division, 1.3, 5)):
         for x, y, w, h in faces:
             eyes = iter(
                 eye_cascade.detectMultiScale(

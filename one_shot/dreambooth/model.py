@@ -1,6 +1,8 @@
 import random
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from functools import cached_property
+from operator import itemgetter
+from typing import TYPE_CHECKING, Generator
 
 import numpy as np
 import torch
@@ -14,10 +16,8 @@ from diffusers import (
     StableDiffusionXLInpaintPipeline,
     T2IAdapter,
 )
-from diffusers.utils.torch_utils import randn_tensor
 from PIL import Image, ImageFilter
 from torchvision.transforms.functional import (
-    convert_image_dtype,
     to_pil_image,
 )
 
@@ -25,7 +25,9 @@ from one_shot.face import Bounds, FaceHelper, FaceHelperModels
 from one_shot.params import Params, Settings
 from one_shot.prompt import Compels, Prompts
 from one_shot.utils import (
+    Face,
     civitai_path,
+    collect,
     erode_mask,
     exclude,
 )
@@ -168,56 +170,82 @@ class Model:
 
     @torch.inference_mode()
     def run(self, request: "ProcessRequest") -> list[Image.Image]:
-        prompts = og_prompts = Prompts(
+        return ModelInstance(self, request).generate()
+
+
+@dataclass
+class ModelInstance:
+    model: Model
+    request: "ProcessRequest"
+
+    @property
+    def rank(self):
+        return self.model.rank
+
+    @property
+    def models(self):
+        return self.model.models
+
+    @property
+    def params(self):
+        return self.model.params
+
+    @cached_property
+    def prompts(self) -> Prompts:
+        return Prompts(
             self.models.compels,
             self.rank,
             self.params.dtype,
             [
                 (self.params.prompt_prefix + ", " + self.params.prompt_template).format(
-                    prompt=p, **request.demographics
+                    prompt=p, **self.request.demographics
                 )
-                for p in request.generation.prompts
+                for p in self.request.generation.prompts
             ],
-            [self.params.negative_prompt] * len(request.generation.prompts),
+            [self.params.negative_prompt] * len(self.request.generation.prompts),
         )
-        self.logger.info("Generating latents...")
-        if self.params.seed:
-            generator = torch.Generator(device=self.rank).manual_seed(self.params.seed)
+
+    @cached_property
+    def generator(self) -> torch.Generator | None:
+        if self.model.params.seed:
+            return torch.Generator(device=self.rank).manual_seed(self.params.seed)
         else:
-            generator = None
-        images = [
-            self.models.pipe(
+            return None
+
+    def _generate_face_images(self) -> list[Image.Image]:
+        return [
+            self.model.models.pipe(
                 image=img,
-                generator=generator,
+                generator=self.generator,
                 num_inference_steps=self.params.steps,
                 guidance_scale=self.params.guidance_scale,
                 adapter_conditioning_scale=random.triangular(
                     *self.params.conditioning_strength
                 ),
                 adapter_conditioning_factor=self.params.conditioning_factor,
-                **prompts.kwargs_for_xl(idx),
+                **self.prompts.kwargs_for_xl(idx),
             ).images[0]
-            for idx, img in enumerate(request.generation.images)
+            for idx, img in enumerate(self.request.generation.images)
         ]
 
-        self.logger.info("Touching up images...")
+    def _touch_up_face_images(self, images: list[Image.Image]) -> list[Image.Image]:
         face_helper = FaceHelper(self.params, self.models.face, images)
         masks, colors = map(list, zip(*face_helper.eye_masks()))
-        self.logger.info("Colors: {}", colors)
+        self.model.logger.info("Colors: {}", colors)
         prompts = replace(
-            og_prompts,
+            self.prompts,
             raw=[
                 self.params.inpaint_prompt_template.format(
-                    prompt=p, color=c, **request.demographics
+                    prompt=p, color=c, **self.request.demographics
                 )
-                for p, c in zip(request.generation.prompts, colors)
+                for p, c in zip(self.request.generation.prompts, colors)
             ],
         )
-        faces: list[Image.Image] = [
+        return [
             self.models.inpainter(
                 image=img,
                 mask_image=masks[idx],
-                generator=generator,
+                generator=self.generator,
                 strength=self.params.inpainting_strength,
                 num_inference_steps=self.params.inpainting_steps,
                 **prompts.kwargs_for_inpainter(idx),
@@ -225,275 +253,190 @@ class Model:
             for idx, img in enumerate(images)
         ]
 
-        self.logger.info("Reframing images...")
-        frames: list[Image.Image] = []
-        dims = (self.params.model.resolution, self.params.model.resolution)
-        for idx, face in enumerate(request.generation.faces):
-            bounds = Bounds.from_face(dims, face)
-            target_percent = random.triangular(0.56, 0.60)
+    @cached_property
+    def faces(self) -> list[Image.Image]:
+        return self._touch_up_face_images(self._generate_face_images())
+
+    @property
+    def dims(self) -> tuple[int, int]:
+        return (self.params.model.resolution, self.params.model.resolution)
+
+    @cached_property
+    @collect
+    def frames(self) -> Generator[Image.Image, None, None]:
+        for idx, face in enumerate(self.request.generation.faces):
+            bounds = Bounds.from_face(self.dims, face)
+            target_percent = random.triangular(0.58, 0.60)
 
             curr_width, curr_height = bounds.size()
-            target_width, target_height = [int(x * target_percent) for x in dims]
+            target_width, target_height = [int(x * target_percent) for x in self.dims]
             d_w, d_h = target_width - curr_width, target_height - curr_height
             delta = max(d_w, d_h)
-            padding = (delta / max(dims)) / 2.0
-
-            self.logger.warning(
-                "PADDING: {}, {}, {}, {}, {}",
-                (curr_width, curr_height),
-                (target_width, target_height),
-                (d_w, d_h),
-                delta,
-                padding,
-            )
+            padding = (delta / max(self.dims)) / 2.0
+            self.model.logger.info("Length Delta: {}, Padding: {}", delta, padding)
 
             slice = bounds.slice(padding)
-            embed = np.asarray(faces[idx].resize(bounds.size(padding)))
+            embed = np.asarray(self.faces[idx].resize(bounds.size(padding)))
 
-            frame = np.zeros((*dims, 3), dtype=np.uint8)
+            frame = np.zeros((*self.dims, 3), dtype=np.uint8)
             frame[slice] = embed
-            frames.append(to_pil_image(frame))
+            yield to_pil_image(frame)
 
-        face_helper = FaceHelper(self.params, self.models.face, frames)
+    def _get_masks(
+        self, frame: np.ndarray, face: Face
+    ) -> tuple[Image.Image, Image.Image]:
+        if face.mask:
+            self.model.logger.warning("Using face mask")
+            mask = ~face.mask.arr
+            og_mask = ~erode_mask(face.aggressive_mask.arr)
+        elif not face.is_trivial:
+            self.model.logger.warning("Using bounds mask")
+            mask = np.full(frame.shape, 255, dtype=np.uint8)
+            mask[
+                Bounds.from_face(frame.shape[:2], face).slice(self.params.mask_padding)
+            ] = 0
+            og_mask = np.full(frame.shape, 255, dtype=np.uint8)
+            og_mask[Bounds.from_face(frame.shape[:2], face).slice()] = 0
+            og_mask = ~erode_mask(~og_mask)
+        else:
+            self.model.logger.warning("Using default mask")
+            mask = np.full(frame.shape, 255, dtype=np.uint8)
+            mask[frame != 0] = 0
+            og_mask = ~erode_mask(~mask)
 
-        self.logger.info("Outpainting images...")
-        vae = self.models.pipe.vae
-        images, masks, og_masks = [], [], []
-        for idx, frame_img in enumerate(frames):
+        return tuple(to_pil_image(m, mode="RGB").convert("L") for m in (mask, og_mask))
+
+    @cached_property
+    @collect
+    def _masks(self) -> Generator[tuple[Image.Image, Image.Image], None, None]:
+        face_helper = FaceHelper(self.params, self.models.face, self.frames)
+        for idx, frame_img in enumerate(self.frames):
             frame = np.asarray(frame_img)
             face = face_helper.primary_face_bounds()[idx][1]
+            yield self._get_masks(frame, face)
 
-            if face.mask:
-                self.logger.warning("Using face mask")
-                mask = ~face.mask.arr
-                masks.append(to_pil_image(mask, mode="RGB").convert("L"))
+    @property
+    def masks(self) -> list[Image.Image]:
+        return list(map(itemgetter(0), self._masks))
 
-                og_mask = ~erode_mask(face.aggressive_mask.arr)
-                og_masks.append(to_pil_image(og_mask, mode="RGB").convert("L"))
-            elif not face.is_trivial:
-                self.logger.warning("Using bounds mask")
-                mask = np.full(frame.shape, 255, dtype=np.uint8)
-                mask[
-                    Bounds.from_face(frame.shape[:2], face).slice(
-                        self.params.mask_padding
-                    )
-                ] = 0
-                masks.append(to_pil_image(mask, mode="RGB").convert("L"))
+    @property
+    def og_masks(self) -> list[Image.Image]:
+        return list(map(itemgetter(1), self._masks))
 
-                og_mask = np.full(frame.shape, 255, dtype=np.uint8)
-                og_mask[Bounds.from_face(frame.shape[:2], face).slice()] = 0
-                og_masks.append(
-                    to_pil_image(~erode_mask(~og_mask), mode="RGB").convert("L")
-                )
-            else:
-                self.logger.warning("Using default mask")
-                mask = np.full(frame.shape, 255, dtype=np.uint8)
-                mask[frame != 0] = 0
-                masks.append(to_pil_image(mask, mode="RGB").convert("L"))
-                og_masks.append(
-                    to_pil_image(~erode_mask(~mask), mode="RGB").convert("L")
-                )
-
-            shape = (
-                1,
-                self.models.pipe.unet.config.in_channels,
-                (dims[0] // self.models.pipe.vae_scale_factor),
-                (dims[1] // self.models.pipe.vae_scale_factor),
-            )
-            latents = (
-                randn_tensor(
-                    shape,
-                    generator=generator,
-                    device=torch.device(self.rank),
-                    dtype=vae.dtype,
-                )
-                * self.models.pipe.scheduler.init_noise_sigma
-            )
-            image = vae.decode(latents / vae.config.scaling_factor, return_dict=False)[
-                0
-            ]
-            image = self.models.pipe.image_processor.postprocess(
-                image, output_type="pt"
-            )
-            image = to_pil_image(convert_image_dtype(image, dtype=torch.uint8)[0])
-            image = np.array(image)
-
+    @collect
+    def _outpaint_bases(self) -> Generator[Image.Image, None, None]:
+        for idx, frame_img in enumerate(self.frames):
+            frame = np.asarray(frame_img)
+            mask = self.masks[idx]
             image = np.array(
-                faces[idx]
+                self.faces[idx]
                 .resize(frame.shape[:2])
                 .filter(ImageFilter.BoxBlur(radius=100)),
                 dtype=np.uint8,
             )
-
-            idx = (mask == 0) & (frame != 0)
+            idx = (np.asarray(mask.convert("RGB")) == 0) & (frame != 0)
             image[idx] = frame[idx]
-            images.append(to_pil_image(image))
+            yield to_pil_image(image)
 
-        prompts = replace(
-            og_prompts,
+    @cached_property
+    def outpaint_prompts(self) -> Prompts:
+        return replace(
+            self.prompts,
             raw=[
                 (
                     self.params.refine_prompt_prefix
                     + ", "
                     + self.params.prompt_template
-                ).format(prompt=p, **request.demographics)
-                for p in request.generation.prompts
+                ).format(prompt=p, **self.request.demographics)
+                for p in self.request.generation.prompts
             ],
             negative=[
                 self.params.refine_negative_prompt + ", " + self.params.negative_prompt
             ]
-            * len(request.generation.prompts),
+            * len(self.request.generation.prompts),
         )
+
+    @collect
+    def outpaint(self) -> Generator[Image.Image, None, None]:
+        bases = self._outpaint_bases()
 
         latents = [
             self.models.inpainter(
-                image=img,
-                mask_image=mask,
-                generator=generator,
+                image=image,
+                mask_image=self.masks[idx],
+                generator=self.generator,
                 strength=0.99,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.steps,
                 output_type="latent",
                 denoising_end=self.params.high_noise_frac,
-                **prompts.kwargs_for_inpainter(idx),
+                **self.outpaint_prompts.kwargs_for_inpainter(idx),
             ).images
-            for img, mask, idx in zip(images, masks, range(len(images)))
+            for idx, image in enumerate(bases)
         ]
-
-        self.logger.info("Refining images...")
-
-        latent_images = [
-            self.models.inpainter.image_processor.postprocess(
-                self.models.inpainter.vae.decode(
-                    latent / self.models.inpainter.vae.config.scaling_factor,
-                    return_dict=False,
-                )[0]
-            )[0]
-            for latent in latents
-        ]
-
-        # latents2, images = [], []
-        # for i, latent in enumerate(latents):
-        #     image = self.models.face_refiner.image_processor.postprocess(
-        #         self.models.face_refiner.vae.decode(
-        #             latent / self.models.face_refiner.vae.config.scaling_factor,
-        #             return_dict=False,
-        #         )[0],
-        #         output_type="pt",
-        #     )
-        #     image = to_pil_image(convert_image_dtype(image, dtype=torch.uint8)[0])
-        #     image = np.array(image)
-        #     image[masks[i] == 0] = np.asarray(frames[i])[masks[i] == 0]
-        #     images.append(to_pil_image(image))
-
-        #     latent = vae.encode(
-        #         to_tensor(image).to(self.rank, dtype=torch.float16)
-        #     ).latent_dist.sample(generator=generator)
-        #     latents2.append(latent)
 
         refined = [
             self.models.bg_refiner(
                 image=latent,
                 latents=latent,
-                mask_image=mask,
-                generator=generator,
+                mask_image=self.og_masks[idx],
+                generator=self.generator,
                 strength=0.85,
                 denoising_start=self.params.high_noise_frac,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.steps,
-                **prompts.kwargs_for_refiner(idx),
+                **self.outpaint_prompts.kwargs_for_refiner(idx),
             ).images[0]
-            for (idx, latent), mask in zip(enumerate(latents), og_masks)
+            for idx, latent in enumerate(latents)
         ]
 
-        self.logger.info("Compositing images...")
-
-        final = []
         for idx, img in enumerate(refined):
             img = np.array(img)
-            slice = np.asarray(masks[idx].convert("RGB")) == 0
-            img[slice] = np.asarray(images[idx])[slice]
-            final.append(to_pil_image(img))
+            slice = np.asarray(self.masks[idx].convert("RGB")) == 0
+            img[slice] = np.asarray(bases[idx])[slice]
+            yield to_pil_image(img)
 
-        final_refined = [
-            self.models.bg_refiner(
-                image=final,
-                mask_image=to_pil_image(
-                    (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
-                ),
-                generator=generator,
-                strength=0.23,
-                guidance_scale=self.params.guidance_scale,
-                num_inference_steps=self.params.inpainting_steps,
-                output_type="latent",
-                **prompts.kwargs_for_refiner(idx),
-            ).images
-            for idx, final in enumerate(final)
+    def generate(self) -> list[Image.Image]:
+        outpainted = self.outpaint()
+        edge_masks = [
+            to_pil_image(
+                (~np.asarray(self.masks[idx]) - ~np.asarray(self.og_masks[idx]))
+            )
+            for idx in range(len(outpainted))
         ]
-
-        final_refined2 = [
-            self.models.bg_refiner(
-                image=final,
-                mask_image=masks[idx],
-                generator=generator,
-                strength=0.70,
+        smooth_edges = [
+            self.models.inpainter(
+                image=img,
+                mask_image=edge_masks[idx],
+                generator=self.generator,
+                strength=0.25,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
-                output_type="latent",
-                **prompts.kwargs_for_refiner(idx),
-            ).images
-            for idx, final in enumerate(final_refined)
-        ]
-
-        final_refined3 = [
-            self.models.bg_refiner(
-                image=final,
-                mask_image=to_pil_image(
-                    (~np.asarray(masks[idx]) - ~np.asarray(og_masks[idx]))
-                ),
-                generator=generator,
-                strength=0.20,
-                guidance_scale=self.params.guidance_scale,
-                num_inference_steps=self.params.inpainting_steps,
-                **prompts.kwargs_for_refiner(idx),
+                **self.prompts.kwargs_for_inpainter(idx),
             ).images[0]
-            for idx, final in enumerate(final_refined2)
+            for idx, img in enumerate(outpainted)
         ]
-
-        return final_refined3
-
-        final_refined_images = [
-            self.models.inpainter.image_processor.postprocess(
-                self.models.inpainter.vae.decode(
-                    latent / self.models.inpainter.vae.config.scaling_factor,
-                    return_dict=False,
-                )[0]
-            )[0]
-            for latent in final_refined
+        redo_background = [
+            self.models.inpainter(
+                image=img,
+                mask_image=self.masks[idx],
+                generator=self.generator,
+                strength=0.75,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.inpainting_steps,
+                **self.outpaint_prompts.kwargs_for_inpainter(idx),
+            ).images[0]
+            for idx, img in enumerate(smooth_edges)
         ]
-
-        final_refined2_images = [
-            self.models.inpainter.image_processor.postprocess(
-                self.models.inpainter.vae.decode(
-                    latent / self.models.inpainter.vae.config.scaling_factor,
-                    return_dict=False,
-                )[0]
-            )[0]
-            for latent in final_refined2
-        ]
-
         return [
-            # frames[0],
-            images[0],
-            # masks[0].convert("RGB"),
-            # og_masks[0].convert("RGB"),
-            to_pil_image((~np.asarray(masks[idx]) - ~np.asarray(og_masks[0]))).convert(
-                "RGB"
-            ),
-            latent_images[0],
-            refined[0],
-            final[0],
-            final_refined_images[0],
-            final_refined2_images[0],
-            final_refined3[0],
+            self.models.bg_refiner(
+                image=img,
+                mask_image=edge_masks[idx],
+                generator=self.generator,
+                strength=0.25,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.inpainting_steps,
+                **self.prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, img in enumerate(redo_background)
         ]

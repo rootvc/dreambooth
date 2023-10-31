@@ -224,22 +224,7 @@ class FaceHelper:
                     inputs["original_sizes"].cpu(),
                     inputs["reshaped_input_sizes"].cpu(),
                 )
-                masks = masks[0].cpu().numpy()
-                if len(masks.shape) == 4:
-                    logger.warning("Multiple masks detected")
-                    masks = masks.squeeze()
-                logger.warning(
-                    "scores: {}",
-                    list(
-                        zip(
-                            outputs.iou_scores.cpu().numpy()[0][0],
-                            [
-                                (np.count_nonzero(m) / np.prod(m.shape)) * 100
-                                for m in masks
-                            ],
-                        )
-                    ),
-                )
+                masks = masks[0].cpu().numpy().squeeze()
                 masks = [
                     m for m in masks if np.count_nonzero(m) > (0.05 * np.prod(m.shape))
                 ]

@@ -98,7 +98,6 @@ class Request:
             prompts=prompts,
             params=params or {},
         )
-        logger.info("Generation request: {}", generation)
 
         logger.info("Sending generation requests...")
         for i, queue in enumerate(self.dreambooth.queues.proc):
