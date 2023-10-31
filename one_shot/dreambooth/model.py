@@ -462,7 +462,7 @@ class ModelInstance:
                 image=image,
                 mask_image=self.masks[idx],
                 generator=self.generator,
-                strength=0.90,
+                strength=0.95,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.outpaint_prompts.kwargs_for_inpainter(idx),
@@ -476,7 +476,7 @@ class ModelInstance:
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=0.25,
+                strength=0.35,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.prompts.kwargs_for_refiner(idx),
@@ -488,5 +488,4 @@ class ModelInstance:
         outpainted = self.outpaint()
         smooth_edges = self._smooth_edges(outpainted)
         redo_background = self._redo_background(smooth_edges)
-        refined = self._final_refine(redo_background)
-        return self._touch_up_eyes(refined)
+        return self._final_refine(redo_background)

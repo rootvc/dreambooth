@@ -24,7 +24,7 @@ class Dreambooth(OneShotDreambooth):
         image = Request(self, id).generate()
         with TemporaryDirectory() as dir:
             file = Path(dir) / "grid.png"
-            image.save(file, optimize=True)
+            image.save(file)
             (self.settings.bucket / "output" / id / "grid.png").upload_from(
                 file, force_overwrite_to_cloud=True
             )

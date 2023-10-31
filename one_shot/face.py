@@ -248,7 +248,7 @@ class FaceHelper:
                 faces[j] = face.copy(
                     update={
                         "aggressive_mask": NpBox(arr=dilate_mask(mask_images[0])),
-                        "mask": NpBox(arr=dilate_mask(mask_images[1])),
+                        "mask": NpBox(arr=dilate_mask(mask_images[0])),
                     }
                 )
         for i, faces in enumerate(detections):
