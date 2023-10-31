@@ -246,20 +246,22 @@ def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
 
     gray = np.array(img.convert("L"))
     smooth = cv2.GaussianBlur(gray, (125, 125), 0)
-    division = cv2.divide(gray, smooth, scale=255)
+    image = cv2.divide(gray, smooth, scale=255)
+
     face_cascade = cv2.CascadeClassifier(
         "/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_default.xml"
     )
     eye_cascade = cv2.CascadeClassifier(
         "/usr/local/share/opencv4/haarcascades/haarcascade_eye.xml"
     )
-    if len(faces := face_cascade.detectMultiScale(division, 1.3, 5)):
+    if len(
+        faces := face_cascade.detectMultiScale(image, scaleFactor=1.3, minNeighbors=5)
+    ):
         for x, y, w, h in faces:
             eyes = iter(
                 eye_cascade.detectMultiScale(
                     gray[y : y + h, x : x + w],
-                    1.3,
-                    5,
+                    scaleFactor=1.3,
                     minNeighbors=10,
                     minSize=(30, 30),
                 )

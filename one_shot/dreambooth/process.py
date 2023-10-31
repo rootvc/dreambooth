@@ -126,7 +126,6 @@ class Process:
 
         with self._split(request.generation.dict(exclude={"params"})) as split:
             generation = GenerationRequest(**split)
-            self.logger.info("Slice: {}", generation)
         return generation, params
 
     def _generate(self, request: ProcessRequest, **params) -> list[Image.Image]:

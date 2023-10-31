@@ -226,7 +226,7 @@ class FaceHelper:
                 )
                 masks = masks[0].cpu().numpy().squeeze()
                 masks = [
-                    m for m in masks if np.count_nonzero(m) > (0.05 * np.prod(m.shape))
+                    m for m in masks if np.count_nonzero(m) > (0.10 * np.prod(m.shape))
                 ]
                 if len(masks) == 0:
                     continue

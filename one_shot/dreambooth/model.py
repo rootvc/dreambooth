@@ -14,9 +14,10 @@ from diffusers import (
     EulerAncestralDiscreteScheduler,
     StableDiffusionXLAdapterPipeline,
     StableDiffusionXLInpaintPipeline,
+    StableDiffusionXLPipeline,
     T2IAdapter,
 )
-from PIL import Image, ImageFilter
+from PIL import Image
 from torchvision.transforms.functional import (
     to_pil_image,
 )
@@ -28,6 +29,7 @@ from one_shot.utils import (
     Face,
     civitai_path,
     collect,
+    dilate_mask,
     erode_mask,
     exclude,
 )
@@ -46,6 +48,7 @@ class SharedModels:
 
 @dataclass
 class ProcessModels:
+    base: StableDiffusionXLPipeline
     pipe: StableDiffusionXLAdapterPipeline
     face_refiner: StableDiffusionXLAdapterPipeline
     bg_refiner: StableDiffusionXLInpaintPipeline
@@ -91,6 +94,14 @@ class ProcessModels:
         ).to(rank)
         pipe.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, pipe)
+
+        base = StableDiffusionXLPipeline.from_pretrained(
+            params.model.name,
+            **exclude(pipe.components, {"adapter"}),
+            **cls.settings.loading_kwargs,
+        ).to(rank)
+        base.enable_xformers_memory_efficient_attention()
+        cls._load_loras(params, base)
 
         face_refiner = StableDiffusionXLAdapterPipeline.from_pretrained(
             params.model.refiner,
@@ -149,6 +160,7 @@ class ProcessModels:
             textual_inversion_manager=DiffusersTextualInversionManager(pipe),
         )
         return cls(
+            base=base,
             pipe=pipe,
             face_refiner=face_refiner,
             bg_refiner=bg_refiner,
@@ -175,15 +187,16 @@ class Model:
     @torch.inference_mode()
     def tune(self, request: "ProcessRequest") -> list[Image.Image]:
         instance = ModelInstance(self, request)
+        bases = instance._outpaint_bases()
         outpainted = instance.outpaint()
         smooth_edges = instance._smooth_edges(outpainted)
         redo_background = instance._redo_background(smooth_edges)
         final_refine = instance._final_refine(redo_background)
         return [
+            instance.edge_masks[0].convert("RGB"),
             instance.faces[0],
             instance.frames[0],
-            instance.masks[0],
-            instance.og_masks[0],
+            bases[0],
             outpainted[0],
             smooth_edges[0],
             redo_background[0],
@@ -284,7 +297,7 @@ class ModelInstance:
     def frames(self) -> Generator[Image.Image, None, None]:
         for idx, face in enumerate(self.request.generation.faces):
             bounds = Bounds.from_face(self.dims, face)
-            target_percent = random.triangular(0.58, 0.60)
+            target_percent = random.triangular(0.59, 0.60)
 
             curr_width, curr_height = bounds.size()
             target_width, target_height = [int(x * target_percent) for x in self.dims]
@@ -345,22 +358,28 @@ class ModelInstance:
     def edge_masks(self) -> list[Image.Image]:
         return [
             to_pil_image(
-                (~np.asarray(self.masks[idx]) - ~np.asarray(self.og_masks[idx]))
+                (
+                    dilate_mask(~np.asarray(self.masks[idx]))
+                    - ~np.asarray(self.og_masks[idx])
+                )
             )
             for idx in range(len(self._masks))
         ]
+
+    def _base_background(self, idx: int) -> Image.Image:
+        return self.models.base(
+            generator=self.generator,
+            guidance_scale=self.params.guidance_scale,
+            num_inference_steps=self.params.inpainting_steps,
+            **self.outpaint_prompts.kwargs_for_xl(idx),
+        ).images[0]
 
     @collect
     def _outpaint_bases(self) -> Generator[Image.Image, None, None]:
         for idx, frame_img in enumerate(self.frames):
             frame = np.asarray(frame_img)
             mask = self.masks[idx]
-            image = np.array(
-                self.faces[idx]
-                .resize(frame.shape[:2])
-                .filter(ImageFilter.BoxBlur(radius=100)),
-                dtype=np.uint8,
-            )
+            image = np.array(self._base_background(idx))
             idx = (np.asarray(mask.convert("RGB")) == 0) & (frame != 0)
             image[idx] = frame[idx]
             yield to_pil_image(image)
@@ -425,20 +444,6 @@ class ModelInstance:
 
     def _smooth_edges(self, images: list[Image.Image]) -> list[Image.Image]:
         return [
-            self.models.inpainter(
-                image=img,
-                mask_image=edge_masks[idx],
-                generator=self.generator,
-                strength=0.25,
-                guidance_scale=self.params.guidance_scale,
-                num_inference_steps=self.params.inpainting_steps,
-                **self.prompts.kwargs_for_inpainter(idx),
-            ).images[0]
-            for idx, img in enumerate(images)
-        ]
-
-    def _redo_background(self, images: list[Image.Image]) -> list[Image.Image]:
-        return [
             self.models.bg_refiner(
                 image=img,
                 mask_image=self.edge_masks[idx],
@@ -451,13 +456,27 @@ class ModelInstance:
             for idx, img in enumerate(images)
         ]
 
+    def _redo_background(self, images: list[Image.Image]) -> list[Image.Image]:
+        return [
+            self.models.bg_refiner(
+                image=image,
+                mask_image=self.masks[idx],
+                generator=self.generator,
+                strength=0.75,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.inpainting_steps,
+                **self.outpaint_prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, image in enumerate(images)
+        ]
+
     def _final_refine(self, images: list[Image.Image]) -> list[Image.Image]:
         return [
             self.models.bg_refiner(
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=0.25,
+                strength=0.10,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.prompts.kwargs_for_refiner(idx),

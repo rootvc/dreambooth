@@ -115,12 +115,14 @@ class Request:
         while remaining:
             logger.debug("Receiving response...")
             try:
-                resp = self.dreambooth.queues.response.get(timeout=90)
+                resp = self.dreambooth.queues.response.get(
+                    timeout=120 if params else 90
+                )
                 if isinstance(resp, ProcessResponseSentinel):
                     logger.info("Rank {} is done!", resp.rank)
                     remaining.remove(resp.rank)
                 else:
-                    logger.info("Received response: {}", resp)
+                    logger.info("Received response: {}", resp.rank)
                     yield resp
             except Empty as e:
                 try:
