@@ -297,7 +297,7 @@ class ModelInstance:
     def frames(self) -> Generator[Image.Image, None, None]:
         for idx, face in enumerate(self.request.generation.faces):
             bounds = Bounds.from_face(self.dims, face)
-            target_percent = random.triangular(0.57, 0.59)
+            target_percent = random.triangular(0.565, 0.58)
 
             curr_width, curr_height = bounds.size()
             target_width, target_height = [int(x * target_percent) for x in self.dims]
