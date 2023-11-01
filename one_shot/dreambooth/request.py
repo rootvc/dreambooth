@@ -116,7 +116,7 @@ class Request:
             logger.debug("Receiving response...")
             try:
                 resp = self.dreambooth.queues.response.get(
-                    timeout=120 if params else 90
+                    timeout=180 if params else 90
                 )
                 if isinstance(resp, ProcessResponseSentinel):
                     logger.info("Rank {} is done!", resp.rank)

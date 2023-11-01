@@ -178,12 +178,11 @@ class Model:
         redo_background = instance._redo_background(smooth_edges)
         final_refine = instance._final_refine(redo_background)
         return [
-            instance.faces[0],
-            instance.frames[0],
+            instance.backgrounds[0],
             instance.masks[0].convert("RGB"),
-            instance.og_masks[0].convert("RGB"),
             instance.edge_masks[0].convert("RGB"),
             instance.outpaint_bases[0],
+            #
             outpainted[0],
             smooth_edges[0],
             redo_background[0],
@@ -290,7 +289,7 @@ class ModelInstance:
     def frames(self) -> Generator[Image.Image, None, None]:
         for idx, face in enumerate(self.request.generation.faces):
             bounds = Bounds.from_face(self.dims, face)
-            target_percent = random.triangular(0.56, 0.58)
+            target_percent = random.triangular(0.525, 0.535)
 
             curr_width, curr_height = bounds.size()
             target_width, target_height = [int(x * target_percent) for x in self.dims]
@@ -365,11 +364,14 @@ class ModelInstance:
         ).images[0]
 
     @cached_property
+    def backgrounds(self) -> list[Image.Image]:
+        return [self._base_background(idx) for idx in range(len(self.frames))]
+
+    @cached_property
     @collect
     def _outpaint_bases(
         self,
     ) -> Generator[tuple[Image.Image, tuple[Image.Image, Image.Image]], None, None]:
-        backgrounds = [self._base_background(idx) for idx in range(len(self.frames))]
         bg_face_helper = FaceHelper(self.params, self.models.face, backgrounds)
         bg_face_bounds = bg_face_helper.primary_face_bounds()
 
@@ -414,9 +416,9 @@ class ModelInstance:
             bg_image = np.array(bg)
             bg_image[start_y:end_y, start_x:end_x] = masked_face
 
-            mask = np.zeros((*self.dims, 3), dtype=np.uint8)
+            mask = np.full((*self.dims, 3), 255, dtype=np.uint8)
             mask[start_y:end_y, start_x:end_x] = frame_mask[frame_bounds.slice()]
-            og_mask = np.zeros((*self.dims, 3), dtype=np.uint8)
+            og_mask = np.full((*self.dims, 3), 255, dtype=np.uint8)
             og_mask[start_y:end_y, start_x:end_x] = frame_og_mask[frame_bounds.slice()]
 
             yield to_pil_image(bg_image), (to_pil_image(mask), to_pil_image(og_mask))
@@ -469,7 +471,7 @@ class ModelInstance:
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=0.25,
+                strength=0.55,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.merge_prompts.kwargs_for_refiner(idx),
@@ -483,7 +485,7 @@ class ModelInstance:
                 image=image,
                 mask_image=self.masks[idx],
                 generator=self.generator,
-                strength=0.95,
+                strength=0.99,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.details_prompts.kwargs_for_inpainter(idx),

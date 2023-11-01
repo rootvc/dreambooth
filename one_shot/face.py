@@ -203,9 +203,6 @@ class FaceHelper:
     def dims(self):
         return np.asarray(self.src_images[0]).shape
 
-    import snoop
-
-    @snoop
     def _run_sam(
         self, img: Image.Image, face: Face
     ) -> tuple[np.ndarray, list[np.float32]]:

@@ -120,7 +120,10 @@ class Params(BaseModel):
     prompt_templates: PromptTemplates = PromptTemplates(
         background=PromptStrings(
             positives=[
+                "closeup portrait",
+                "large head",
                 "{prompt}",
+                "{ethnicity} {gender}",
                 "4k",
                 "realistic",
                 "cinematic",
@@ -146,7 +149,7 @@ class Params(BaseModel):
             negatives=["eyes closed", "extra eyes"],
         ),
         merge=PromptStrings(
-            positives=["{prompt}", "{ethnicity} {gender}", "4k", "cohesive"],
+            positives=["4k", "cohesive", "smooth", F("{prompt}", 0.4)],
             negatives=["blurry", "disjointed"],
         ),
         details=PromptStrings(
@@ -170,8 +173,11 @@ class Params(BaseModel):
             negatives=[
                 P("extra fingers", 2),
                 P("ugly", 2),
-                P("blurry"),
+                P("blurry", 3),
+                P("incomplete", 2),
                 P("fuzzy"),
+                P("large head", 3),
+                F("picture frame", 1.5),
                 "monotone",
                 "dreary",
                 "extra digit",
@@ -206,7 +212,7 @@ class Params(BaseModel):
     seed: Optional[int] = None
     steps: int = 25
     inpainting_steps = 15
-    images: int = 2
+    images: int = 4
 
     detect_resolution: int = 384
     guidance_scale: float = 9.0
