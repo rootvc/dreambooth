@@ -149,8 +149,8 @@ class Params(BaseModel):
             negatives=["eyes closed", "extra eyes"],
         ),
         merge=PromptStrings(
-            positives=["4k", "cohesive", "smooth", F("{prompt}", 0.4)],
-            negatives=["blurry", "disjointed"],
+            positives=["4k", "cohesive", "smooth", F("{prompt}", 0.2)],
+            negatives=["blurry", "disjointed", "eyes"],
         ),
         details=PromptStrings(
             positives=[
@@ -176,8 +176,9 @@ class Params(BaseModel):
                 P("blurry", 3),
                 P("incomplete", 2),
                 P("fuzzy"),
-                P("large head", 3),
+                "large head",
                 F("picture frame", 1.5),
+                "disjointed",
                 "monotone",
                 "dreary",
                 "extra digit",

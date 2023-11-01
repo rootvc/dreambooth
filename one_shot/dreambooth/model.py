@@ -179,9 +179,9 @@ class Model:
         final_refine = instance._final_refine(redo_background)
         return [
             instance.backgrounds[0],
+            instance.frames[0],
             instance.masks[0].convert("RGB"),
-            instance.edge_masks[0].convert("RGB"),
-            instance.outpaint_bases[0],
+            instance.og_masks[0].convert("RGB"),
             #
             outpainted[0],
             smooth_edges[0],
@@ -289,7 +289,7 @@ class ModelInstance:
     def frames(self) -> Generator[Image.Image, None, None]:
         for idx, face in enumerate(self.request.generation.faces):
             bounds = Bounds.from_face(self.dims, face)
-            target_percent = random.triangular(0.525, 0.535)
+            target_percent = random.triangular(0.55, 0.60)
 
             curr_width, curr_height = bounds.size()
             target_width, target_height = [int(x * target_percent) for x in self.dims]
@@ -372,14 +372,14 @@ class ModelInstance:
     def _outpaint_bases(
         self,
     ) -> Generator[tuple[Image.Image, tuple[Image.Image, Image.Image]], None, None]:
-        bg_face_helper = FaceHelper(self.params, self.models.face, backgrounds)
+        bg_face_helper = FaceHelper(self.params, self.models.face, self.backgrounds)
         bg_face_bounds = bg_face_helper.primary_face_bounds()
 
         frame_face_helper = FaceHelper(self.params, self.models.face, self.frames)
         frame_face_bounds = frame_face_helper.primary_face_bounds()
 
         for idx, frame_img in enumerate(self.frames):
-            bg = backgrounds[idx]
+            bg = self.backgrounds[idx]
             bg_face = bg_face_bounds[idx][1]
             bg_bounds = Bounds.from_face(self.dims, bg_face)
 
@@ -393,7 +393,6 @@ class ModelInstance:
 
             slice = (frame_mask == 0) & (frame != 0)
             masked_face = np.where(slice, frame, 0)
-            masked_face = masked_face[frame_bounds.slice()]
 
             (Cx, Cy) = bg_bounds.center
             (Sx, Sy) = frame_bounds.size()
@@ -414,14 +413,18 @@ class ModelInstance:
                     start_y = end_y - Sy
 
             bg_image = np.array(bg)
-            bg_image[start_y:end_y, start_x:end_x] = masked_face
+            bg_image[start_y:end_y, start_x:end_x] = masked_face[frame_bounds.slice()]
 
-            mask = np.full((*self.dims, 3), 255, dtype=np.uint8)
+            mask = np.full(bg_image.shape, 255, dtype=np.uint8)
             mask[start_y:end_y, start_x:end_x] = frame_mask[frame_bounds.slice()]
-            og_mask = np.full((*self.dims, 3), 255, dtype=np.uint8)
+
+            og_mask = np.full(bg_image.shape, 255, dtype=np.uint8)
             og_mask[start_y:end_y, start_x:end_x] = frame_og_mask[frame_bounds.slice()]
 
-            yield to_pil_image(bg_image), (to_pil_image(mask), to_pil_image(og_mask))
+            yield to_pil_image(bg_image, mode="RGB"), (
+                to_pil_image(mask, mode="RGB").convert("L"),
+                to_pil_image(og_mask, mode="RGB").convert("L"),
+            )
 
     @property
     def outpaint_bases(self) -> list[Image.Image]:
@@ -471,7 +474,7 @@ class ModelInstance:
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=0.55,
+                strength=0.35,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.merge_prompts.kwargs_for_refiner(idx),
@@ -485,7 +488,7 @@ class ModelInstance:
                 image=image,
                 mask_image=self.masks[idx],
                 generator=self.generator,
-                strength=0.99,
+                strength=0.90,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.details_prompts.kwargs_for_inpainter(idx),
@@ -499,7 +502,7 @@ class ModelInstance:
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=0.35,
+                strength=0.55,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.merge_prompts.kwargs_for_refiner(idx),

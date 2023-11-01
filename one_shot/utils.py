@@ -248,10 +248,13 @@ def extract_faces(
             box=box,
             eyes=Eyes(left=(kps[0], kps[0 + 5]), right=(kps[1], kps[1 + 5])),
             landmarks=_dlib_landmarks(
-                np.asarray(img)[
-                    box.top_left[1] : box.bottom_right[1],
-                    box.top_left[0] : box.bottom_right[0],
-                ]
+                np.asarray(img),
+                (
+                    box.top_left[1],
+                    box.bottom_right[0],
+                    box.bottom_right[1],
+                    box.top_left[0],
+                ),
             )
             or Landmarks(
                 nose=(kps[2], kps[2 + 5]),
@@ -264,9 +267,11 @@ def _point_center(points: list[TPoint]) -> TPoint:
     return tuple(np.mean(points, axis=0).astype(int))
 
 
-def __dlib_landmarks(image: np.ndarray) -> tuple[dict, Landmarks] | None:
+def __dlib_landmarks(
+    image: np.ndarray, loc: tuple[int, int, int, int]
+) -> tuple[dict, Landmarks] | None:
     try:
-        landmarks = face_recognition.face_landmarks(image)[0]
+        landmarks = face_recognition.face_landmarks(image, [loc])[0]
     except Exception:
         return None
     return landmarks, Landmarks(
@@ -289,15 +294,17 @@ def __dlib_landmarks(image: np.ndarray) -> tuple[dict, Landmarks] | None:
     )
 
 
-def _dlib_landmarks(image: np.ndarray) -> Landmarks | None:
-    if landmarks := __dlib_landmarks(image):
+def _dlib_landmarks(
+    image: np.ndarray, loc: tuple[int, int, int, int]
+) -> Landmarks | None:
+    if landmarks := __dlib_landmarks(image, loc):
         return landmarks[1]
 
 
 @collect
 def _dlib_detect_faces(img: Image.Image) -> Generator[Face, None, None]:
     for t, r, b, l in face_recognition.face_locations(np.asarray(img), model="cnn"):
-        if (landmarks := __dlib_landmarks(np.asarray(img)[t:b, l:r])) is None:
+        if (landmarks := __dlib_landmarks(np.asarray(img), (t, r, b, l))) is None:
             continue
         raw, parsed = landmarks
         yield Face(

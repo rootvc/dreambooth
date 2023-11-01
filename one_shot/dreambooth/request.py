@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from loguru import logger
 from PIL import Image
+from torchvision.transforms.functional import to_pil_image
 
 from one_shot.dreambooth.process import (
     GenerationRequest,
@@ -58,8 +59,10 @@ class Request:
         logger.info("Loading controls...")
         for i, face in enumerate(self.face.primary_faces()):
             logger.debug(f"Loading controls for {i}...")
+            kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+            sharpened = cv2.filter2D(np.asarray(face), -1, kernel)
             yield self.dreambooth.models.detector(
-                face,
+                to_pil_image(sharpened),
                 detect_resolution=self.dreambooth.params.detect_resolution,
                 image_resolution=self.dreambooth.params.model.resolution,
             )

@@ -231,7 +231,7 @@ class FaceHelper:
         return masks, mask_percentages
 
     def _get_sam_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
-        masks = [m for m, p in zip(*self._run_sam(img, face)) if p > 0.15]
+        masks = [m for m, p in zip(*self._run_sam(img, face)) if p > 0.20]
         if len(masks) == 0:
             logger.warning("No masks after filtering")
             return None
@@ -247,7 +247,10 @@ class FaceHelper:
         zero = np.zeros(self.dims, dtype=np.uint8)
         one = np.full(self.dims, 255, dtype=np.uint8)
         mask_rbg = np.repeat(mask, 3, axis=2)
-        return np.where(mask_rbg, one, zero)
+        mask = np.where(mask_rbg, one, zero)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=10)
 
     def _get_landmark_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
         if not (face.landmarks and face.landmarks.contour):
@@ -256,27 +259,22 @@ class FaceHelper:
         mask = np.zeros(self.dims, dtype=np.uint8)
         points = np.asarray(list(map(list, face.landmarks.contour)), dtype=np.int32)
 
-        contour = cv2.approxPolyDP(points, 0.001 * cv2.arcLength(points, True), True)
-        cv2.drawContours(mask, [contour], 0, (255, 255, 255), -1)
+        # Find the Center of Mass: data is a numpy array of shape (Npoints, 2)
+        mean = np.mean(points, axis=0)
+        # Compute angles
+        angles = np.arctan2((points - mean)[:, 1], (points - mean)[:, 0])
+        # Transform angles from [-pi,pi] -> [0, 2*pi]
+        angles[angles < 0] = angles[angles < 0] + 2 * np.pi
+        # Sort
+        sorting_indices = np.argsort(angles)
+        sorted_points = points[sorting_indices]
 
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        return mask
-        # logger.warning(
-        #     "CENTER: {}", mask[mask.shape[0] // 2, mask.shape[1] // 2]
-        # )
-        # if np.all(mask[mask.shape[0] // 2, mask.shape[1] // 2] == 0):
-        #     mask = ~mask
-        # logger.warning(
-        #     "CENTER 2: {}", mask[mask.shape[0] // 2, mask.shape[1] // 2]
-        # )
+        cv2.drawContours(mask, [sorted_points], 0, (255, 255, 255), -1)
 
-        # if np.all(mask) or not np.any(mask):
-        #     logger.warning("No mask detected")
-        #     continue
-        # elif np.count_nonzero(mask) < (0.15 * np.prod(mask.shape)):
-        #     logger.warning("Mask too small")
-        #
+        if np.all(mask) or not np.any(mask):
+            logger.warning("No mask detected")
+        else:
+            return dilate_mask(mask)
 
     def _get_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
         if (mask := self._get_sam_mask(img, face)) is not None:
@@ -297,7 +295,7 @@ class FaceHelper:
             for j, face in enumerate(faces):
                 logger.info("Face: {}", face)
                 if (mask := self._get_mask(img, face)) is not None:
-                    faces[j] = face.copy(update={"mask": NpBox(arr=dilate_mask(mask))})
+                    face = face.copy(update={"mask": NpBox(arr=dilate_mask(mask))})
                 yield i, face
 
     @f_cache
