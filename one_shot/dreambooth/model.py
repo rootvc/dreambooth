@@ -388,6 +388,14 @@ class ModelInstance:
             frame_bounds = Bounds.from_face(self.dims, frame_face)
             frame_mask, frame_og_mask = self._get_masks(frame, frame_face)
 
+            if frame_face.is_trivial:
+                mask = np.zeros(frame.shape, dtype=np.uint8)
+                yield self.faces[idx], (
+                    to_pil_image(mask, mode="RGB").convert("L"),
+                    to_pil_image(mask, mode="RGB").convert("L"),
+                )
+                return
+
             frame_mask = np.asarray(frame_mask.convert("RGB"))
             frame_og_mask = np.asarray(frame_og_mask.convert("RGB"))
 
