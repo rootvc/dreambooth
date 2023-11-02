@@ -502,7 +502,7 @@ class ModelInstance:
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=0.55,
+                strength=0.15,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.merge_prompts.kwargs_for_refiner(idx),

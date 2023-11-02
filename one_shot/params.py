@@ -149,8 +149,8 @@ class Params(BaseModel):
             negatives=["eyes closed", "extra eyes"],
         ),
         merge=PromptStrings(
-            positives=["4k", "cohesive", "smooth", F("{prompt}", 0.2)],
-            negatives=["blurry", "disjointed", "eyes"],
+            positives=["4k", "cohesive", "detailed", F("{prompt}", 0.2)],
+            negatives=["blurry", "fuzzy", "disjointed", "eyes"],
         ),
         details=PromptStrings(
             positives=[
