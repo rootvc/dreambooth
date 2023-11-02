@@ -28,7 +28,7 @@ class _Dreambooth(OneShotDreambooth):
             )
 
 
-@stub.cls(**{**fn_kwargs, "gpu": gpu.A100(count=4)})
+@stub.cls(**{**fn_kwargs, "gpu": gpu.A100(count=2)})
 class Dreambooth(_Dreambooth):
     @method()
     def tune(self, ids: list[str] = ["test"], params: dict = {}):
