@@ -155,11 +155,11 @@ class Params(BaseModel):
         details=PromptStrings(
             positives=[
                 "{prompt}",
-                "{ethnicity} {gender}",
                 "4k",
                 "realistic",
                 "cinematic",
                 "cinematic effect",
+                F("{ethnicity} {gender}", 0.7),
                 P("hyperrealistic"),
                 P("contrasts", 2),
                 "sharp",
@@ -179,6 +179,8 @@ class Params(BaseModel):
                 F("picture frame", 1.5),
                 "disjointed",
                 "monotone",
+                "old",
+                "elderly",
                 "dreary",
                 "extra digit",
                 "eyes closed",
