@@ -17,7 +17,7 @@ export default defineFunction(
       data: { id, phone },
     },
   }) => {
-    const mmsUrl = await run("get pre-signed MMS URL", async () => {
+    const mediaUrl = await run("get pre-signed MMS URL", async () => {
       try {
         return await getSignedUrl(
           <any>new S3Client({ region: AWS_REGION }),
@@ -45,7 +45,7 @@ export default defineFunction(
       phone,
       id,
       key: "FINISHED",
-      mmsUrl,
+      mediaUrl,
     });
 
     while (1) {

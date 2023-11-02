@@ -42,8 +42,8 @@ export default defineFunction(
           messaging_profile_id: process.env.TELNYX_MESSAGING_PROFILE_ID,
           to: `+1${phone}`,
           text,
+          subject: mediaUrl ? "Your AI Photos" : undefined,
           media_urls: mediaUrl ? [mediaUrl] : undefined,
-          type: mediaUrl ? "MMS" : "SMS",
         })
     );
   }

@@ -163,7 +163,7 @@ class Params(BaseModel):
                 P("hyperrealistic"),
                 P("contrasts", 2),
                 "sharp",
-                P("highly detailed"),
+                P("highly detailed", 3),
                 "white teeth",
                 "nice smile",
                 F("beautiful", 0.2),
@@ -202,11 +202,16 @@ class Params(BaseModel):
         "90s style, leather jacket, smug, vintage, smoking cigar",
         "classy, pinstripe suit, pop art style, andy warhol",
         "zombie, decaying skin, torn clothing, inside an abandoned building",
-        "(person in a mario costume)+, super mario, pixelated, (elementary colors)-"
+        "(person in a mario costume)+, super mario, pixelated, (elementary colors)-",
         "Marvel superhero, sky in the background, comic book style",
         "a monarch wearing a crown, game of thrones, on the iron throne, magestic, regal, powerful, bold",
         "character from tron, neon, techno, futuristic, dark background, black clothing, high contrast",
         "sassy yearbook photo, high school, teenage angst, creative",
+        "a hero from lord of the rings, fantasy, medieval, countryside",
+        "a student from harry potter, magic, fantasy",
+        "a robot come to life, industrial, metal, wires",
+        "a politician at a podium, presidential, confident, powerful",
+        "darth vader, star wars, dark side, powerful, evil",
     ]
 
     seed: Optional[int] = None
