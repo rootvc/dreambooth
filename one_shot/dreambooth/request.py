@@ -62,7 +62,8 @@ class Request:
             kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
             sharpened = cv2.filter2D(np.asarray(face), -1, kernel)
             yield self.dreambooth.models.detector(
-                to_pil_image(sharpened),
+                # to_pil_image(sharpened),
+                face,
                 detect_resolution=self.dreambooth.params.detect_resolution,
                 image_resolution=self.dreambooth.params.model.resolution,
             )
@@ -119,7 +120,7 @@ class Request:
             logger.debug("Receiving response...")
             try:
                 resp = self.dreambooth.queues.response.get(
-                    timeout=180 if params else 90
+                    timeout=120 if params else 90
                 )
                 if isinstance(resp, ProcessResponseSentinel):
                     logger.info("Rank {} is done!", resp.rank)

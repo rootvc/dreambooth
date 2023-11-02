@@ -146,7 +146,7 @@ class Params(BaseModel):
                 F("{ethnicity} {gender}", 0.1),
                 F("{prompt}", 0.8),
             ],
-            negatives=["eyes closed", "extra eyes"],
+            negatives=[P("cross eyed", 3), "eyes closed", "extra eyes"],
         ),
         merge=PromptStrings(
             positives=["4k", "cohesive", "detailed", F("{prompt}", 0.2)],
@@ -156,9 +156,10 @@ class Params(BaseModel):
             positives=[
                 "{prompt}",
                 "4k",
-                "realistic",
+                "beautiful",
                 "cinematic",
                 "cinematic effect",
+                "good teeth",
                 F("{ethnicity} {gender}", 0.7),
                 P("hyperrealistic"),
                 P("contrasts", 2),
@@ -166,6 +167,7 @@ class Params(BaseModel):
                 P("highly detailed", 3),
                 "white teeth",
                 "nice smile",
+                F("airbrushed", 0.6),
                 F("beautiful", 0.2),
                 F("dream", 0.2),
             ],
@@ -177,10 +179,9 @@ class Params(BaseModel):
                 P("fuzzy"),
                 "large head",
                 F("picture frame", 1.5),
+                "ugly teeth",
                 "disjointed",
                 "monotone",
-                "old",
-                "elderly",
                 "dreary",
                 "extra digit",
                 "eyes closed",
@@ -193,6 +194,7 @@ class Params(BaseModel):
                 "deformed",
                 "mutated",
                 "disfigured",
+                "colored teeth",
                 "yellow teeth",
             ],
         ),
@@ -225,7 +227,7 @@ class Params(BaseModel):
     guidance_scale: float = 8.75
     refiner_strength = 0.05
     inpainting_strength = 0.40
-    conditioning_strength: tuple[float, float] = (1.9, 2.0)
+    conditioning_strength: tuple[float, float] = (1.80, 1.83)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 0.85

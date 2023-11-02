@@ -13,6 +13,7 @@ from diffusers import (
     AutoencoderKL,
     EulerAncestralDiscreteScheduler,
     StableDiffusionXLAdapterPipeline,
+    StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLInpaintPipeline,
     StableDiffusionXLPipeline,
     T2IAdapter,
@@ -50,6 +51,7 @@ class SharedModels:
 class ProcessModels:
     base: StableDiffusionXLPipeline
     pipe: StableDiffusionXLAdapterPipeline
+    refine_pipe: StableDiffusionXLImg2ImgPipeline
     inpainter: StableDiffusionXLInpaintPipeline
     refiner: StableDiffusionXLInpaintPipeline
     compels: Compels
@@ -91,6 +93,7 @@ class ProcessModels:
             ),
             **cls.settings.loading_kwargs,
         ).to(rank)
+        # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
         pipe.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, pipe)
 
@@ -110,6 +113,9 @@ class ProcessModels:
             scheduler=pipe.scheduler,
             **cls.settings.loading_kwargs,
         ).to(rank)
+        # inpainter.unet = torch.compile(
+        #     inpainter.unet, mode="reduce-overhead", fullgraph=True
+        # )
         inpainter.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, inpainter, key="inpainter")
 
@@ -120,7 +126,17 @@ class ProcessModels:
             scheduler=pipe.scheduler,
             **cls.settings.loading_kwargs,
         ).to(rank)
+        # refiner.unet = torch.compile(
+        #     refiner.unet, mode="reduce-overhead", fullgraph=True
+        # )
         refiner.enable_xformers_memory_efficient_attention()
+
+        refine_pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+            params.model.refiner,
+            **refiner.components,
+            **cls.settings.loading_kwargs,
+        ).to(rank)
+        refine_pipe.enable_xformers_memory_efficient_attention()
 
         xl_compel = Compel(
             [pipe.tokenizer, pipe.tokenizer_2],
@@ -149,6 +165,7 @@ class ProcessModels:
         return cls(
             base=base,
             pipe=pipe,
+            refine_pipe=refine_pipe,
             refiner=refiner,
             inpainter=inpainter,
             compels=Compels(
@@ -245,7 +262,7 @@ class ModelInstance:
             return None
 
     def _generate_face_images(self) -> list[Image.Image]:
-        return [
+        latents = [
             self.model.models.pipe(
                 image=img,
                 generator=self.generator,
@@ -255,9 +272,22 @@ class ModelInstance:
                     *self.params.conditioning_strength
                 ),
                 adapter_conditioning_factor=self.params.conditioning_factor,
+                output_type="latent",
+                denoising_end=self.params.high_noise_frac + 0.1,
                 **self.details_prompts.kwargs_for_xl(idx),
             ).images[0]
             for idx, img in enumerate(self.request.generation.images)
+        ]
+
+        return [
+            self.model.models.refine_pipe(
+                image=latent,
+                generator=self.generator,
+                num_inference_steps=self.params.steps,
+                denoising_start=self.params.high_noise_frac + 0.1,
+                **self.details_prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, latent in enumerate(latents)
         ]
 
     def _touch_up_eyes(self, images: list[Image.Image]) -> list[Image.Image]:

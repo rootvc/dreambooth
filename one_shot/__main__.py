@@ -9,7 +9,7 @@ def main():
 
 def test():
     Function.lookup(stub.name, "Dreambooth.generate").remote(
-        "d41d8cd98f00b204e9800998ecf8427e"
+        "79c053cf2d6d3922be669f9b78f34b2a"
     )
 
 

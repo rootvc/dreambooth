@@ -354,9 +354,18 @@ def _opencv_detect_faces(img: Image.Image) -> Generator[Face, None, None]:
 
 
 @collect
+def _detect_dlib_faces(img: Image.Image) -> Generator[Face, None, None]:
+    try:
+        if faces := list(zip(*_detect_faces(img))):
+            yield from extract_faces(faces, img)
+    except Exception:
+        return
+
+
+@collect
 def detect_faces(img: Image.Image) -> Generator[Face, None, None]:
-    if faces := list(zip(*_detect_faces(img))):
-        yield from extract_faces(faces, img)
+    if faces := _detect_dlib_faces(img):
+        yield from faces
     elif faces := _dlib_detect_faces(img):
         yield from faces
     elif faces := _opencv_detect_faces(img):
