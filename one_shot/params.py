@@ -167,7 +167,7 @@ class Params(BaseModel):
                 P("highly detailed", 3),
                 "white teeth",
                 "nice smile",
-                F("airbrushed", 0.6),
+                F("airbrushed", 0.5),
                 F("beautiful", 0.2),
                 F("dream", 0.2),
             ],
@@ -227,7 +227,7 @@ class Params(BaseModel):
     guidance_scale: float = 8.75
     refiner_strength = 0.05
     inpainting_strength = 0.40
-    conditioning_strength: tuple[float, float] = (1.80, 1.83)
+    conditioning_strength: tuple[float, float] = (1.79, 1.81)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 0.85
