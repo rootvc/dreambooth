@@ -1,3 +1,5 @@
+import subprocess
+
 from loguru import logger
 from modal import is_local
 
@@ -28,9 +30,10 @@ def _main():
                 # "f09e2b714736a0a553d33448fd6d9ed5",
                 # "f314e6cb3429719e3bdca6ac28823ccc",
                 "ca4b1e40984e7cc6f23777963e9ae76e",
-                # "d41d8cd98f00b204e9800998ecf8427e",
+                "d41d8cd98f00b204e9800998ecf8427e",
                 "9806ad626c78b3b4b1547c73cc627605",
                 "79c053cf2d6d3922be669f9b78f34b2a",
+                "f09e2b714736a0a553d33448fd6d9ed5",
             ],
             {
                 # "steps": [30],
@@ -45,6 +48,9 @@ def _main():
         )
     ):
         logger.info("Saved {}: {}", i, path)
+        subprocess.run(["rm", "-f", path])
+        subprocess.run(["modal", "volume", "get", "model-cache", path])
+        subprocess.run(["open", path])
 
 
 main = stub.local_entrypoint()(_main)

@@ -13,7 +13,6 @@ import numpy as np
 import torch
 from loguru import logger
 from PIL import Image
-from torchvision.transforms.functional import to_pil_image
 
 from one_shot.dreambooth.process import (
     GenerationRequest,
@@ -28,7 +27,6 @@ from one_shot.utils import (
     grid,
     images,
     open_image,
-    unsharp_mask,
 )
 
 if TYPE_CHECKING:
@@ -52,7 +50,9 @@ class Request:
         logger.info("Loading images...")
         for path in images(self.image_dir):
             logger.debug(f"Loading {path}...")
-            yield open_image(self.dreambooth.params, path)
+            img = open_image(self.dreambooth.params, path)
+            yield img
+            # yield to_pil_image(unsharp_mask(np.asarray(img)))
 
     @cache
     @collect
@@ -60,9 +60,9 @@ class Request:
         logger.info("Loading controls...")
         for i, face in enumerate(self.face.primary_faces()):
             logger.debug(f"Loading controls for {i}...")
-            sharpened = unsharp_mask(np.asarray(face))
+
             yield self.dreambooth.models.detector(
-                to_pil_image(sharpened),
+                face,
                 detect_resolution=self.dreambooth.params.detect_resolution,
                 image_resolution=self.dreambooth.params.model.resolution,
             )

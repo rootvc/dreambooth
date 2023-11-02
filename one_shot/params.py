@@ -221,13 +221,13 @@ class Params(BaseModel):
     seed: Optional[int] = None
     steps: int = 25
     inpainting_steps = 15
-    images: int = 4
+    images: int = 2
 
     detect_resolution: int = 384
     guidance_scale: float = 9.0
     refiner_strength = 0.05
     inpainting_strength = 0.40
-    conditioning_strength: tuple[float, float] = (1.82, 1.84)
+    conditioning_strength: tuple[float, float] = (1.89, 1.91)
     conditioning_factor: float = 1.0
     lora_scale = 0.4
     high_noise_frac: float = 0.85
