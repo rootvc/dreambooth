@@ -40,7 +40,7 @@ export default defineFunction(
         await telnyx.messages.create({
           from: process.env.TELNYX_PHONE_NUMBER,
           messaging_profile_id: process.env.TELNYX_MESSAGING_PROFILE_ID,
-          to: phone,
+          to: `+1${phone}`,
           text,
           media_urls: mediaUrl ? [mediaUrl] : undefined,
           type: mediaUrl ? "MMS" : "SMS",

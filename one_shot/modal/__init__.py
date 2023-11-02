@@ -15,7 +15,8 @@ fn_kwargs = {
     "gpu": gpu.A100(count=4),
     "volumes": {"/root/cache": volume},
     "secret": Secret.from_name("dreambooth"),
-    "timeout": 60 * 10,
+    "timeout": 60 * 15,
     "cloud": "gcp",
-    "container_idle_timeout": 60 * 10,
+    "container_idle_timeout": 60 * 15,
+    "keep_warm": 1,
 }

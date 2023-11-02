@@ -166,9 +166,8 @@ class Params(BaseModel):
                 P("highly detailed"),
                 "white teeth",
                 "nice smile",
-                F("airbrushed", 0.2),
                 F("beautiful", 0.2),
-                "dream",
+                F("dream", 0.2),
             ],
             negatives=[
                 P("extra fingers", 2),
@@ -199,11 +198,11 @@ class Params(BaseModel):
 
     prompts = [
         "a clown on a sunny day, thin rainbow stripe suspenders",
-        "mysterious, floating in the universe, cosmos and nebula reflected in clothing, cyberpunk vibes",
+        "mysterious, floating in the universe, cosmos reflected in clothing, cyberpunk vibes",
         "90s style, leather jacket, smug, vintage, smoking cigar",
         "classy, pinstripe suit, pop art style, andy warhol",
         "zombie, decaying skin, torn clothing, inside an abandoned building",
-        "(character from mario)+, super mario, pixelated, (elementary colors)-"
+        "(person in a mario costume)+, super mario, pixelated, (elementary colors)-"
         "Marvel superhero, sky in the background, comic book style",
         "a monarch wearing a crown, game of thrones, on the iron throne, magestic, regal, powerful, bold",
         "character from tron, neon, techno, futuristic, dark background, black clothing, high contrast",
