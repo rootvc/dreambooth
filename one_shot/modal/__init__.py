@@ -18,5 +18,4 @@ fn_kwargs = {
     "timeout": 60 * 15,
     "cloud": "gcp",
     "container_idle_timeout": 60 * 15,
-    "keep_warm": 1,
 }
