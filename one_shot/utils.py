@@ -2,10 +2,11 @@ import gc
 import hashlib
 import itertools
 import os
+import random
 import shutil
 import subprocess
 import sys
-from functools import wraps
+from functools import total_ordering, wraps
 from pathlib import Path
 from typing import Callable, Generator, ParamSpec, TypeVar
 from urllib.parse import urlencode
@@ -15,7 +16,9 @@ import face_evolve.applications.align
 import face_recognition.api as face_recognition
 import numpy as np
 import requests
+import rich.repr
 import torch
+from huggingface_hub import hf_hub_download
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 from pydantic import BaseModel
@@ -30,14 +33,16 @@ from one_shot import logger
 from one_shot.params import Params
 
 sys.path.append(str(Path(face_evolve.applications.align.__file__).parent))
-from face_evolve.applications.align.detector import (
-    detect_faces as _detect_faces,  # noqa: E402
+from face_evolve.applications.align.detector import (  # noqa: E402
+    detect_faces as _detect_faces,
 )
 
 T = TypeVar("T")
 P = ParamSpec("P")
 
 TPoint = tuple[int, int]
+
+MASK_SIZE = Params().model.resolution ** 2
 
 
 class NpBox(BaseModel):
@@ -54,8 +59,11 @@ class NpBox(BaseModel):
             return False
         return np.array_equal(self.arr, value.arr)
 
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(shape={self.arr.shape})"
+    def __rich_repr__(self) -> rich.repr.Result:
+        yield "shape", self.arr.shape
+        yield "mask", round(
+            np.count_nonzero(self.arr) / np.prod(self.arr.shape), 2
+        ) * 100
 
 
 class FrozenModel(BaseModel):
@@ -70,6 +78,11 @@ class Box(FrozenModel):
     @property
     def flat(self):
         return [*self.top_left, *self.bottom_right]
+
+    def size(self):
+        return (self.bottom_right[0] - self.top_left[0]) * (
+            self.bottom_right[1] - self.top_left[1]
+        )
 
 
 class LR(FrozenModel):
@@ -108,6 +121,7 @@ class Landmarks(FrozenModel):
         )
 
 
+@total_ordering
 class Face(FrozenModel):
     box: Box
     eyes: Eyes
@@ -117,6 +131,28 @@ class Face(FrozenModel):
     @property
     def is_trivial(self) -> bool:
         return self.eyes.left == self.eyes.right == (0, 0)
+
+    def __rich_repr__(self) -> rich.repr.Result:
+        yield "box", self.box
+        yield "eyes", self.eyes
+        yield "mask", self.mask
+        yield "sort", self.__sort_features__()
+
+    def __sort_features__(self) -> tuple:
+        frac = self.box.size() / MASK_SIZE
+        return (
+            0 if self.is_trivial else 1,
+            0 if self.mask is None else 1,
+            1 if self.landmarks and self.landmarks.contour else 0,
+            1 if (1 / 3 <= frac <= 1 / 2) else 0,
+            0 if self.landmarks is None else 1,
+            frac,
+        )
+
+    def __lt__(self, other):
+        if not isinstance(other, Face):
+            return NotImplemented
+        return self.__sort_features__() < other.__sort_features__()
 
 
 def image_transforms(size: int) -> Callable[[Image.Image], Image.Image]:
@@ -223,8 +259,8 @@ def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Imag
     return to_pil_image(grid)
 
 
-def dilate_mask(mask: np.ndarray) -> np.ndarray:
-    size, iterations = (5, 5), 15
+def dilate_mask(mask: np.ndarray, iterations: int = 15) -> np.ndarray:
+    size, iterations = (5, 5), iterations
     kernel = np.ones(size, np.uint8)
     return cv2.dilate(mask.copy(), kernel, iterations=iterations)
 
@@ -389,3 +425,27 @@ def unsharp_mask(image, kernel_size=(5, 5), sigma=1.0, amount=1.0, threshold=0):
         low_contrast_mask = np.absolute(image - blurred) < threshold
         np.copyto(sharpened, image, where=low_contrast_mask)
     return sharpened
+
+
+def load_hf_file(repo: str, path: str | Path, **kwargs):
+    path = Path(path)
+    return hf_hub_download(repo, path.name, subfolder=str(path.parent), **kwargs)
+
+
+def draw_masks(img: Image.Image, faces: list[Face]):
+    out = np.array(img)
+    for face in faces:
+        if not face.mask:
+            continue
+        color = np.array(
+            [0, random.randint(0, 255), 0],
+            dtype="uint8",
+        )
+        img2 = np.where(face.mask.arr, color, out)
+        out = cv2.addWeighted(out, 0.6, img2, 0.4, 0)
+    return Image.fromarray(out)
+
+
+def translate_mask(mask: np.ndarray, offset: tuple[int, int]) -> np.ndarray:
+    mat = np.float32([[1, 0, offset[0]], [0, 1, offset[1]]])
+    return cv2.warpAffine(mask, mat, mask.shape[:2])

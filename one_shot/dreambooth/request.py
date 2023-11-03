@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING, Generator, Optional
 import cv2
 import numpy as np
 import torch
-from loguru import logger
-from PIL import Image
+from PIL import Image, ImageOps
+from torchvision.transforms.functional import to_pil_image
 
+from one_shot import logger
 from one_shot.dreambooth.process import (
     GenerationRequest,
     ProcessRequest,
@@ -24,6 +25,7 @@ from one_shot.utils import (
     Face,
     chunks,
     collect,
+    draw_masks,
     grid,
     images,
     open_image,
@@ -51,8 +53,10 @@ class Request:
         for path in images(self.image_dir):
             logger.debug(f"Loading {path}...")
             img = open_image(self.dreambooth.params, path)
-            yield img
-            # yield to_pil_image(unsharp_mask(np.asarray(img)))
+            yield ImageOps.autocontrast(img)
+
+    def faces(self) -> list[Image.Image]:
+        return self.face.primary_faces()
 
     @cache
     @collect
@@ -60,17 +64,24 @@ class Request:
         logger.info("Loading controls...")
         for i, face in enumerate(self.face.primary_faces()):
             logger.debug(f"Loading controls for {i}...")
-
-            yield self.dreambooth.models.detector(
-                face,
-                detect_resolution=self.dreambooth.params.detect_resolution,
-                image_resolution=self.dreambooth.params.model.resolution,
+            img = np.asarray(face)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            threshold, _ = cv2.threshold(
+                img, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+            )
+            blur = cv2.GaussianBlur(img, (25, 25), 0, sigmaY=0)
+            yield to_pil_image(
+                cv2.Canny(blur, 50, 150, apertureSize=5, L2gradient=True),
+                mode="L",
             )
 
     @cached_property
     def face(self):
         return FaceHelper(
-            self.dreambooth.params, self.dreambooth.models.face, self.images()
+            self.dreambooth.params.copy(update={"mask_padding": 0.0}),
+            self.dreambooth.models.face,
+            self.images(),
+            conservative=False,
         )
 
     @cached_property
@@ -83,20 +94,23 @@ class Request:
         self, params: Optional[dict[str, list[int | float]]] = None, throw: bool = False
     ):
         multiplier = self.dreambooth.world_size if params else 1  # check if tuning
-        sample: list[tuple[Image.Image, Face]] = random.sample(
+        sample: list[tuple[Image.Image, Image.Image, Face]] = random.sample(
             list(
                 zip(
-                    self.controls(), map(itemgetter(1), self.face.primary_face_bounds())
+                    self.faces(),
+                    self.controls(),
+                    map(itemgetter(1), self.face.primary_face_bounds()),
                 )
             ),
             k=self.dreambooth.params.images * multiplier,
         )
-        images, face_bounds = map(list, zip(*sample))
+        images, controls, face_bounds = map(list, zip(*sample))
         prompts = random.sample(
             self.dreambooth.params.prompts, k=self.dreambooth.params.images * multiplier
         )
         generation = GenerationRequest(
             images=images,
+            controls=controls,
             faces=face_bounds,
             prompts=prompts,
             params=params or {},
@@ -119,7 +133,7 @@ class Request:
             logger.debug("Receiving response...")
             try:
                 resp = self.dreambooth.queues.response.get(
-                    timeout=120 if params else 90
+                    timeout=300 if params else 60
                 )
                 if isinstance(resp, ProcessResponseSentinel):
                     logger.info("Rank {} is done!", resp.rank)
@@ -151,17 +165,24 @@ class Request:
     @torch.inference_mode()
     def tune(self, params: dict[str, list[int | float]]):
         logger.info("Tuning with params: {}", params)
+
+        xxx = []
+        for idx, img in enumerate(self.images()):
+            faces = [face for i, face in self.face.face_bounds() if i == idx]
+            xxx.append(draw_masks(img, faces))
+
         grids = [
             grid(self.images()[: self.dreambooth.params.images]),
+            grid(xxx[: self.dreambooth.params.images]),
             grid(self.face.primary_faces()[: self.dreambooth.params.images]),
-            grid(self.controls()[: self.dreambooth.params.images]),
+            # grid(self.controls()[: self.dreambooth.params.images]),
             grid(
                 [x[0] for x in self.face.eye_masks()][: self.dreambooth.params.images]
             ),
         ]
 
         for resp in self._generate(params):
-            for images in chunks(resp.images, 2):
+            for images in chunks(resp.images, 1):
                 img = grid(images)
                 text_kwargs = {
                     "text": json.dumps(

@@ -11,15 +11,15 @@ import torch.multiprocessing
 from compel import Compel, ReturnedEmbeddingsType
 from diffusers import (
     AutoencoderKL,
-    DDIMScheduler,
+    ControlNetModel,
     EulerAncestralDiscreteScheduler,
-    StableDiffusionPipeline,
+    StableDiffusionXLControlNetInpaintPipeline,
     StableDiffusionXLInpaintPipeline,
     StableDiffusionXLPipeline,
 )
-from ip_adapter import IPAdapterFull as _IPAdapterFull
+from ip_adapter import IPAdapterPlusXL as _IPAdapterPlusXL
 from ip_adapter.custom_pipelines import StableDiffusionXLCustomPipeline
-from PIL import Image
+from PIL import Image, ImageOps
 from torchvision.transforms.functional import (
     to_pil_image,
 )
@@ -32,6 +32,7 @@ from one_shot.utils import (
     civitai_path,
     collect,
     dilate_mask,
+    draw_masks,
     erode_mask,
     exclude,
     load_hf_file,
@@ -42,13 +43,15 @@ if TYPE_CHECKING:
     from one_shot.logging import PrettyLogger
 
 
-class IPAdapterFull(_IPAdapterFull):
+class IPAdapterPlusXL(_IPAdapterPlusXL):
     def generate(
         self,
         image: Image.Image,
         scale: float,
         prompt_embeds: torch.Tensor,
         negative_prompt_embeds: torch.Tensor,
+        pooled_prompt_embeds: torch.Tensor,
+        negative_pooled_prompt_embeds: torch.Tensor,
         num_samples: int = 1,
         generator: torch.Generator | None = None,
         num_inference_steps: int = 30,
@@ -78,6 +81,8 @@ class IPAdapterFull(_IPAdapterFull):
         return self.pipe(
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
+            pooled_prompt_embeds=pooled_prompt_embeds,
+            negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
             num_inference_steps=num_inference_steps,
             generator=generator,
             **kwargs,
@@ -93,9 +98,10 @@ class SharedModels:
 class ProcessModels:
     base: StableDiffusionXLPipeline
     pipe: StableDiffusionXLCustomPipeline
-    inpainter: StableDiffusionXLInpaintPipeline
+    base_inpainter: StableDiffusionXLInpaintPipeline
+    inpainter: StableDiffusionXLControlNetInpaintPipeline
     refiner: StableDiffusionXLInpaintPipeline
-    ip_adapter: IPAdapterFull
+    ip_adapter: IPAdapterPlusXL
     compels: Compels
     face: FaceHelperModels
     settings: Settings = Settings()
@@ -133,31 +139,18 @@ class ProcessModels:
         base.enable_xformers_memory_efficient_attention()
         cls._load_loras(params, base)
 
-        noise_scheduler = DDIMScheduler(
-            num_train_timesteps=1000,
-            beta_start=0.00085,
-            beta_end=0.012,
-            beta_schedule="scaled_linear",
-            clip_sample=False,
-            set_alpha_to_one=False,
-            steps_offset=1,
-        )
-        vae = AutoencoderKL.from_pretrained(
-            params.model.ip_adapter.vae,
-            **exclude(cls.settings.loading_kwargs, {"variant"}),
-        ).to(rank)
-        pipe = StableDiffusionPipeline.from_pretrained(
-            params.model.ip_adapter.base,
-            scheduler=noise_scheduler,
-            vae=vae,
-            feature_extractor=None,
-            safety_checker=None,
-            **exclude(cls.settings.loading_kwargs, {"variant"}),
+        pipe = StableDiffusionXLCustomPipeline.from_pretrained(
+            params.model.name,
+            add_watermarker=False,
+            vae=base.vae,
+            scheduler=base.scheduler,
+            **cls.settings.loading_kwargs,
         ).to(rank)
         # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
         pipe.enable_xformers_memory_efficient_attention()
+        cls._load_loras(params, pipe)
 
-        ip_adapter = IPAdapterFull(
+        ip_adapter = IPAdapterPlusXL(
             pipe,
             Path(
                 load_hf_file(
@@ -169,10 +162,10 @@ class ProcessModels:
                 params.model.ip_adapter.repo, params.model.ip_adapter.files.adapter
             ),
             rank,
-            num_tokens=257,
+            num_tokens=16,
         )
 
-        inpainter = StableDiffusionXLInpaintPipeline.from_pretrained(
+        base_inpainter = StableDiffusionXLInpaintPipeline.from_pretrained(
             params.model.inpainter,
             text_encoder=base.text_encoder,
             text_encoder_2=base.text_encoder_2,
@@ -181,6 +174,12 @@ class ProcessModels:
             **cls.settings.loading_kwargs,
         ).to(rank, params.dtype)
 
+        inpainter = StableDiffusionXLControlNetInpaintPipeline.from_pretrained(
+            params.model.inpainter,
+            controlnet=ControlNetModel.from_pretrained(params.model.controlnet),
+            **base_inpainter.components,
+            **cls.settings.loading_kwargs,
+        ).to(rank, params.dtype)
         # inpainter.unet = torch.compile(
         #     inpainter.unet, mode="reduce-overhead", fullgraph=True
         # )
@@ -199,16 +198,9 @@ class ProcessModels:
         # )
         refiner.enable_xformers_memory_efficient_attention()
 
-        base_compel = Compel(
-            pipe.tokenizer,
-            pipe.text_encoder,
-            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NORMALIZED,
-            requires_pooled=False,
-            device=rank,
-        )
         xl_compel = Compel(
-            [base.tokenizer, base.tokenizer_2],
-            [base.text_encoder, base.text_encoder_2],
+            [pipe.tokenizer, pipe.tokenizer_2],
+            [pipe.text_encoder, pipe.text_encoder_2],
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=[False, True],
             device=rank,
@@ -232,12 +224,10 @@ class ProcessModels:
             pipe=pipe,
             ip_adapter=ip_adapter,
             refiner=refiner,
+            base_inpainter=base_inpainter,
             inpainter=inpainter,
             compels=Compels(
-                base=base_compel,
-                xl=xl_compel,
-                refiner=refiner_compel,
-                inpainter=inpainter_compel,
+                xl=xl_compel, refiner=refiner_compel, inpainter=inpainter_compel
             ),
             face=FaceHelperModels.load(params, rank),
         )
@@ -258,26 +248,28 @@ class Model:
     @torch.inference_mode()
     def tune(self, request: "ProcessRequest") -> list[Image.Image]:
         instance = ModelInstance(self, request)
-        faces = instance.faces
-        redo_background = instance._redo_background(faces)
+        instance.outpaint_bases
+        outpainted = instance.outpaint()
+        smooth_edges = instance._smooth_edges(outpainted)
+        redo_background = instance._redo_background(smooth_edges)
         final_refine = instance._final_refine(redo_background)
         return [
             instance.request.generation.images[0],
             # instance.faces[0],
-            # instance.tmp[0],  # face mask
-            # instance.tmp[1],  # face mask
-            # instance.faces[0],
+            instance.tmp[0],  # face mask
+            instance.tmp[1],  # face mask
+            instance.frames[0],
             # instance.tmp[2].convert("RGB"),  # masked face
             # instance.controls[0].convert("RGB"),
             # instance.backgrounds[0],
             # ,
-            # instance.outpaint_bases[0],
-            # instance.masks[0].convert("RGB"),
-            # instance.og_masks[0].convert("RGB"),
-            # instance.edge_masks[0].convert("RGB"),
+            instance.outpaint_bases[0],
+            instance.masks[0].convert("RGB"),
+            instance.og_masks[0].convert("RGB"),
+            instance.edge_masks[0].convert("RGB"),
             # #
-            faces[0],
-            # smooth_edges[0],
+            outpainted[0],
+            smooth_edges[0],
             redo_background[0],
             final_refine[0],
         ]
@@ -289,13 +281,12 @@ class ModelInstance:
     request: "ProcessRequest"
     tmp: list[Image.Image] = field(default_factory=list)
 
-    def face_helper(self, images: list[Image.Image], tag: str = "", **kwargs):
+    def face_helper(self, images: list[Image.Image], tag: str = ""):
         return FaceHelper(
             self.params,
             self.models.face,
             images,
             logger=self.model.logger.bind(tag=tag),
-            **kwargs,
         )
 
     @property
@@ -355,9 +346,10 @@ class ModelInstance:
                 num_inference_steps=self.params.steps,
                 guidance_scale=self.params.guidance_scale,
                 control_guidance_start=1.0 - self.params.conditioning_factor,
+                # control_guidance_end=self.params.conditioning_factor,
                 scale=random.triangular(*self.params.conditioning_strength),
-                **self.details_prompts.kwargs_for_base(idx),
-            )[0].resize(self.dims)
+                **self.details_prompts.kwargs_for_xl(idx),
+            )[0]
             for idx, img in enumerate(self.request.generation.images)
         ]
 
@@ -366,7 +358,7 @@ class ModelInstance:
         masks, colors = map(list, zip(*face_helper.eye_masks()))
         self.model.logger.info("Colors: {}", colors)
         return [
-            self.models.inpainter(
+            self.models.base_inpainter(
                 image=img,
                 mask_image=masks[idx],
                 generator=self.generator,
@@ -384,6 +376,32 @@ class ModelInstance:
     @property
     def dims(self) -> tuple[int, int]:
         return (self.params.model.resolution, self.params.model.resolution)
+
+    @cached_property
+    @collect
+    def frames(self) -> Generator[Image.Image, None, None]:
+        for idx, face in self.face_helper(self.faces, "faces").primary_face_bounds():
+            self.tmp.append(draw_masks(self.faces[idx], [face]))
+            bounds = Bounds.from_face(self.dims, face)
+            self.model.logger.info("Face {} Bounds: {}", idx, bounds)
+            target_percent = random.triangular(0.70, 0.75)
+
+            curr_width, curr_height = bounds.size()
+            target_width, target_height = [int(x * target_percent) for x in self.dims]
+            d_w, d_h = target_width - curr_width, target_height - curr_height
+            delta = max(d_w, d_h)
+            padding = delta / max(self.dims)
+            self.model.logger.info("Length Delta: {}, Padding: {}", delta, padding)
+
+            face_img = np.asarray(self.faces[idx])[
+                bounds.slice(self.params.mask_padding)
+            ]
+            self.tmp.append(ImageOps.pad(to_pil_image(face_img), self.dims))
+            embed = np.asarray(to_pil_image(face_img).resize(bounds.size(padding)))
+
+            frame = np.zeros((*self.dims, 3), dtype=np.uint8)
+            frame[bounds.slice(padding)] = embed
+            yield to_pil_image(frame)
 
     def _get_masks(
         self, frame: np.ndarray, face: Face
@@ -411,11 +429,13 @@ class ModelInstance:
 
     @cached_property
     @collect
+    def controls(self) -> Generator[Image.Image, None, None]:
+        yield from map(itemgetter(2), self._outpaint_bases)
+
+    @cached_property
+    @collect
     def _masks(self) -> Generator[tuple[Image.Image, Image.Image], None, None]:
-        face_helper = self.face_helper(self.faces, "faces", conservative=False)
-        bounds = face_helper.primary_face_bounds()
-        for idx, face in enumerate(self.faces):
-            yield self._get_masks(np.asarray(face), bounds[idx][1])
+        yield from map(itemgetter(1), self._outpaint_bases)
 
     @property
     def masks(self) -> list[Image.Image]:
@@ -437,11 +457,172 @@ class ModelInstance:
             for idx in range(len(self._masks))
         ]
 
+    def _base_background(self, idx: int) -> Image.Image:
+        return self.models.base(
+            generator=self.generator,
+            guidance_scale=self.params.guidance_scale,
+            num_inference_steps=self.params.inpainting_steps,
+            **self.background_prompts.kwargs_for_xl(idx),
+        ).images[0]
+
+    @cached_property
+    def backgrounds(self) -> list[Image.Image]:
+        return [self._base_background(idx) for idx in range(len(self.frames))]
+
+    @cached_property
+    @collect
+    def _outpaint_bases(
+        self,
+    ) -> Generator[
+        tuple[Image.Image, tuple[Image.Image, Image.Image], Image.Image], None, None
+    ]:
+        self.model.logger.info("BG HELPER:")
+        bg_face_helper = self.face_helper(self.backgrounds, "backgrounds")
+        bg_face_bounds = bg_face_helper.primary_face_bounds()
+
+        self.model.logger.info("FRAME HELPER:")
+        frame_face_helper = self.face_helper(self.frames, "frames")
+        frame_face_bounds = frame_face_helper.primary_face_bounds()
+
+        for idx, frame_img in enumerate(self.frames):
+            bg = self.backgrounds[idx]
+            bg_face = bg_face_bounds[idx][1]
+            bg_bounds = Bounds.from_face(self.dims, bg_face)
+
+            frame = np.asarray(frame_img)
+            frame_face = frame_face_bounds[idx][1]
+            frame_bounds = Bounds.from_face(self.dims, frame_face)
+            frame_mask, frame_og_mask = self._get_masks(frame, frame_face)
+
+            frame_mask = np.asarray(frame_mask.convert("RGB"))
+            frame_og_mask = np.asarray(frame_og_mask.convert("RGB"))
+
+            slice = (frame_mask == 0) & (frame != 0)
+            masked_face = np.where(slice, frame, np.asarray(bg))
+
+            self.model.logger.info(
+                "Using bg_bounds: {}, fg_bounds: {}", bg_bounds, frame_bounds
+            )
+
+            (Cx, Cy) = bg_bounds.center
+            (Sx, Sy) = frame_bounds.size()
+            start_x, start_y = max(Cx - Sx // 2, 0), max(Cy - Sy // 2, 0)
+            end_x, end_y = min(Cx + Sx // 2, bg.width - 1), min(
+                Cy + Sy // 2, bg.height - 1
+            )
+
+            if end_x - start_x != Sx:
+                if start_x == 0:
+                    end_x = Sx
+                else:
+                    start_x = end_x - Sx
+            if end_y - start_y != Sy:
+                if start_y == 0:
+                    end_y = Sy
+                else:
+                    start_y = end_y - Sy
+
+            self.model.logger.info(
+                "{}",
+                {
+                    "idx": idx,
+                    "bg": (Cx, Cy),
+                    "fg": (Sx, Sy),
+                    "start": (start_x, start_y),
+                    "end": (end_x, end_y),
+                    "bounds": frame_bounds.slice(),
+                },
+            )
+
+            bg_image = np.array(bg)
+            bg_image[start_y:end_y, start_x:end_x] = masked_face[frame_bounds.slice()]
+
+            mask = np.full(bg_image.shape, 255, dtype=np.uint8)
+            mask[start_y:end_y, start_x:end_x] = frame_mask[frame_bounds.slice()]
+
+            og_mask = np.full(bg_image.shape, 255, dtype=np.uint8)
+            og_mask[start_y:end_y, start_x:end_x] = frame_og_mask[frame_bounds.slice()]
+
+            control_data = np.asarray(
+                self.request.generation.controls[idx]
+                .resize(frame_bounds.size())
+                .convert("RGB")
+            )
+            control = np.zeros(bg_image.shape, dtype=np.uint8)
+            control[start_y:end_y, start_x:end_x] = control_data
+
+            yield (
+                to_pil_image(bg_image, mode="RGB"),
+                (
+                    to_pil_image(mask, mode="RGB").convert("L"),
+                    to_pil_image(og_mask, mode="RGB").convert("L"),
+                ),
+                to_pil_image(control, mode="RGB").convert("L"),
+            )
+
+    @property
+    def outpaint_bases(self) -> list[Image.Image]:
+        return list(map(itemgetter(0), self._outpaint_bases))
+
+    @collect
+    def outpaint(self) -> Generator[Image.Image, None, None]:
+        latents = [
+            self.models.inpainter(
+                image=image,
+                mask_image=self.masks[idx],
+                control_image=self.controls[idx],
+                generator=self.generator,
+                strength=0.99,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.steps,
+                output_type="latent",
+                denoising_end=self.params.high_noise_frac,
+                **self.details_prompts.kwargs_for_inpainter(idx),
+            ).images[0]
+            for idx, image in enumerate(self.outpaint_bases)
+        ]
+
+        refined = [
+            self.models.refiner(
+                image=latent,
+                latents=latent,
+                mask_image=self.og_masks[idx],
+                generator=self.generator,
+                strength=0.85,
+                denoising_start=self.params.high_noise_frac,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.steps,
+                **self.details_prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, latent in enumerate(latents)
+        ]
+
+        for idx, img in enumerate(refined):
+            img = np.array(img)
+            slice = np.asarray(self.masks[idx].convert("RGB")) == 0
+            img[slice] = np.asarray(self.outpaint_bases[idx])[slice]
+            yield to_pil_image(img)
+
+    def _smooth_edges(self, images: list[Image.Image]) -> list[Image.Image]:
+        return [
+            self.models.refiner(
+                image=img,
+                mask_image=self.edge_masks[idx],
+                generator=self.generator,
+                strength=0.25,
+                guidance_scale=self.params.guidance_scale,
+                num_inference_steps=self.params.inpainting_steps,
+                **self.merge_prompts.kwargs_for_refiner(idx),
+            ).images[0]
+            for idx, img in enumerate(images)
+        ]
+
     def _redo_background(self, images: list[Image.Image]) -> list[Image.Image]:
         return [
             self.models.inpainter(
                 image=image,
                 mask_image=self.masks[idx],
+                control_image=self.controls[idx],
                 generator=self.generator,
                 strength=0.99,
                 guidance_scale=self.params.guidance_scale,
@@ -455,9 +636,9 @@ class ModelInstance:
         return [
             self.models.refiner(
                 image=img,
-                mask_image=self.masks[idx],
+                mask_image=self.edge_masks[idx],
                 generator=self.generator,
-                strength=self.params.refiner_strength,
+                strength=0.25,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.merge_prompts.kwargs_for_refiner(idx),
@@ -466,5 +647,7 @@ class ModelInstance:
         ]
 
     def generate(self) -> list[Image.Image]:
-        redo_background = self._redo_background(self.faces)
+        outpainted = self.outpaint()
+        smooth_edges = self._smooth_edges(outpainted)
+        redo_background = self._redo_background(smooth_edges)
         return self._final_refine(redo_background)

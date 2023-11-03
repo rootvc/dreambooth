@@ -7,18 +7,19 @@ from typing import TYPE_CHECKING, Any, Iterator, Optional, TypeVar
 import torch
 import torch.distributed as dist
 from accelerate import PartialState
-from loguru import logger
 from PIL import Image
 from pydantic import BaseModel, Field
 from torch.multiprocessing import Queue
 
-from one_shot.config import init_config
+from one_shot import logger
+from one_shot.config import init_torch_config
 from one_shot.dreambooth.model import Model, ProcessModels
 from one_shot.params import Params, Settings
 from one_shot.utils import Face
 
 if TYPE_CHECKING:
     from one_shot.dreambooth import Queues
+    from one_shot.logging import PrettyLogger
 
 
 T = TypeVar("T")
@@ -29,6 +30,7 @@ class GenerationRequest(BaseModel):
         arbitrary_types_allowed = True
 
     images: list[Image.Image]
+    controls: list[Image.Image]
     faces: list[Face]
     prompts: list[str]
     params: dict[str, list[Any]] = Field(default_factory=dict)
@@ -63,9 +65,11 @@ class Process:
         world_size: int,
         params: Params,
         queues: "Queues",
+        logger: "PrettyLogger",
     ):
         os.environ["RANK"] = os.environ["LOCAL_RANK"] = str(rank)
         os.environ["WORLD_SIZE"] = str(world_size)
+
         try:
             import dlib.cuda
 
@@ -79,8 +83,9 @@ class Process:
             world_size=world_size,
             store=dist.FileStore("/tmp/filestore", world_size),
         )
-        init_config()
+        init_torch_config()
         proc = ProcessModels.load(params, rank)
+
         model = Model(
             params,
             rank,
@@ -128,7 +133,7 @@ class Process:
             for v in itertools.product(*request.generation.params.values())
         ]
         with self._split(params) as params:
-            self.logger.debug("Params: {}", params)
+            logger.debug("Params: {}", params)
 
         with self._split(request.generation.dict(exclude={"params"})) as split:
             generation = GenerationRequest(**split)

@@ -36,13 +36,35 @@ class Settings(BaseSettings):
         }
 
 
+class IPAdapterFiles(BaseModel):
+    adapter: str
+    image_encoder: str
+    image_encoder_config: str
+
+
+class IPAdapter(BaseModel):
+    repo: str
+    files: IPAdapterFiles
+    vae: str
+    base: str
+
+
 class Model(BaseModel):
     variant: str = "fp16"
     name: str = "stabilityai/stable-diffusion-xl-base-1.0"
     vae: str = "madebyollin/sdxl-vae-fp16-fix"
-    detector: str = "lllyasviel/Annotators"
     refiner: str = "stabilityai/stable-diffusion-xl-refiner-1.0"
-    t2i_adapter: str = "TencentARC/t2i-adapter-lineart-sdxl-1.0"
+    controlnet: str = "diffusers/controlnet-canny-sdxl-1.0"
+    ip_adapter: IPAdapter = IPAdapter(
+        repo="h94/IP-Adapter",
+        files=IPAdapterFiles(
+            adapter="models/ip-adapter-full-face_sd15.safetensors",
+            image_encoder="models/image_encoder/model.safetensors",
+            image_encoder_config="models/image_encoder/config.json",
+        ),
+        vae="stabilityai/sd-vae-ft-mse",
+        base="SG161222/Realistic_Vision_V4.0_noVAE",
+    )
     inpainter: str = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
     vqa: str = "ybelkada/blip-vqa-base"
     sam: str = "facebook/sam-vit-huge"
@@ -98,7 +120,7 @@ class PromptStrings(BaseModel):
 
 
 class PromptTemplates(BaseModel):
-    background: PromptStrings
+    background: PromptStrings | None = None
     eyes: PromptStrings
     merge: PromptStrings
     details: PromptStrings
@@ -118,23 +140,6 @@ class Params(BaseModel):
     batch_size: int = 4
 
     prompt_templates: PromptTemplates = PromptTemplates(
-        background=PromptStrings(
-            positives=[
-                "closeup portrait",
-                "large head",
-                "{prompt}",
-                "{ethnicity} {gender}",
-                "4k",
-                "realistic",
-                "cinematic",
-                "cinematic effect",
-                P("hyperrealistic"),
-                P("contrasts", 2),
-                "sharp",
-                P("highly detailed"),
-            ],
-            negatives=["cropped", "worst quality", "low quality"],
-        ),
         eyes=PromptStrings(
             positives=[
                 "{color} eyes",
@@ -149,53 +154,24 @@ class Params(BaseModel):
             negatives=[P("cross eyed", 3), "eyes closed", "extra eyes"],
         ),
         merge=PromptStrings(
-            positives=["4k", "cohesive", "detailed", F("{prompt}", 0.2)],
-            negatives=["blurry", "fuzzy", "disjointed", "eyes"],
-        ),
-        details=PromptStrings(
             positives=[
+                "realistic",
                 "{prompt}",
                 "4k",
-                "beautiful",
-                "cinematic",
-                "cinematic effect",
-                "good teeth",
-                F("{ethnicity} {gender}", 0.7),
-                P("hyperrealistic"),
-                P("contrasts", 2),
-                "sharp",
-                P("highly detailed", 3),
-                "white teeth",
-                "nice smile",
-                F("airbrushed", 0.2),
-                F("beautiful", 0.2),
-                F("dream", 0.2),
+                "cohesive",
+                "detailed",
+                "high quality",
             ],
+            negatives=["blurry", "fuzzy", "disjointed", "low quality", "lowres"],
+        ),
+        details=PromptStrings(
+            positives=["4k photo", "{prompt}", "closeup portrait"],
             negatives=[
-                P("extra fingers", 2),
-                P("ugly", 2),
-                P("blurry", 3),
-                P("incomplete", 2),
-                P("fuzzy"),
-                "large head",
-                F("picture frame", 1.5),
-                "ugly teeth",
-                "disjointed",
-                "monotone",
-                "dreary",
-                "extra digit",
-                "eyes closed",
-                "extra eyes",
-                "bad smile",
-                M("cropped"),
-                M("worst quality"),
-                M("low quality"),
-                "glitch",
-                "deformed",
-                "mutated",
-                "disfigured",
-                "colored teeth",
-                "yellow teeth",
+                "monochrome",
+                "lowres",
+                "bad anatomy",
+                "worst quality",
+                "low quality",
             ],
         ),
     )
@@ -205,30 +181,29 @@ class Params(BaseModel):
         "mysterious, floating in the universe, cosmos reflected in clothing, cyberpunk vibes",
         "90s style, leather jacket, smug, vintage, smoking cigar",
         "classy, pinstripe suit, pop art style, andy warhol",
-        "zombie, decaying skin, torn clothing, inside an abandoned building",
-        "(person in a mario costume)+, super mario, pixelated, (elementary colors)-",
-        "Marvel superhero, sky in the background, comic book style",
-        "a monarch wearing a crown, game of thrones, on the iron throne, magestic, regal, powerful, bold",
-        "character from tron, neon, techno, futuristic, dark background, black clothing, high contrast",
-        "sassy yearbook photo, high school, teenage angst, creative",
-        "a hero from lord of the rings, fantasy, medieval, countryside",
-        "a student from harry potter, magic, fantasy",
-        "a robot come to life, industrial, metal, wires",
-        "a politician at a podium, presidential, confident, powerful",
-        "darth vader, star wars, dark side, powerful, evil",
+        # "zombie, decaying skin, torn clothing, inside an abandoned building",
+        # "(person in a mario costume)+, super mario, pixelated, (elementary colors)-",
+        # "Marvel superhero, sky in the background, comic book style",
+        # "a monarch wearing a crown, game of thrones, on the iron throne, magestic, regal, powerful, bold",
+        # "character from tron, neon, techno, futuristic, dark background, black clothing, high contrast",
+        # "sassy yearbook photo, high school, teenage angst, creative",
+        # "a hero from lord of the rings, fantasy, medieval, countryside",
+        # "a student from harry potter, magic, fantasy",
+        # "a robot come to life, industrial, metal, wires",
+        # "a politician at a podium, presidential, confident, powerful",
+        # "darth vader, star wars, dark side, powerful, evil",
     ]
 
     seed: Optional[int] = None
     steps: int = 25
     inpainting_steps = 15
-    images: int = 2
+    images: int = 1
 
     detect_resolution: int = 384
-    guidance_scale: float = 9.0
-    refiner_strength = 0.05
+    guidance_scale: float = 12.5
+    refiner_strength = 0.25
     inpainting_strength = 0.40
-    conditioning_strength: tuple[float, float] = (1.89, 1.91)
-    conditioning_factor: float = 1.0
+    conditioning_strength: tuple[float, float] = (0.74, 0.75)
+    conditioning_factor: float = 0.80
     lora_scale = 0.4
-    high_noise_frac: float = 0.85
     mask_padding: float = 0.055

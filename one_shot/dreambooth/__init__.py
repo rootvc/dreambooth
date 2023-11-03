@@ -6,12 +6,11 @@ from typing import Optional
 
 import torch
 import torch.multiprocessing
-from controlnet_aux.lineart import LineartDetector
 from diffusers import (
     AutoencoderKL,
-    StableDiffusionXLAdapterPipeline,
+    StableDiffusionPipeline,
     StableDiffusionXLInpaintPipeline,
-    T2IAdapter,
+    StableDiffusionXLPipeline,
 )
 from diffusers.loaders import LoraLoaderMixin
 from modal import Volume
@@ -28,6 +27,7 @@ from one_shot.utils import (
     consolidate_cache,
     download_civitai_model,
     get_mtime,
+    load_hf_file,
 )
 
 from .process import Process, ProcessRequest, ProcessResponse, ProcessResponseSentinel
@@ -134,7 +134,7 @@ class OneShotDreambooth:
             },
         )
         self._download_model(
-            StableDiffusionXLAdapterPipeline,
+            StableDiffusionXLPipeline,
             self.params.model.name,
             vae=self._download_model(
                 AutoencoderKL,
@@ -142,12 +142,20 @@ class OneShotDreambooth:
                 method="from_pretrained",
                 variant=None,
             ),
-            adapter=self._download_model(
-                T2IAdapter,
-                self.params.model.t2i_adapter,
+        )
+        for _, file in self.params.model.ip_adapter.files:
+            self._download_hf_file(self.params.model.ip_adapter.repo, file)
+        self._download_model(
+            StableDiffusionPipeline,
+            self.params.model.ip_adapter.base,
+            method="from_pretrained",
+            vae=self._download_model(
+                AutoencoderKL,
+                self.params.model.ip_adapter.vae,
                 method="from_pretrained",
-                varient="fp16",
+                variant=None,
             ),
+            variant=None,
         )
         self._download_model(
             StableDiffusionXLInpaintPipeline,
@@ -187,14 +195,7 @@ class OneShotDreambooth:
     @torch.inference_mode()
     def _load_models(self) -> SharedModels:
         logger.info("Loading models...")
-        detector = self._download_model(
-            LineartDetector,
-            self.params.model.detector,
-            default_kwargs={},
-            method="from_pretrained",
-        ).to(f"cuda:{torch.cuda.device_count() - 1}")
         return SharedModels(
-            detector=detector,
             face=FaceHelperModels.load(self.params, torch.cuda.device_count() - 1),
         )
 
@@ -209,6 +210,13 @@ class OneShotDreambooth:
                 else self.dirty,
             )
         )
+
+    def _download_hf_file(self, repo: str, file: str):
+        try:
+            return load_hf_file(repo, file, local_files_only=True)
+        except OSError:
+            self.dirty = True
+            return load_hf_file(repo, file)
 
     def _download_model(
         self,
@@ -245,15 +253,6 @@ class OneShotDreambooth:
                 model[k] = v.to(dtype=self.params.dtype)
 
         logger.info(f"Loaded {klass.__name__}({name})")
-
-        try:
-            logger.info("Committing cache...")
-            self.volume.commit()
-        except Exception:
-            logger.error("Failed to commit cache")
-        else:
-            logger.info("Committed cache")
-
         return model
 
     def _start_processes(self) -> tuple[Queues, torch.multiprocessing.ProcessContext]:
@@ -265,7 +264,7 @@ class OneShotDreambooth:
 
         ctx = torch.multiprocessing.start_processes(
             Process.run,
-            args=(self.world_size, self.params, queues),
+            args=(self.world_size, self.params, queues, logger),
             nprocs=self.world_size,
             join=False,
             start_method="forkserver",

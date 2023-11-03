@@ -2,7 +2,7 @@ import itertools
 from collections import Counter
 from dataclasses import dataclass
 from functools import cache as f_cache
-from functools import cached_property
+from functools import cached_property, reduce
 from operator import itemgetter
 from pathlib import Path
 from typing import Generator, Generic, Iterator, Optional, TypeVar, cast
@@ -10,14 +10,23 @@ from typing import Generator, Generic, Iterator, Optional, TypeVar, cast
 import cv2
 import numpy as np
 import torch.amp
-from loguru import logger
-from PIL import Image
+from loguru._logger import Logger
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 from torchvision.transforms.functional import to_pil_image
 from transformers import BlipForQuestionAnswering, BlipProcessor, SamModel, SamProcessor
 
+import one_shot
 from one_shot.params import Params, Settings
-from one_shot.utils import Face, NpBox, collect, detect_faces, dilate_mask, exclude
+from one_shot.utils import (
+    Face,
+    NpBox,
+    collect,
+    detect_faces,
+    dilate_mask,
+    exclude,
+    translate_mask,
+)
 
 M = TypeVar("M")
 P = TypeVar("P")
@@ -37,14 +46,27 @@ class Bounds(BaseModel):
 
     @classmethod
     def from_face(cls, shape: tuple[int, int], face: Face):
-        return cls(
-            dims=shape,
-            shape=shape,
-            x=face.box.top_left[0],
-            y=face.box.top_left[1],
-            w=face.box.bottom_right[0] - face.box.top_left[0],
-            h=face.box.bottom_right[1] - face.box.top_left[1],
-        )
+        if face.mask:
+            contours, _ = cv2.findContours(
+                cv2.cvtColor(face.mask.arr, cv2.COLOR_RGB2GRAY),
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+            contour = sorted(contours, key=cv2.contourArea)[-1]
+            x, y, w, h = cv2.boundingRect(contour)
+            one_shot.logger.info("Mask bounds: {}", (x, y, w, h))
+        elif face.landmarks and face.landmarks.contour:
+            x, y, w, h = cv2.boundingRect(
+                np.asarray(list(map(list, face.landmarks.contour)), dtype=np.int32)
+            )
+            one_shot.logger.info("Landmark bounds: {}", (x, y, w, h))
+        else:
+            x = face.box.top_left[0]
+            y = face.box.top_left[1]
+            w = face.box.bottom_right[0] - face.box.top_left[0]
+            h = face.box.bottom_right[1] - face.box.top_left[1]
+            one_shot.logger.info("Face bounds: {}", (x, y, w, h))
+        return cls(dims=shape, shape=shape, x=x, y=y, w=w, h=h)
 
     @property
     def center(self):
@@ -155,6 +177,8 @@ class FaceHelper:
         models: FaceHelperModels,
         images: list[Image.Image],
         src_images: Optional[list[Image.Image]] = None,
+        logger: Logger | None = None,
+        conservative: bool = True,
     ):
         self.params = params
         self.src_images = src_images or images
@@ -163,13 +187,8 @@ class FaceHelper:
         self.rank = models.rank
         self.models = models
 
-    def with_images(self, images: list[Image.Image]):
-        return self.__class__(
-            self.params,
-            FaceHelperModels(self.rank, self.models.blip, self.models.sam),
-            images,
-            self.src_images,
-        )
+        self.logger = logger or one_shot.logger
+        self.conservative = conservative
 
     @cached_property
     def dst_np_images(self):
@@ -224,67 +243,70 @@ class FaceHelper:
         mask_percentages = [
             np.count_nonzero(m) / np.prod(m.shape[:2], dtype=np.float32) for m in masks
         ]
-        logger.info(
-            "scores: {}",
-            list(zip(outputs.iou_scores.cpu().numpy()[0][0], mask_percentages)),
+        self.logger.info(
+            "SAM scores: {}",
+            [
+                dict(zip(("score", "percent"), pair))
+                for pair in zip(
+                    outputs.iou_scores.cpu().numpy()[0][0], mask_percentages
+                )
+            ],
         )
         return masks, mask_percentages
 
     def _get_sam_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
-        masks = [m for m, p in zip(*self._run_sam(img, face)) if p > 0.20]
+        masks = [m for m, p in zip(*self._run_sam(img, face)) if p > 0.10]
         if len(masks) == 0:
-            logger.warning("No masks after filtering")
+            self.logger.warning("No SAM masks after filtering")
             return None
-        logger.warning("Using mask")
-        mask = masks[0]
+        self.logger.warning("Using SAM mask: {}", len(masks))
+        mask = reduce(np.logical_or, masks) if self.conservative else masks[0]
         h, w = mask.shape[-2:]
         mask = mask.reshape(h, w, 1)
 
         if np.all(mask) or not np.any(mask):
-            logger.warning("No mask detected")
+            self.logger.warning("No SAM mask detected")
             return None
 
         zero = np.zeros(self.dims, dtype=np.uint8)
         one = np.full(self.dims, 255, dtype=np.uint8)
         mask_rbg = np.repeat(mask, 3, axis=2)
         mask = np.where(mask_rbg, one, zero)
-
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=10)
+        return mask
 
     def _get_landmark_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
         if not (face.landmarks and face.landmarks.contour):
-            logger.warning("No landmarks")
+            self.logger.warning("No landmarks")
             return None
         mask = np.zeros(self.dims, dtype=np.uint8)
         points = np.asarray(list(map(list, face.landmarks.contour)), dtype=np.int32)
 
-        # Find the Center of Mass: data is a numpy array of shape (Npoints, 2)
         mean = np.mean(points, axis=0)
-        # Compute angles
         angles = np.arctan2((points - mean)[:, 1], (points - mean)[:, 0])
-        # Transform angles from [-pi,pi] -> [0, 2*pi]
         angles[angles < 0] = angles[angles < 0] + 2 * np.pi
-        # Sort
         sorting_indices = np.argsort(angles)
         sorted_points = points[sorting_indices]
-
         cv2.drawContours(mask, [sorted_points], 0, (255, 255, 255), -1)
 
         if np.all(mask) or not np.any(mask):
-            logger.warning("No mask detected")
+            self.logger.warning("No mask detected")
+        elif self.conservative:
+            return dilate_mask(mask, iterations=25)
         else:
-            return dilate_mask(mask)
+            mask = dilate_mask(mask, iterations=50)
+            _, _, _, h = cv2.boundingRect(cv2.cvtColor(mask, cv2.COLOR_RGB2GRAY))
+            return translate_mask(mask, (0, -h // 7))
 
     def _get_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
-        if (mask := self._get_sam_mask(img, face)) is not None:
-            return mask
-        else:
-            logger.warning("No mask from SAM")
-        if (mask := self._get_landmark_mask(img, face)) is not None:
-            return mask
-        else:
-            logger.warning("No mask from landmarks")
+        fns = [self._get_landmark_mask, self._get_sam_mask]
+        if self.conservative:
+            fns.reverse()
+
+        for fn in fns:
+            if (mask := fn(img, face)) is not None:
+                return mask
+            else:
+                self.logger.warning("No mask from {}", fn.__name__)
 
     @f_cache
     @collect
@@ -293,20 +315,20 @@ class FaceHelper:
         for i, faces in enumerate(detections):
             img = self.src_images[i]
             for j, face in enumerate(faces):
-                logger.info("Face: {}", face)
+                self.logger.info("Face: {}", face)
                 if (mask := self._get_mask(img, face)) is not None:
-                    face = face.copy(update={"mask": NpBox(arr=dilate_mask(mask))})
+                    face = face.copy(update={"mask": NpBox(arr=mask)})
                 yield i, face
 
     @f_cache
     def _face_from_bounds(self, i: int, face: Face) -> Image.Image:
         img = np.array(self.dst_np_images[i])
         if face.mask:
-            img = np.where(face.mask.arr, img, 0)
+            img = np.where(dilate_mask(face.mask.arr, iterations=25), img, 0)
         bounds = Bounds.from_face(self.dims, face)
         y, x = bounds.slice(self.params.mask_padding)
-        image = self.dst_np_images[i][y, x]
-        return to_pil_image(image).resize(self.dims[:2])
+        image = img[y, x]
+        return ImageOps.fit(to_pil_image(image), self.dims[:2])
 
     @collect
     def faces(self):
@@ -314,9 +336,12 @@ class FaceHelper:
             yield self._face_from_bounds(i, face)
 
     @collect
-    def primary_face_bounds(self):
-        for i, faces in itertools.groupby(self.face_bounds(), itemgetter(0)):
-            yield i, next(faces)[1]
+    def primary_face_bounds(self) -> Generator[tuple[int, Face], None, None]:
+        for i, faces_with_index in itertools.groupby(self.face_bounds(), itemgetter(0)):
+            faces: list[Face] = list(map(itemgetter(1), faces_with_index))
+            selected = sorted(faces, reverse=True)[0]
+            self.logger.warning("{}", {"face_options": faces, "selected": selected})
+            yield i, selected
 
     @collect
     def primary_faces(self):
@@ -325,21 +350,21 @@ class FaceHelper:
 
     @f_cache
     def demographics(self):
-        logger.info("Analyzing demographics...")
+        self.logger.info("Analyzing demographics...")
         try:
             demos: dict[str, str] = {}
             for attr, vals in self.analyze().items():
-                logger.info(f"{attr}: {vals}")
+                self.logger.info(f"{attr}: {vals}")
                 demos[attr] = Counter(vals).most_common(1)[0][0]
             return demos
         except Exception as e:
-            logger.exception(e)
+            self.logger.exception(e)
             return {"ethnicity": "beautiful", "gender": "person"}
 
     @collect
     def eye_masks(self) -> Generator[tuple[Image.Image, str], None, None]:
         for i, faces in itertools.groupby(self.face_bounds(), itemgetter(0)):
-            logger.info("Detecting eyes...")
+            self.logger.info("Detecting eyes...")
             colors = []
             mask = np.zeros(self.dims, dtype=self.dst_np_images[i].dtype)
             for face in cast(Iterator[Face], map(itemgetter(1), faces)):
@@ -347,7 +372,7 @@ class FaceHelper:
                     bounds = Bounds(
                         dims=self.dims, shape=self.dims, x=eye[0], y=eye[1], h=0, w=0
                     )
-                    y, x = bounds._slice(self.params.mask_padding)
+                    y, x = bounds._slice(0.05)
                     mask[y, x] = 255
                 colors.append(
                     self._analyze([self._face_from_bounds(i, face)], "eye color")[0]

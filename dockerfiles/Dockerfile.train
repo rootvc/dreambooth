@@ -3,7 +3,7 @@ FROM rootventures/pytorch:latest AS pip
 
 RUN \
   apt-get update && \
-  apt-get install -y libwebp-dev libwebp7 && \
+  apt-get install -y libwebp-dev && \
   rm -rf /var/lib/apt/lists/*
 
 
@@ -23,9 +23,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -r requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed --no-deps \
-  controlnet-aux==0.0.7 scikit-image
+  scikit-image
 
 RUN git clone https://github.com/ZhaoJ9014/face.evoLVe.PyTorch.git /usr/local/lib/python3.10/dist-packages/face_evolve
+RUN pip install git+https://github.com/tencent-ailab/IP-Adapter.git
 
 FROM rootventures/pytorch:latest
 
@@ -38,7 +39,7 @@ ENV TORCHINDUCTOR_SEARCH_AUTOTUNE_CACHE 1
 
 RUN \
   apt-get update && \
-  apt-get install -y pixz pigz rsync && \
+  apt-get install -y pixz pigz rsync libwebp7 && \
   rm -rf /var/lib/apt/lists/*
 
 

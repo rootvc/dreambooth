@@ -13,20 +13,22 @@ from diffusers.utils.logging import disable_progress_bar
 from loguru import logger as default_logger
 from loguru._logger import Logger
 
-from one_shot import logger
+from one_shot.logging import InterceptHandler
+
+
+def format(record):
+    mins = record["elapsed"].seconds // 60
+    secs = record["elapsed"].seconds % 60
+    rank = record["extra"].get("rank", "MAIN")
+    tag = record["extra"].get("tag", "")
+    return (
+        f"+{mins}m{secs}s"
+        + " %s[{level.icon}] \\<%s\\> {message} ({name})\n{exception}" % (rank, tag)
+    )
 
 
 def init_logging(logger: Logger = default_logger):
     logger.remove()
-
-    def format(record):
-        mins = record["elapsed"].seconds // 60
-        secs = record["elapsed"].seconds % 60
-        rank = record["extra"].get("rank", "MAIN")
-        return (
-            f"+{mins}m{secs}s"
-            + " %s[{level.icon}] {message} ({name})\n{exception}" % rank
-        )
 
     logger.add(
         sys.stderr,
@@ -36,7 +38,10 @@ def init_logging(logger: Logger = default_logger):
         diagnose=True,
         colorize=True,
         enqueue=True,
+        context=torch.multiprocessing.get_context("forkserver"),
     )
+
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
 
 def init_torch_config():
@@ -62,5 +67,5 @@ def init_config():
     ):
         if path := os.getenv(env_var):
             Path(path).mkdir(parents=True, exist_ok=True)
-    logger.info("Initializing Torch config...")
+    default_logger.info("Initializing Torch config...")
     init_torch_config()

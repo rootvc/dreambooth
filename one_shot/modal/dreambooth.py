@@ -28,7 +28,7 @@ class _Dreambooth(OneShotDreambooth):
             )
 
 
-@stub.cls(**{**fn_kwargs, "gpu": gpu.A100(count=2)})
+@stub.cls(**{**fn_kwargs, "gpu": gpu.A100(count=1, memory=80)})
 class Dreambooth(_Dreambooth):
     @method()
     def tune(self, ids: list[str] = ["test"], params: dict = {}):
@@ -45,7 +45,7 @@ class Dreambooth(_Dreambooth):
         pass
 
 
-@stub.cls(**fn_kwargs, keep_warm=1)
+@stub.cls(**fn_kwargs, keep_warm=0)
 class PersistentDreambooth(_Dreambooth):
     @web_endpoint(
         wait_for_response=False, custom_domains=["dream.modal.root.vc"], method="POST"

@@ -1,5 +1,5 @@
-transformers>=4.34.1
-tokenizers>=0.14.1
+transformers>=4.35.2
+tokenizers>=0.15
 wandb>=0.15.4
 orjson>=3.8.8
 Pillow>=10.0.0

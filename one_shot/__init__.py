@@ -1,14 +1,19 @@
 import subprocess
 
-from loguru import logger
+from loguru import logger as __logger
 from modal import is_local
 
 from one_shot.config import init_config, init_logging
+from one_shot.logging import PrettyLogger
+
+init_logging(__logger)
+
+logger = PrettyLogger(__logger)
+
+
 from one_shot.dreambooth import OneShotDreambooth
 from one_shot.modal import fn_kwargs, stub, volume
 from one_shot.modal.dreambooth import Dreambooth
-
-init_logging(logger)
 
 if not is_local():
     logger.info("Initializing config...")
@@ -29,10 +34,10 @@ def _main():
                 # "ea829f9d41697757a51dfe49842652c6",
                 # "f09e2b714736a0a553d33448fd6d9ed5",
                 # "f314e6cb3429719e3bdca6ac28823ccc",
-                "ca4b1e40984e7cc6f23777963e9ae76e",
-                "d41d8cd98f00b204e9800998ecf8427e",
-                "9806ad626c78b3b4b1547c73cc627605",
-                "79c053cf2d6d3922be669f9b78f34b2a",
+                # "ca4b1e40984e7cc6f23777963e9ae76e",
+                # "d41d8cd98f00b204e9800998ecf8427e",
+                # "9806ad626c78b3b4b1547c73cc627605",
+                # "79c053cf2d6d3922be669f9b78f34b2a",
                 "f09e2b714736a0a553d33448fd6d9ed5",
             ],
             {
@@ -48,9 +53,10 @@ def _main():
         )
     ):
         logger.info("Saved {}: {}", i, path)
-        subprocess.run(["rm", "-f", path])
-        subprocess.run(["modal", "volume", "get", "model-cache", path])
-        subprocess.run(["open", path])
+        file = path.name
+        subprocess.run(["rm", "-f", file])
+        subprocess.run(["modal", "volume", "get", "model-cache", f"tune/{file}"])
+        subprocess.run(["open", file])
 
 
 main = stub.local_entrypoint()(_main)
