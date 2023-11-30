@@ -52,7 +52,7 @@ class StableDiffusionXLAdapterEnsemblePipeline(StableDiffusionXLAdapterPipeline)
         image: Union[torch.Tensor, Image.Image, list[Image.Image]],
         *args,
         prompts: "Prompts",
-        high_noise_frac: float,
+        w: float,
         refiner_strength: float,
         **kwargs,
     ):

@@ -4,8 +4,8 @@ from tempfile import TemporaryDirectory
 
 from modal import gpu, method, web_endpoint
 
-from one_shot.dreambooth import OneShotDreambooth
-from one_shot.dreambooth.request import Request
+from one_shot.dreambooth.one_shot_dreambooth import OneShotDreambooth
+from one_shot.dreambooth.request.request import Request
 from one_shot.modal import fn_kwargs, stub, volume
 
 

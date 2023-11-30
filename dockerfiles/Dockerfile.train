@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed -r requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
   pip install --upgrade --pre --upgrade-strategy only-if-needed --no-deps \
-  scikit-image
+  scikit-image controlnet_aux
 
 RUN git clone https://github.com/ZhaoJ9014/face.evoLVe.PyTorch.git /usr/local/lib/python3.10/dist-packages/face_evolve
 RUN pip install git+https://github.com/tencent-ailab/IP-Adapter.git

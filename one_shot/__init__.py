@@ -11,7 +11,7 @@ init_logging(__logger)
 logger = PrettyLogger(__logger)
 
 
-from one_shot.dreambooth import OneShotDreambooth
+from one_shot.dreambooth.one_shot_dreambooth import OneShotDreambooth
 from one_shot.modal import fn_kwargs, stub, volume
 from one_shot.modal.dreambooth import Dreambooth
 

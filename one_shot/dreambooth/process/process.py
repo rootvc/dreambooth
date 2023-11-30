@@ -13,12 +13,17 @@ from torch.multiprocessing import Queue
 
 from one_shot import logger
 from one_shot.config import init_torch_config
-from one_shot.dreambooth.model import Model, ProcessModels
-from one_shot.params import Params, Settings
-from one_shot.utils import Face
+from one_shot.dreambooth.process.models import (
+    IPAdapterProcessModels,
+    ProcessModels,
+    T2IAdapterProcessModels,
+)
+from one_shot.params import IPAdapterParams, Params, Settings, T2IAdapterParams
+from one_shot.utils import Demographics, Face, SelectableList
 
 if TYPE_CHECKING:
-    from one_shot.dreambooth import Queues
+    from one_shot.dreambooth.one_shot_dreambooth import Queues
+    from one_shot.dreambooth.request.model import Model
     from one_shot.logging import PrettyLogger
 
 
@@ -30,14 +35,13 @@ class GenerationRequest(BaseModel):
         arbitrary_types_allowed = True
 
     images: list[Image.Image]
-    controls: list[Image.Image]
     faces: list[Face]
     prompts: list[str]
     params: dict[str, list[Any]] = Field(default_factory=dict)
 
 
 class ProcessRequest(BaseModel):
-    demographics: dict[str, str]
+    demographics: Demographics
     generation: GenerationRequest
     tuning: bool = False
 
@@ -64,6 +68,7 @@ class Process:
         rank: int,
         world_size: int,
         params: Params,
+        sub_params: SelectableList[Params],
         queues: "Queues",
         logger: "PrettyLogger",
     ):
@@ -84,20 +89,33 @@ class Process:
             store=dist.FileStore("/tmp/filestore", world_size),
         )
         init_torch_config()
-        proc = ProcessModels.load(params, rank)
 
-        model = Model(
-            params,
-            rank,
-            proc,
-            logger,
+        from one_shot.dreambooth.request.model import (
+            IPAdapterModel,
+            T2IAdapterModel,
         )
-        cls(params, model, queues.proc[rank], queues.response).wait()
+
+        pm = ProcessModels.load(params, rank)
+        models = SelectableList(
+            [
+                M(
+                    params=sub_params.select(P),
+                    rank=rank,
+                    models=PM.load(pm, sub_params.select(P), rank),
+                    logger=logger,
+                )
+                for M, PM, P in (
+                    (IPAdapterModel, IPAdapterProcessModels, IPAdapterParams),
+                    (T2IAdapterModel, T2IAdapterProcessModels, T2IAdapterParams),
+                )
+            ]
+        )
+        cls(params, models, queues.proc[rank], queues.response).wait()
 
     def __init__(
         self,
         params: Params,
-        model: Model,
+        models: SelectableList["Model"],
         recv: "Queue[Optional[ProcessRequest]]",
         resp: "Queue[ProcessResponse | ProcessResponseSentinel]",
     ):
@@ -106,8 +124,10 @@ class Process:
         self.resp = resp
         self.state = PartialState()
         assert self.state.device is not None
-        self.logger = model.logger = logger.bind(rank=self.state.process_index)
-        self.model = model
+        self.logger = logger.bind(rank=self.state.process_index)
+        self.models = models
+        for model in self.models:
+            model.logger = self.logger
 
     def wait(self):
         self.logger.info("Waiting...")
@@ -139,8 +159,20 @@ class Process:
             generation = GenerationRequest(**split)
         return generation, params
 
+    def _dispatch(self, request: ProcessRequest) -> "Model":
+        from one_shot.dreambooth.request.model import (
+            IPAdapterModel,
+            T2IAdapterModel,
+        )
+
+        if request.demographics.is_white_person():
+            return self.models.select(IPAdapterModel)
+        else:
+            return self.models.select(T2IAdapterModel)
+
     def _generate(self, request: ProcessRequest, **params) -> list[Image.Image]:
-        model = replace(self.model, params=self.model.params.copy(update=params))
+        model = self._dispatch(request)
+        model = replace(model, params=model.params.copy(update=params))
         if request.tuning:
             return model.tune(request)
         else:

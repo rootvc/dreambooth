@@ -6,9 +6,10 @@ import random
 import shutil
 import subprocess
 import sys
+from collections import UserList
 from functools import total_ordering, wraps
 from pathlib import Path
-from typing import Callable, Generator, ParamSpec, TypeVar
+from typing import Callable, Generator, Generic, ParamSpec, TypeVar
 from urllib.parse import urlencode
 
 import cv2
@@ -449,3 +450,22 @@ def draw_masks(img: Image.Image, faces: list[Face]):
 def translate_mask(mask: np.ndarray, offset: tuple[int, int]) -> np.ndarray:
     mat = np.float32([[1, 0, offset[0]], [0, 1, offset[1]]])
     return cv2.warpAffine(mask, mat, mask.shape[:2])
+
+
+X = TypeVar("X")
+
+
+class SelectableList(UserList, Generic[X]):
+    def __init__(self, data: list[X]):
+        super().__init__(data)
+
+    def select(self, klass: type[X]) -> X:
+        return next(x for x in self.data if isinstance(x, klass))
+
+
+class Demographics(BaseModel):
+    ethnicity: str
+    gender: str
+
+    def is_white_person(self):
+        return self.ethnicity.lower().strip() in {"white", "caucasian"}

@@ -10,10 +10,10 @@ if TYPE_CHECKING:
 
 @dataclass
 class Compels:
-    base: Compel
-    xl: Compel
     refiner: Compel
     inpainter: Compel
+    base: Compel | None = None
+    xl: Compel | None = None
 
 
 @dataclass

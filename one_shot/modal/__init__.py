@@ -9,9 +9,7 @@ stub = Stub("dreambooth-one-shot")
 volume = stub.volume = Volume.persisted("model-cache")
 
 fn_kwargs = {
-    "image": DockerImage.from_registry(
-        "rootventures/train-dreambooth-modal:latest"
-    ).pip_install("omegaconf"),
+    "image": DockerImage.from_registry("rootventures/train-dreambooth-modal:latest").pip_install("peft"),
     "gpu": gpu.A100(count=4, memory=80),
     "volumes": {"/root/cache": volume},
     "secret": Secret.from_name("dreambooth"),

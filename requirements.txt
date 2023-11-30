@@ -14,3 +14,4 @@ onnxruntime-gpu
 face_recognition
 wrapt
 omegaconf
+peft

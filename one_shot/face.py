@@ -19,6 +19,7 @@ from transformers import BlipForQuestionAnswering, BlipProcessor, SamModel, SamP
 import one_shot
 from one_shot.params import Params, Settings
 from one_shot.utils import (
+    Demographics,
     Face,
     NpBox,
     collect,
@@ -356,10 +357,10 @@ class FaceHelper:
             for attr, vals in self.analyze().items():
                 self.logger.info(f"{attr}: {vals}")
                 demos[attr] = Counter(vals).most_common(1)[0][0]
-            return demos
+            return Demographics(**demos)
         except Exception as e:
             self.logger.exception(e)
-            return {"ethnicity": "beautiful", "gender": "person"}
+            return Demographics(ethnicity="beautiful", gender="person")
 
     @collect
     def eye_masks(self) -> Generator[tuple[Image.Image, str], None, None]:
