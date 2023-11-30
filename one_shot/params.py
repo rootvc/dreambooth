@@ -179,7 +179,7 @@ class Params(BaseModel):
     prompts = [
         "a clown on a sunny day, thin rainbow stripe suspenders",
         "mysterious, floating in the universe, cosmos reflected in clothing, cyberpunk vibes",
-        "90s style, leather jacket, smug, vintage, smoking cigar",
+        "90s style, leather jacket, smug, vintage, holding a smoking cigar",
         "classy, pinstripe suit, pop art style, andy warhol",
         # "zombie, decaying skin, torn clothing, inside an abandoned building",
         # "(person in a mario costume)+, super mario, pixelated, (elementary colors)-",
@@ -201,9 +201,10 @@ class Params(BaseModel):
 
     detect_resolution: int = 384
     guidance_scale: float = 12.5
-    refiner_strength = 0.25
+    refine_guidance_scale: float = 7.5
+    refiner_strength = 0.75
     inpainting_strength = 0.40
-    conditioning_strength: tuple[float, float] = (0.74, 0.75)
-    conditioning_factor: float = 0.80
+    conditioning_strength: tuple[float, float] = (0.70, 0.75)
+    conditioning_factor: float = 0.75
     lora_scale = 0.4
     mask_padding: float = 0.055

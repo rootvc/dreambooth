@@ -444,7 +444,7 @@ class ModelInstance:
                 mask_image=self.masks[idx],
                 generator=self.generator,
                 strength=0.99,
-                guidance_scale=self.params.guidance_scale,
+                guidance_scale=self.params.refine_guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.details_prompts.kwargs_for_inpainter(idx),
             ).images[0]
@@ -458,7 +458,7 @@ class ModelInstance:
                 mask_image=self.masks[idx],
                 generator=self.generator,
                 strength=self.params.refiner_strength,
-                guidance_scale=self.params.guidance_scale,
+                guidance_scale=self.params.refine_guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
                 **self.merge_prompts.kwargs_for_refiner(idx),
             ).images[0]
