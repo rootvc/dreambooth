@@ -20,7 +20,6 @@ class Params(BaseParams):
         background=PromptStrings(
             positives=[
                 "closeup portrait",
-                "large head",
                 "{prompt}",
                 "{ethnicity} {gender}",
                 "4k",
@@ -48,8 +47,14 @@ class Params(BaseParams):
             negatives=[P("cross eyed", 3), "eyes closed", "extra eyes"],
         ),
         merge=PromptStrings(
-            positives=["4k", "cohesive", "detailed", F("{prompt}", 0.2)],
-            negatives=["blurry", "fuzzy", "disjointed", "eyes"],
+            positives=[
+                "4k",
+                "cohesive",
+                "detailed",
+                F("{prompt}", 0.2),
+                F("{ethnicity} {gender}", 0.2),
+            ],
+            negatives=[P("split", 3), "blurry", "fuzzy", "disjointed", "eyes"],
         ),
         details=PromptStrings(
             positives=[
@@ -59,7 +64,7 @@ class Params(BaseParams):
                 "cinematic",
                 "cinematic effect",
                 "good teeth",
-                F("{ethnicity} {gender}", 0.7),
+                F("{ethnicity} {gender}", 0.5),
                 P("hyperrealistic"),
                 P("contrasts", 2),
                 "sharp",
@@ -76,7 +81,6 @@ class Params(BaseParams):
                 P("blurry", 3),
                 P("incomplete", 2),
                 P("fuzzy"),
-                "large head",
                 F("picture frame", 1.5),
                 "ugly teeth",
                 "disjointed",
@@ -103,6 +107,6 @@ class Params(BaseParams):
     refine_guidance_scale: float = 9.0
     refiner_strength: float = 0.05
     inpainting_strength: float = 0.40
-    conditioning_strength: tuple[float, float] = (1.82, 1.84)
+    conditioning_strength: tuple[float, float] = (1.5, 1.5)
     conditioning_factor: float = 1.0
     high_noise_frac: float = 0.85

@@ -165,7 +165,7 @@ class Process:
             T2IAdapterModel,
         )
 
-        if request.demographics.is_white_person():
+        if request.demographics.use_ip_adapter(request.generation.faces):
             return self.models.select(IPAdapterModel)
         else:
             return self.models.select(T2IAdapterModel)

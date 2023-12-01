@@ -5,7 +5,7 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Generator
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from torchvision.transforms.functional import to_pil_image
 
 from one_shot.dreambooth.request.model.base import Model as BaseModel
@@ -35,9 +35,11 @@ class Model(BaseModel):
         redo_background = instance._redo_background(smooth_edges)
         final_refine = instance._final_refine(redo_background)
         return [
-            # instance.request.generation.images[0],
-            # instance.faces[0],
-            # instance.frames[0],
+            instance.request.generation.images[0],
+            # instance.tmp[0].convert("RGB"),
+            instance.src_controls[0].convert("RGB"),
+            instance.faces[0],
+            instance.frames[0],
             # instance.tmp[2].convert("RGB"),  # masked face
             # instance.controls[0].convert("RGB"),
             # instance.backgrounds[0],
@@ -57,6 +59,10 @@ class Model(BaseModel):
 @dataclass
 class ModelInstance(BaseModelInstance[Params, "ProcessModels"]):
     model: Model
+
+    @cached_property
+    def faces(self) -> list[Image.Image]:
+        return self._generate_face_images()
 
     def _generate_face_images(self) -> list[Image.Image]:
         latents = [
@@ -127,15 +133,13 @@ class ModelInstance(BaseModelInstance[Params, "ProcessModels"]):
     @collect
     def src_controls(self) -> Generator[Image.Image, None, None]:
         self.model.logger.info("Loading controls...")
-        face_helper = self.face_helper(self.request.generation.images, "controls")
-        for i, bounds in enumerate(self.request.generation.faces):
-            face = face_helper._face_from_bounds(i, bounds)
-            sharpened = unsharp_mask(np.asarray(face))
-            yield self.models.detector(
-                to_pil_image(sharpened),
+        for face in self.request.generation.images:
+            mask = self.models.detector(
+                ImageOps.autocontrast(face, cutoff=20),
                 detect_resolution=self.params.detect_resolution,
                 image_resolution=self.params.model.resolution,
             )
+            yield to_pil_image(unsharp_mask(np.asarray(mask)))
 
     @cached_property
     @collect
@@ -162,9 +166,6 @@ class ModelInstance(BaseModelInstance[Params, "ProcessModels"]):
 
             frame_mask = np.asarray(frame_mask.convert("RGB"))
             frame_mask_sm = np.asarray(frame_mask_sm.convert("RGB"))
-
-            slice = (frame_mask == 0) & (frame != 0)
-            masked_face = np.where(slice, frame, np.asarray(bg))
 
             self.model.logger.info(
                 "Using bg_bounds: {}, fg_bounds: {}", bg_bounds, frame_bounds
@@ -200,8 +201,14 @@ class ModelInstance(BaseModelInstance[Params, "ProcessModels"]):
                 },
             )
 
+            slice = (frame_mask == 0) & (frame != 0)
+
             bg_image = np.array(bg)
-            bg_image[start_y:end_y, start_x:end_x] = masked_face[frame_bounds.slice()]
+            bg_image[start_y:end_y, start_x:end_x] = np.where(
+                slice[frame_bounds.slice()],
+                frame[frame_bounds.slice()],
+                bg_image[start_y:end_y, start_x:end_x],
+            )
 
             mask = np.full(bg_image.shape, 255, dtype=np.uint8)
             mask[start_y:end_y, start_x:end_x] = frame_mask[frame_bounds.slice()]
@@ -210,9 +217,7 @@ class ModelInstance(BaseModelInstance[Params, "ProcessModels"]):
             mask_sm[start_y:end_y, start_x:end_x] = frame_mask_sm[frame_bounds.slice()]
 
             control_data = np.asarray(
-                self.request.generation.controls[idx]
-                .resize(frame_bounds.size())
-                .convert("RGB")
+                self.src_controls[idx].resize(frame_bounds.size()).convert("RGB")
             )
             control = np.zeros(bg_image.shape, dtype=np.uint8)
             control[start_y:end_y, start_x:end_x] = control_data
@@ -280,14 +285,14 @@ class ModelInstance(BaseModelInstance[Params, "ProcessModels"]):
 
     def _smooth_edges(self, images: list[Image.Image]) -> list[Image.Image]:
         return [
-            self.models.base.refiner(
+            self.models.base.refine_inpainter(
                 image=img,
                 mask_image=self.edge_masks[idx],
                 generator=self.generator,
                 strength=0.35,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
-                **self.merge_prompts.kwargs_for_refiner(idx),
+                **self.details_prompts.kwargs_for_refiner(idx),
             ).images[0]
             for idx, img in enumerate(images)
         ]
@@ -301,7 +306,7 @@ class ModelInstance(BaseModelInstance[Params, "ProcessModels"]):
                 strength=0.95,
                 guidance_scale=self.params.guidance_scale,
                 num_inference_steps=self.params.inpainting_steps,
-                **self.details_prompts.kwargs_for_inpainter(idx),
+                **self.merge_prompts.kwargs_for_inpainter(idx),
             ).images[0]
             for idx, image in enumerate(images)
         ]

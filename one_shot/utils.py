@@ -7,9 +7,16 @@ import shutil
 import subprocess
 import sys
 from collections import UserList
-from functools import total_ordering, wraps
+from functools import (
+    cached_property,
+    lru_cache,
+    partial,
+    total_ordering,
+    update_wrapper,
+    wraps,
+)
 from pathlib import Path
-from typing import Callable, Generator, Generic, ParamSpec, TypeVar
+from typing import Callable, Generator, Generic, Optional, ParamSpec, TypeVar
 from urllib.parse import urlencode
 
 import cv2
@@ -156,6 +163,23 @@ class Face(FrozenModel):
         return self.__sort_features__() < other.__sort_features__()
 
 
+def method_cache(
+    method: Optional[Callable[..., T]],
+    *,
+    maxsize: Optional[int] = 128,
+    typed: bool = False,
+) -> Callable[..., T]:
+    def decorator(wrapped: Callable[..., T]) -> Callable[..., T]:
+        def wrapper(self: object) -> Callable[..., T]:
+            return lru_cache(maxsize=maxsize, typed=typed)(
+                update_wrapper(partial(wrapped, self), wrapped)
+            )
+
+        return cached_property(wrapper)  # type: ignore
+
+    return decorator if method is None else decorator(method)
+
+
 def image_transforms(size: int) -> Callable[[Image.Image], Image.Image]:
     return TT.Compose(
         [
@@ -260,9 +284,28 @@ def grid(images: list[Image.Image] | list[np.ndarray], w: int = 2) -> Image.Imag
     return to_pil_image(grid)
 
 
-def dilate_mask(mask: np.ndarray, iterations: int = 15) -> np.ndarray:
-    size, iterations = (5, 5), iterations
-    kernel = np.ones(size, np.uint8)
+def mask_bounding_rect(mask: np.ndarray) -> tuple[int, int, int, int]:
+    if len(mask.shape) == 3:
+        mask = cv2.cvtColor(mask.copy(), cv2.COLOR_RGB2GRAY)
+    x, y, w, h = cv2.boundingRect(mask)
+    return (x, y, w, h)
+
+
+def mask_dilate_kernel(mask: np.ndarray) -> np.ndarray:
+    _, _, w, h = mask_bounding_rect(mask)
+    if w > h:
+        ratio = min(w / h, 3)
+        return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (round(ratio * 3), 3))
+    else:
+        ratio = min(h / w, 3)
+        return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, round(ratio * 3)))
+
+
+def dilate_mask(
+    mask: np.ndarray, iterations: int = 15, kernel: np.ndarray | None = None
+) -> np.ndarray:
+    if kernel is None:
+        kernel = np.ones((5, 5), np.uint8)
     return cv2.dilate(mask.copy(), kernel, iterations=iterations)
 
 
@@ -466,6 +509,18 @@ class SelectableList(UserList, Generic[X]):
 class Demographics(BaseModel):
     ethnicity: str
     gender: str
+    facing_forwards: bool
+    dark_skinned: bool
+
+    def use_ip_adapter(self, faces: list[Face]) -> bool:
+        return (
+            self.is_white_person()
+            or not self.facing_forwards
+            or any(f.landmarks is None for f in faces)
+        )
 
     def is_white_person(self):
-        return self.ethnicity.lower().strip() in {"white", "caucasian"}
+        return not self.dark_skinned or self.ethnicity.lower().strip() in {
+            "white",
+            "caucasian",
+        }

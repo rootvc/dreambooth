@@ -79,5 +79,5 @@ class Params(BaseParams):
     refine_guidance_scale: float = 7.5
     refiner_strength: float = 0.75
     inpainting_strength: float = 0.40
-    conditioning_strength: tuple[float, float] = (0.70, 0.72)
+    conditioning_strength: tuple[float, float] = (0.68, 0.70)
     conditioning_factor: float = 0.85

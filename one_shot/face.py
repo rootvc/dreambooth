@@ -1,7 +1,6 @@
 import itertools
 from collections import Counter
 from dataclasses import dataclass
-from functools import cache as f_cache
 from functools import cached_property, reduce
 from operator import itemgetter
 from pathlib import Path
@@ -26,7 +25,12 @@ from one_shot.utils import (
     detect_faces,
     dilate_mask,
     exclude,
+    mask_bounding_rect,
+    mask_dilate_kernel,
     translate_mask,
+)
+from one_shot.utils import (
+    method_cache as f_cache,
 )
 
 M = TypeVar("M")
@@ -180,6 +184,7 @@ class FaceHelper:
         src_images: Optional[list[Image.Image]] = None,
         logger: Logger | None = None,
         conservative: bool = True,
+        prefer_landmarks: bool = False,
     ):
         self.params = params
         self.src_images = src_images or images
@@ -190,6 +195,7 @@ class FaceHelper:
 
         self.logger = logger or one_shot.logger
         self.conservative = conservative
+        self.prefer_landmarks = prefer_landmarks
 
     @cached_property
     def dst_np_images(self):
@@ -197,12 +203,15 @@ class FaceHelper:
 
     @collect
     def _analyze(
-        self, images: list[Image.Image], attr: str
+        self,
+        images: list[Image.Image],
+        attr: str,
+        template: str = "What is the {} of the person?",
     ) -> Generator[str, None, None]:
         inputs = self.models.blip.processor(
             images,
             [
-                f"What is the {attr} of the person? Answer with only one word/phrase and nothing else."
+                f"{template.format(attr)} Answer with only one word/phrase and nothing else."
             ]
             * len(images),
             return_tensors="pt",
@@ -212,11 +221,27 @@ class FaceHelper:
             outputs, skip_special_tokens=True
         )
 
+    @collect
+    def _analyze_bool(
+        self, images: list[Image.Image], question: str
+    ) -> Generator[bool, None, None]:
+        yield from [
+            x.lower().strip() == "yes"
+            for x in self._analyze(images, f"Is the person {question}?", template="{}")
+        ]
+
     @f_cache
     def analyze(self):
-        results: dict[str, list[str]] = {}
+        results: dict[str, list[str] | list[bool]] = {}
         for attr in ("ethnicity", "gender"):
             results[attr] = self._analyze(self.primary_faces(), attr)
+        for question, attr in (
+            ("facing the camera", "facing_forwards"),
+            ("dark-skinned", "dark_skinned"),
+        ):
+            results[attr] = self._analyze_bool(self.primary_faces(), question)
+        if not all(results["facing_forwards"]):
+            results["facing_forwards"] = [False] * len(results["facing_forwards"])
         return results
 
     @property
@@ -256,12 +281,20 @@ class FaceHelper:
         return masks, mask_percentages
 
     def _get_sam_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
-        masks = [m for m, p in zip(*self._run_sam(img, face)) if p > 0.10]
+        masks = [
+            m
+            for m, p in sorted(
+                zip(*self._run_sam(img, face)), key=itemgetter(1), reverse=True
+            )
+            if p > 0.10
+        ]
         if len(masks) == 0:
             self.logger.warning("No SAM masks after filtering")
             return None
-        self.logger.warning("Using SAM mask: {}", len(masks))
-        mask = reduce(np.logical_or, masks) if self.conservative else masks[0]
+        self.logger.warning(
+            "Using SAM mask: count={}", len(masks)
+        )
+        mask = masks[0] if face.is_trivial else reduce(np.logical_or, masks)
         h, w = mask.shape[-2:]
         mask = mask.reshape(h, w, 1)
 
@@ -273,7 +306,10 @@ class FaceHelper:
         one = np.full(self.dims, 255, dtype=np.uint8)
         mask_rbg = np.repeat(mask, 3, axis=2)
         mask = np.where(mask_rbg, one, zero)
-        return mask
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=50)
+        return mask if self.conservative else dilate_mask(mask)
 
     def _get_landmark_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
         if not (face.landmarks and face.landmarks.contour):
@@ -292,31 +328,34 @@ class FaceHelper:
         if np.all(mask) or not np.any(mask):
             self.logger.warning("No mask detected")
         elif self.conservative:
-            return dilate_mask(mask, iterations=25)
+            return dilate_mask(mask, kernel=mask_dilate_kernel(mask))
         else:
             mask = dilate_mask(mask, iterations=50)
-            _, _, _, h = cv2.boundingRect(cv2.cvtColor(mask, cv2.COLOR_RGB2GRAY))
+            _, _, _, h = mask_bounding_rect(mask)
             return translate_mask(mask, (0, -h // 7))
 
     def _get_mask(self, img: Image.Image, face: Face) -> np.ndarray | None:
-        fns = [self._get_landmark_mask, self._get_sam_mask]
-        if self.conservative:
+        fns = [self._get_sam_mask, self._get_landmark_mask]
+        if self.prefer_landmarks:
             fns.reverse()
 
         for fn in fns:
             if (mask := fn(img, face)) is not None:
                 return mask
             else:
-                self.logger.warning("No mask from {}", fn.__name__)
+                self.logger.error("No mask from {}", fn.__name__)
 
     @f_cache
     @collect
     def face_bounds(self) -> Generator[tuple[int, Face], None, None]:
-        detections = [detect_faces(img) for img in self.src_images]
+        detections = [
+            detect_faces(ImageOps.autocontrast(img, cutoff=20))
+            for img in self.src_images
+        ]
         for i, faces in enumerate(detections):
             img = self.src_images[i]
             for j, face in enumerate(faces):
-                self.logger.info("Face: {}", face)
+                self.logger.info("Face {}: {}", i, face)
                 if (mask := self._get_mask(img, face)) is not None:
                     face = face.copy(update={"mask": NpBox(arr=mask)})
                 yield i, face
@@ -353,19 +392,25 @@ class FaceHelper:
     def demographics(self):
         self.logger.info("Analyzing demographics...")
         try:
-            demos: dict[str, str] = {}
+            demos: dict[str, str | bool] = {}
             for attr, vals in self.analyze().items():
                 self.logger.info(f"{attr}: {vals}")
                 demos[attr] = Counter(vals).most_common(1)[0][0]
             return Demographics(**demos)
         except Exception as e:
             self.logger.exception(e)
-            return Demographics(ethnicity="beautiful", gender="person")
+            return Demographics(
+                ethnicity="beautiful",
+                gender="person",
+                facing_forwards=False,
+                dark_skinned=False,
+            )
 
+    @f_cache
     @collect
     def eye_masks(self) -> Generator[tuple[Image.Image, str], None, None]:
         for i, faces in itertools.groupby(self.face_bounds(), itemgetter(0)):
-            self.logger.info("Detecting eyes...")
+            self.logger.info("Detecting eye {}...", i)
             colors = []
             mask = np.zeros(self.dims, dtype=self.dst_np_images[i].dtype)
             for face in cast(Iterator[Face], map(itemgetter(1), faces)):

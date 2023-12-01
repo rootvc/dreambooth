@@ -1,7 +1,7 @@
 import itertools
 import json
 import random
-from functools import cache, cached_property
+from functools import cached_property
 from operator import itemgetter
 from pathlib import Path
 from queue import Empty
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Generator, Optional
 import cv2
 import numpy as np
 import torch
-from PIL import Image, ImageOps
+from PIL import Image
 
 from one_shot import logger
 from one_shot.dreambooth.process.process import (
@@ -45,30 +45,44 @@ class Request:
         (self.dreambooth.settings.bucket / "dataset" / self.id).download_to(dir)
         return dir
 
-    @cache
+    @cached_property
     @collect
     def images(self) -> Generator[Image.Image, None, None]:
         logger.info("Loading images...")
         for path in images(self.image_dir):
             logger.debug(f"Loading {path}...")
-            img = open_image(self.dreambooth.params, path)
-            yield ImageOps.autocontrast(img)
+            yield open_image(self.dreambooth.params, path)
 
     def faces(self) -> list[Image.Image]:
         return self.face.primary_faces()
 
     @cached_property
     def face(self):
-        return FaceHelper(
+        face = FaceHelper(
             self.dreambooth.params.copy(update={"mask_padding": 0.0}),
             self.dreambooth.models.face,
-            self.images(),
+            self.images,
             conservative=False,
+            logger=logger.bind(tag="face"),
+        )
+        face.prefer_landmarks = self.demographics.use_ip_adapter(
+            map(itemgetter(1), self._face.primary_face_bounds())
+        )
+        logger.info("Prefer landmarks: {}", face.prefer_landmarks)
+        return face
+
+    @cached_property
+    def _face(self):
+        return FaceHelper(
+            self.dreambooth.params,
+            self.dreambooth.models.face,
+            self.images,
+            logger=logger.bind(tag="demographics"),
         )
 
     @cached_property
     def demographics(self):
-        demos = self.face.demographics()
+        demos = self._face.demographics()
         logger.info(demos)
         return demos
 
@@ -145,10 +159,10 @@ class Request:
 
         masks = [
             draw_masks(img, [face for i, face in self.face.face_bounds() if i == idx])
-            for idx, img in enumerate(self.images())
+            for idx, img in enumerate(self.images)
         ]
         grids = [
-            grid(self.images()[: self.dreambooth.params.images]),
+            grid(self.images[: self.dreambooth.params.images]),
             grid(masks[: self.dreambooth.params.images]),
             grid(self.face.primary_faces()[: self.dreambooth.params.images]),
             grid(
@@ -192,6 +206,7 @@ class Request:
         except Exception:
             path = path.with_suffix(".png")
             final.reduce(4).save(path, optimize=True)
+
         self.dreambooth.volume.commit()
 
         logger.info("Tuning complete!\n{}", path.stat())
