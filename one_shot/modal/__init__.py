@@ -17,5 +17,5 @@ fn_kwargs = {
     "secret": Secret.from_name("dreambooth"),
     "timeout": 60 * 15,
     # "cloud": "gcp",
-    "container_idle_timeout": 60 * 15,
+    "container_idle_timeout": 60 * 1,
 }

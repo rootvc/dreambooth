@@ -1,5 +1,5 @@
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypeVar
 
 import torch
@@ -35,7 +35,7 @@ class ProcessModels:
     refine_inpainter: StableDiffusionXLInpaintPipeline
     compels: Compels
     face: FaceHelperModels
-    settings: Settings = Settings()
+    settings: Settings = field(default_factory=Settings)
 
     @classmethod
     def _load_loras(cls, params: Params, pipe, key: str = "base"):
